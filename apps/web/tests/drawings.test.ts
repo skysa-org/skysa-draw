@@ -56,6 +56,23 @@ describe('createDrawing', () => {
 
 		await expect(createDrawing(db, { text: '<html/>' })).rejects.toThrow(RangeError);
 	});
+
+	it('takes a filename chosen from the names in the folder, as a conflict copy is named', async () => {
+		const db = freshDatabase();
+		await createDrawing(db, { title: 'Plan', folderPath: 'Work' });
+		const offered: string[][] = [];
+		const copy = await createDrawing(db, {
+			title: 'Plan (conflict)',
+			folderPath: 'Work',
+			filename: (taken) => {
+				offered.push([...taken]);
+				return 'plan (conflict).svg';
+			},
+		});
+		expect(offered).toEqual([['plan.svg']]);
+		expect(copy.path).toBe('Work/plan (conflict).svg');
+		expect(copy.title).toBe('Plan (conflict)');
+	});
 });
 
 describe('saveDrawing', () => {

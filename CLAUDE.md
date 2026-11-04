@@ -7,6 +7,8 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 ## Stack (do not substitute)
 - pnpm workspace: `apps/web` (Vite + React + TS, TanStack Router, Dexie, vite-plugin-pwa), `apps/api` (Hono on Cloudflare Workers, D1 via Drizzle), `packages/core` (framework-free TS).
 - The drawing file is SVG (`docs/decisions/0001-the-drawing-file.md`): one `.svg` per drawing, the app's own metadata in its own XML namespace on the root element, read and written by `packages/core/src/drawing/document.ts` without a DOM.
+- Layers (`docs/decisions/0003-layers.md`): a layer is a direct child of the root that draws, `vector`, `raster` or `group` by `draw:kind`; what SVG can say about a layer (`display`, `opacity`, `mix-blend-mode`, `mask`, `clip-path`, `filter`, `transform`) is said SVG's way, and only what it cannot (`draw:name`, `draw:locked`) is the app's. Document order is paint order. The vocabulary is `packages/core/src/drawing/layers.ts`.
+- The editor (`apps/web/src/drawing/`, docs/ARCHITECTURE.md §7, "The editor") is a view over the SVG in the DOM, sanitized in place by DOMPurify — the one sanitizer; do not add another or hand-roll one. Every change is a command with an inverse; the text is serialized only after a command ran. One tool is one tool on a vector layer and on a raster one.
 - Identity: there is none, and that is the design, not a gap — each connected storage account is its own silo, reached by a credential the device holds (docs/ARCHITECTURE.md §6, "Per-connection credentials"). Do not add an identity layer, a `users` subject, or a second OAuth flow; if a task seems to need one, say so rather than building it. Storage OAuth, which is a different thing, is hand-rolled over Web Crypto and installs no dependency. Validation: zod. Tests: Vitest.
 
 ## Hard rules
@@ -14,7 +16,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 - `apps/api` code never touches `process.env` or Workers env except in `src/worker.ts`. Everything else receives config through `createApp(options)`.
 - The SVG text is the only source of truth for a drawing. The editor is a view. A drawing becomes dirty only on a user's edit, never on load or re-serialization, and `saveDrawing` ignores a save of the same text.
 - Never lose user data. On sync conflict, remote keeps the path; local is written as `<name> (conflict <timestamp>).svg`. A file the app cannot read as a drawing is shown, never rewritten.
-- An SVG from elsewhere is untrusted. It is shown through an `<img>` (`blob:`), or put into the DOM only through a sanitizer that strips script, event handlers and external references (docs/ARCHITECTURE.md §7, "The editor"; §9).
+- An SVG from elsewhere is untrusted. It is shown through an `<img>` (`blob:`), or put into the DOM only through a sanitizer that strips script, event handlers and external references, and only inside the viewport's shadow root, so its `<style>` cannot reach the app (docs/ARCHITECTURE.md §7, "The editor"; §9).
 - No drawing content is ever sent to or stored by `apps/api`. Only tokens and connection metadata.
 - **Three kinds of secret, three homes, and one of them is a knowing compromise.**
   1. *Provider access tokens* — memory + IndexedDB, never localStorage. Short-lived and re-mintable.
@@ -32,5 +34,6 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 - Commands: `pnpm dev` (web + wrangler dev), `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm db:migrate`, `pnpm build`, `pnpm verify` before every commit.
 - When unsure about a provider API detail (scopes, endpoints, conflict semantics), check the current vendor docs rather than assuming; note the URL in a code comment.
 - Words the user reads come from the catalog, `t('…')` from `apps/web/src/i18n/t.ts` (`docs/ARCHITECTURE.md` §7, "The app's words"): whole sentences with `{placeholders}`, and `{ one, other }` for a count — never fragments joined in code, never English grammar (`count === 1 ? 'it' : 'them'`) in a component.
+- The interface is one set of components (`apps/web/src/components/ui/`) placed by the window's size class, `compact`, `medium` or `expanded` (`docs/decisions/0004-the-interface.md`): a component never reads the viewport, the frame places it; every control is at least 44 px; Pointer Events only on the canvas, never touch or mouse events; tools keep the names and keys users know, in one map (`apps/web/src/drawing/keys.ts`).
 - The house style is functional: no `let`, no loops and no mutation outside tests, `cell()` from core for a value that changes, arrow functions, one sentence per line in the docs. ESLint says the rest.
 - Do not add dependencies without stating why in the PR description. Check license (MIT/Apache/ISC only).

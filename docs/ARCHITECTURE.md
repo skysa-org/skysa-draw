@@ -20,7 +20,9 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | What the server holds | Encrypted refresh tokens and connection metadata, nothing else (§6) | No drawing content ever reaches it, so a compromise of it is not a compromise of the drawings |
 | Identity | None: each connected account is its own silo, reached by a credential the device holds (§6) | Identity and storage coupled on purpose; no sign-in, no `users` table |
 | Conflicts | Remote keeps the path; local is written beside it as `<name> (conflict <timestamp>).svg` (§7) | Never lose user data |
-| The editor | SVG in the DOM, through a sanitizer, edited with pointer events; raster content as `<image>` elements (§7, "The editor") | The file is the document; the editor is a view over it |
+| Layers | A layer is a direct child of the root that draws, `vector`, `raster` or `group`; what SVG can say about it is said SVG's way, what it cannot is a `draw:*` attribute (§3, "Layers"; `decisions/0003-layers.md`) | What Inkscape and Illustrator already do, so a file from either has layers here and a file from here has layers there |
+| The editor | SVG in the DOM, through a sanitizer, edited with pointer events; one tool is one tool on a vector layer and on a raster one (§7, "The editor") | The file is the document; the editor is a view over it |
+| The interface | One set of components, placed by the window's size class, `compact`, `medium` or `expanded`; the tools users know, under the keys they know (§7, "The interface"; `decisions/0004-the-interface.md`) | A phone, a tablet with a pen and a desktop are one app, not three |
 | Files from elsewhere | Shown as the browser renders them; given an id on the way in, otherwise untouched (§3) | What the editor does not know is kept, never dropped |
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
@@ -56,12 +58,13 @@ The Worker is in the picture when an account is connected (an OAuth redirect) an
 Decided 2026-11-03; see [`decisions/0001-the-drawing-file.md`](decisions/0001-the-drawing-file.md).
 A drawing is one `.svg` file, and the app's own metadata rides inside it in a namespace of its own, `https://skysa.org/draw/1`, on the root element.
 
-What the app writes on "new drawing" (`emptyDrawing`):
+What the app writes on "new drawing" (`emptyDrawing`): the root with its namespaces, id and canvas, the title, and one empty vector layer.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:draw="https://skysa.org/draw/1" draw:id="7f1b8c2e-…" viewBox="0 0 1600 1000" width="1600" height="1000">
   <title>Floor plan</title>
+  <g id="layer-1" draw:kind="vector"/>
 </svg>
 ```
 
@@ -76,14 +79,35 @@ What the app writes on "new drawing" (`emptyDrawing`):
 
 Core reads and writes all of this without a DOM (`packages/core/src/drawing/document.ts`): a scanner over the prolog and the root's start tag, and the first `<title>` after them, so it runs in Workers and Node, and reads only the start of a file however large the drawing is.
 `withDrawingId` and `withDrawingTitle` rewrite the one tag or element they are about and keep every other byte, so a file given its id twice is the same bytes, and a file from Inkscape keeps its comments and its doctype.
+`readDrawingProlog` is everything before the root tag, which the editor keeps in front of what it serializes (§7, "The editor").
+The layer vocabulary, the attribute names, the kinds, the blend modes and the raster limits, is core's too (`packages/core/src/drawing/layers.ts`), so the editor and the tests name them from one place.
 
-What the body holds is the editor's business (§7, "The editor"), with these rules:
+### Layers
 
-- Vector content is SVG's own elements, as any tool writes them.
-- Raster content is `<image>` elements: small ones inline as `data:` URLs, large ones as files beside the drawing referenced by a relative `href`, named by their content (`attachmentName`: `photo-3f9a1c2b.jpg`), so the same picture placed twice is one file.
-- Adjustments are SVG filters, masks and clip paths, so they stay editable and a flattened export is a render.
-- Nothing is dropped.
-  An element the editor does not know is kept where it was and shown as the browser renders it.
+Decided 2026-11-04; see [`decisions/0003-layers.md`](decisions/0003-layers.md).
+A layer is a direct child of the root that draws something: a `<g>`, or a graphics element on its own.
+`<defs>`, `<title>`, `<desc>`, `<metadata>`, `<style>` and the elements that only define things (`symbol`, `marker`, `pattern`, the gradients, `filter`, `mask`, `clipPath`) are not layers.
+Document order is paint order, bottom to top; the layers panel shows the top first.
+
+Each layer is of one kind, and the app writes the kind on the layers it makes, `draw:kind`:
+
+- `vector`: a `<g>` of SVG's own graphics elements, as any tool writes them: `path`, `rect`, `ellipse`, `line`, `polygon`, `text`.
+- `raster`: a `<g>` holding one `<image>` with `x`, `y`, `width` and `height` in user units and `preserveAspectRatio="none"`, so the layer carries its transform, opacity, blend, mask and filter like any other.
+  The pixels are the image's own: one per user unit up to `RASTER_MAX_SIDE` on the longer side, past which a canvas has fewer pixels than units.
+  A pixel edit re-encodes the image whole as PNG; a picture placed from a file keeps its bytes and its type until a pixel of it changes.
+  The bytes are inline, a `data:` URL, until attachments beside the drawing arrive (§10), when `INLINE_RASTER_BYTES` decides which go beside.
+- `group`: a `<g>` of layers, each by these rules.
+
+What SVG can say about a layer is said SVG's way, where any renderer and any other tool reads it: hidden is `display="none"`, opacity is `opacity`, the blend mode is `mix-blend-mode` in `style` (it has no presentation attribute), a mask, a clip and an adjustment are `mask`, `clip-path` and `filter` referring into the root's `<defs>`, and position is `transform`.
+What SVG cannot say is the app's: `draw:name`, the name the user gave it, and `draw:locked`.
+A layer's `id` is `layer-<n>`, the smallest `n` free in the document; the history, the masks and the clips refer to a layer by it, and an unnamed layer is shown as "Layer n" by its number, so a layer keeps its number when it is moved.
+
+A file from elsewhere has layers by the same rules without a byte written to it: a `<g>` with no `draw:kind` is vector unless its only graphics child is one `<image>`, which makes it raster; a graphics element loose at the root is a vector layer of one element, wrapped in a `<g>` the first time it is edited; a layer with no `id` is given one the first time the file is written; `inkscape:label` is read as a name where `draw:name` is absent, and never written.
+A `<g>` is a group only where it says so.
+
+What the body holds beyond this is the editor's business (§7, "The editor"), with two rules.
+Adjustments are SVG's own filters, masks and clip paths, so they stay editable and a flattened export is a render.
+Nothing is dropped: an element the editor does not know is kept where it was and shown as the browser renders it, except what the sanitizer takes out (§9), which no drawing needs.
 
 Any `.svg` whose root is an `svg` element in the SVG namespace is a drawing to this app (`isDrawingText`), including one another tool made; one with no id is given one on the way in.
 A `.svg` that is not that — a file misnamed, or one that will not decode as UTF-8 — is left alone and shown as unreadable, never rewritten (`UnreadableError`, §4).
@@ -248,6 +272,7 @@ prefs      key
 - `renameDrawing`: into the file's `<title>` and into the filename; a `move` queued where the name changed, and a `write`.
 - `deleteDrawing`: the row gone now; a `delete` queued where the provider holds the file, and everything queued for a drawing it never saw dropped.
 - `createFolder`: refused where the parent has the name however it is cased.
+- `createDrawing` takes a `filename` chooser, run inside its transaction, for a name that is not the title's slug: a conflict copy's.
 
 ### Sync engine
 
@@ -260,21 +285,93 @@ The provider factory with its request deadlines is already here (`apps/web/src/s
 Carried over: when a push finds the remote version moved (`ConflictError`), remote keeps the path, and the local text is written beside it as `<name> (conflict <stamp>).svg`, with the same `draw:id` replaced by a new one so the copy is a drawing of its own.
 Nothing is ever overwritten by the engine; the user merges by hand, which with two SVG files means opening both.
 
+The editor applies the same rule on the device, at once, to an open drawing (`drawing/useOpenDrawing.ts`).
+When the row changes under unsaved edits, from another tab or from a pull, the row keeps the other change; the edits are written beside it as `<name> (conflict <stamp>).svg` with a new `draw:id` and the title `<title> (conflict <stamp>)`, and the editor reopens on the row and says where the copy went.
+When the row is deleted under unsaved edits, by another tab or a pull, the edits become a new drawing in its folder, under its title and with a new `draw:id`, since the old id now means deleted; the editor moves to it, replacing the entry in the history.
+A save the delete beat counts as unsaved; edits already saved go with the delete.
+The user's own delete goes through the open drawing, which marks it intended before the row goes, so it leaves nothing behind.
+A save already in flight when a change arrives can still land over it, since `saveDrawing` has no compare-and-set; the sync engine's port is where that closes (§10).
+
 ### Where the user is, in the URL
 
 `/?f=<folder path>&d=<drawing id>`: the open folder and the open drawing, in the query, so a link opens them and the service worker answers it with the shell (§8).
 The hash is unused.
+A `d` this device has no drawing for shows a sentence saying so and the way back, once the store has answered: `useDrawing` tells loading, a row and missing apart.
 
 ### The editor
 
-Not yet built; the direction, so that the store and the file are shaped for it:
+Decided 2026-11-04 with the layers (`decisions/0003-layers.md`) and the interface (`decisions/0004-the-interface.md`); the first increment is built (§10).
+`apps/web/src/drawing/`: a view over the drawing's SVG text, which stays the only source of truth.
 
-- The drawing is put into the DOM as SVG, through a sanitizer (DOMPurify's SVG profile is the candidate; a dependency to be justified when it arrives), so the browser renders it and the editor manipulates elements in place.
-  Script, event handlers and external references are stripped on the way in; what is stripped is not written back (§9).
-- Pointer events draw: paths, shapes and text as SVG elements; selection, move, resize and rotate as transforms.
-- Rasters are `<image>` elements; pixel edits happen on an offscreen canvas and are written back as a new `data:` URL or a new file beside the drawing.
-- Export is a render of the SVG onto a canvas (`<img>` of a `blob:` URL drawn with `drawImage`) for PNG and JPEG, and the file itself for SVG.
-- Until then the open drawing is shown through an `<img>` of a `blob:` URL (`DrawingView`), which renders every SVG with no script of its own running and no reach into the page.
+**The document in the DOM.**
+The text is parsed as XML (`DOMParser`, `image/svg+xml`) and sanitized in place by DOMPurify (`document/sanitize.ts`) before any of it is rendered: script, event handlers, `javascript:` URLs, a `data:` URL that is not `data:image/`, `<foreignObject>`, and a `<use>` that reaches outside the document are taken out.
+An element or an attribute in a namespace that is not SVG's, XHTML's or MathML's is inert and is kept, so Inkscape's vocabulary and the app's own survive (§9).
+DOMPurify removes every element outside those three namespaces whatever it is told, so a foreign element is lifted out before it runs, stripped of anything in those three namespaces, and put back where it was afterwards; a foreign element is never allowed by its bare name, which would let a real `<script>` through under the same name.
+The sanitized root is mounted in a shadow root inside the viewport, so a `<style>` the drawing carries styles the drawing and not the app.
+The editor's commands change elements in place.
+The text is serialized back (`XMLSerializer`, behind the file's own prolog, `readDrawingProlog`) only after a command ran: a drawing opened and closed is the same bytes, and `saveDrawing` ignores a save of the same text.
+A serializer that writes the root as `<svg:svg>`, as the DOM Parsing spec does for a root that also binds `xmlns:svg` (every Inkscape file), is answered by writing `<svg>` (`document/serialize.ts`).
+What the sanitizer removed is therefore gone from a file the user edits, and that is on purpose; a file the user only looks at is untouched.
+
+**Commands and history.**
+Every change is a command with an inverse, executed through the document, which tells the React tree (`useSyncExternalStore`); a command that changed nothing is not recorded (`document/commands.ts`).
+A vector command keeps deep clones of the layer before and after, not its markup: once the root is in the page, `outerHTML` is HTML serialization, which XML cannot always read back.
+A raster command keeps the image's `href` before and after, so a stroke costs the history one encoded layer, not the whole file.
+Every command restores the attributes it touched in their order, and takes back a namespace declaration it added, so undoing to the start gives back the file's own bytes.
+A loose element wrapped into a layer passes an id the app gave it on open (`layer-n`) to its new `<g>`, so the layer keeps its number; an id of the file's own stays on the element.
+Undo and redo are per open drawing, in memory, as long as the session, capped by bytes rather than by count (`HISTORY_BYTES`).
+
+**Layers**, as §3 defines them: add, delete, duplicate, reorder, hide, lock, rename, opacity and blend mode are built; grouping layers, merge down, which rasterizes where either side is raster, and rasterize, which turns a vector layer into a raster one by rendering it, are to come (§10).
+One layer is active; tools act on it, and a tool that does nothing on its kind says so and is not available.
+
+**Tools.**
+One tool is one tool: the same name, the same key and the same options whether the active layer is vector or raster, doing on each what a user of that tool expects (`decisions/0004-the-interface.md` lists them).
+Pointer Events alone drive them, in user units through the viewport's inverse transform, with `pressure`, `tiltX` and `tiltY` where the device gives them and `getCoalescedEvents()` so a fast stroke keeps every sample.
+On a vector layer a stroke is a `<path>`, a brush stroke a filled path whose width follows pressure, a shape its own element, and selection, move, resize and rotate are `transform`s.
+On a raster layer a stroke is painted on a canvas the size of the layer's pixels, shown live, and written into the `<image>` when the stroke ends; the encoding is asynchronous and a save waits for it.
+Writes land in the order the strokes were made, whatever order their encodings finish in, and a stroke that changed no pixel writes nothing, so a picture keeps its bytes until a pixel of it changes (§3).
+Adjustments are filters on the layer; crop is the canvas's `viewBox`; a `transform` on a raster layer is a transform, never a resample, until the user flattens it.
+
+**Export** is a render of the SVG onto a canvas (`<img>` of a `blob:` URL drawn with `drawImage`) for PNG, JPEG and WebP at any scale, and the file itself for SVG.
+
+**Still an image.**
+A drawing that is not open in the editor, in the list, as a thumbnail, or one the sanitizer could not parse at all, is shown through an `<img>` of a `blob:` URL (`DrawingView`), which renders any SVG with no script running and no reach into the page.
+
+### The interface
+
+Decided 2026-11-04; see [`decisions/0004-the-interface.md`](decisions/0004-the-interface.md).
+
+**Size classes.**
+The window is `compact` under 600 px wide, `medium` from 600 to 839 and `expanded` from 840, Material's window size classes, read from `matchMedia` by `useSizeClass` (`components/ui/sizeClass.ts`) and nowhere else: a component never asks how wide the window is; the frame places it, and the component fits its container (`@container`).
+
+**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `Select`, `Menu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
+Every control is at least 44 CSS px in either direction, whatever the size class and whatever the pointer; keyboard focus shows a ring; words come from the catalog.
+
+**The frame** (`drawing/Editor.tsx`) places them:
+
+```
+compact    ┌ top bar: back · title · undo · redo · more ─┐
+           │ canvas                                      │
+           │ options, one row, for the active tool       │
+           └ tool bar: the tools · colour · layers ──────┘   layers and colour open as sheets
+medium     ┌ top bar ────────────────────────────────────┐
+           │ rail │ options                              │
+           │ rail │ canvas                               │   layers and properties in a drawer over the canvas
+           └──────┴─────────────────────────────────────┘
+expanded   ┌ top bar ────────────────────────────────────┐
+           │ rail │ options              │ layers        │
+           │ rail │ canvas               │ properties    │   the dock stays; both columns open from 1200 px
+           └──────┴─────────────────────┴───────────────┘
+```
+
+An open drawing fills the window on every size; the library (folders and drawings) is the screen before it on compact and a drawer from the top bar elsewhere, as a gallery is to a canvas.
+On compact the zoom and the saving status are under More, to keep the bar to one row; the options row comes after the canvas in the page there and before it elsewhere, so reading order is the order seen.
+The colour panel is a drawer on medium and expanded alike; the dock holds layers and properties, follows the 1200 px rule until the layers button is pressed, and then stays as the user left it.
+
+**Input.**
+Pointer Events only, `touch-action: none` on the canvas; a pen draws, a finger draws unless a pen is down (palm rejection), two fingers pan and pinch to zoom, a two-finger tap undoes and a three-finger tap redoes; a wheel scrolls, with Ctrl or ⌘ zooms, and Space held pans.
+Keys on every size, since a tablet may have a keyboard: a letter per tool and the editing keys users know, in one map (`drawing/keys.ts`).
+`prefers-color-scheme` and `prefers-reduced-motion` are honoured through the tokens (`styles/tokens.css`); safe areas through `env(safe-area-inset-*)`; the canvas draws at `devicePixelRatio`.
 
 ### The app's words
 
@@ -306,6 +403,9 @@ Carried over; the SVG-specific lines are new.
 - **SVG is script's way in.**
   An SVG in the DOM runs its `<script>`, its `on*` handlers and its `javascript:` hrefs, and can reach the page.
   A drawing is therefore shown through an `<img>` (no script runs, no reach) or put into the DOM only after a sanitizer took those out.
+  The sanitizer is DOMPurify, over the XML-parsed document and in place, with elements and attributes in a namespace that is not SVG's, XHTML's or MathML's kept, since those are inert (§7, "The editor"); `apps/web/tests/drawing/sanitize.test.ts` holds the list of what goes and what stays.
+  The CSP is the backstop behind it: an inline script that got through would still not run.
+  The sanitized drawing is mounted in a shadow root, so its `<style>` cannot restyle the app or lay a `position: fixed` box over it (§7, "The editor").
   `connect-src` and `img-src` say where an `<image>` may load from; a drawing from elsewhere may name any `https:` picture, as SVG does.
 - `connect-src` lists this origin and the provider hosts the browser syncs with directly, and nothing else; `tests/csp.test.ts` runs each adapter and checks every host it asks.
 - `Strict-Transport-Security` for two years on this host alone; `frame-ancestors 'none'`; `form-action 'self'`.
@@ -320,9 +420,18 @@ Carried over; the SVG-specific lines are new.
 [`history.md`](history.md), by phase.
 What comes next, in order:
 
-1. The sync engine ported from skysa-notes behind a document-format seam (§7, "Sync engine"), with the Dexie `SyncStore` over the schema in §7 and the connect flow's screens.
-2. The editor (§7, "The editor"), starting with the sanitizer and vector drawing, then rasters and export.
-3. Attachments beside a drawing (§3), which the engine moves with it.
+1. The sync engine ported from skysa-notes behind a document-format seam (§7, "Sync engine"), with the Dexie `SyncStore` over the schema in §7 and the connect flow's screens; with it a compare-and-set save, so a save in flight cannot land over a change from elsewhere.
+2. The rest of the tools (`decisions/0004-the-interface.md`): pen and node editing, text, marquee and lasso, smudge, crop, the adjustments, masks and clipping, merge down, rasterize, groups made from layers, and export.
+3. Attachments beside a drawing (§3), which the engine moves with it, and with them `INLINE_RASTER_BYTES`.
+
+Known gaps in what is built, each for an issue:
+
+- Not yet seen in a real browser: everything was tested under jsdom, which has no 2D canvas, no `getBBox`, no `DOMMatrix` and no stylesheets from an SVG `<style>`.
+- Renaming a drawing reopens it and loses its undo history, since `renameDrawing` rewrites the row's text.
+- A tool that does nothing on the active layer's kind says so when pressed, but its button is not shown as unavailable.
+- The library drawer's own rows (`Sidebar`, `DrawingList`) are below the 44 px target.
+- A stroke still under way when the editor reopens on a change from elsewhere is lost; an undo pressed while a raster stroke is encoding is overtaken when the stroke lands.
+- A drawing's `@font-face` does not apply inside the shadow root in Chromium, so its embedded fonts may not show in the editor.
 
 ## 11. Repo layout
 
@@ -332,7 +441,9 @@ apps/
                   src/routes/, src/oauth/, src/db/ (schema), src/relay/ (Durable Object),
                   migrations/ (generated), tests/ (node:sqlite shim for D1)
   web/            Vite + React: src/routes/ (file routes; routeTree.gen.ts is generated),
-                  src/store/ (Dexie), src/components/, src/i18n/, src/sync/, src/styles/,
+                  src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/),
+                  src/drawing/ (the editor: document/, tools/, panels/, Editor.tsx, Viewport.tsx, keys.ts),
+                  src/i18n/, src/sync/, src/styles/,
                   brand/ (default brand, icons.mjs), brand.ts, pwa.ts, public/_headers,
                   scripts/bundleBudget.mjs, tests/
 packages/
@@ -344,7 +455,7 @@ docs/             this file, history.md, decisions/, self-hosting.md, google-oau
 .github/          CI (verify, changeset check, generated files, size, minimum Node), release, CLA
 ```
 
-Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, and a provider never imports the engine; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor, `sync/` never imports the UI, and `drawing/` (the editor, to come) never imports routes or the sync layer.
+Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, and a provider never imports the engine; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
 Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
 
 ## 12. Carried over from skysa-notes
@@ -371,6 +482,8 @@ Nothing of that deployment is in this repository, and nothing in this repository
 - A format of the app's own; a drawing is SVG and stays one (§3).
 - Collaborative editing; the relay says "something changed" and nothing else.
 - WebDAV (§5.4).
+- Adjustment layers that act on every layer below them; a filter on a group is the same thing in SVG's own words (§3, "Layers").
+- A phone editor and a desktop editor; there is one, placed by size class (§7, "The interface").
 
 ## 15. GitHub setup
 

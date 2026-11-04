@@ -1,4 +1,6 @@
-/* The one screen: three panes side by side, and stacked on a narrow window. */
+/* The library: folders and drawings side by side with the empty drawing pane,
+   stacked on a narrow window. An open drawing is the editor's frame instead
+   (`editor.css`). */
 html,
 body,
 #root,
@@ -98,16 +100,6 @@ body {
 .drawing-list .pane-bar {
 	border: 0;
 	padding: 0;
-}
-
-.drawing-title {
-	flex: 1;
-	font-size: var(--text-l);
-	font-weight: 600;
-	margin: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .drawing-canvas {

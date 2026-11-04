@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:draw="https://skysa.org/draw/1" xmlns:html="http://www.w3.org/1999/xhtml" xmlns:x="urn:example:inert" draw:id="0f3c2a1e-hostile" viewBox="0 0 100 100">
+  <title>Hostile</title>
+  <defs>
+    <linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient>
+  </defs>
+  <g id="layer-1" draw:kind="vector">
+    <rect width="10" height="10" fill="url(#g)"/>
+    <a><text x="0" y="20">link</text></a>
+    <a><text x="0" y="30">tab</text></a>
+    <a><text x="0" y="40">entity</text></a>
+    <a><text x="0" y="50">case</text></a>
+    <a><text x="0" y="60">html</text></a>
+    <a href="https://example.com/"><text x="0" y="70">safe</text></a>
+    <image width="1" height="1"/>
+    <use href="#g"/>
+    <x:note x:about="kept">an inert note</x:note>
+    <x:note/>
+  </g>
+</svg>

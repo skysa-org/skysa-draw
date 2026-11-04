@@ -1,0 +1,316 @@
+/* The editor's frame (docs/ARCHITECTURE.md §7, "The interface"), by size
+   class: where the rail, the options, the canvas and the panels go. The
+   components' own looks, and the sizes they share (`--target`, `--rail`,
+   `--dock`), are in `ui.css`; this file only places them. */
+
+.editor {
+	background: var(--bg);
+	display: grid;
+	height: 100dvh;
+	overflow: hidden;
+}
+
+/* Compact: the top bar, the canvas, one row of options and the tools along
+   the bottom, padded past the home indicator. */
+.editor[data-size='compact'] {
+	grid-template-areas:
+		'top'
+		'canvas'
+		'options'
+		'tools';
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+/* Medium: a rail down the start side, the options over the canvas. */
+.editor[data-size='medium'] {
+	grid-template-areas:
+		'top top'
+		'rail options'
+		'rail canvas';
+	grid-template-columns: var(--rail) minmax(0, 1fr);
+	grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+/* Expanded: the same, and a dock column at the end that is as wide as what
+   it holds — nothing, when it is closed. */
+.editor[data-size='expanded'] {
+	grid-template-areas:
+		'top top top'
+		'rail options dock'
+		'rail canvas dock';
+	grid-template-columns: var(--rail) minmax(0, 1fr) auto;
+	grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+/* Nothing to draw on: a drawing still loading, or one shown as an image. */
+.editor.editor-still {
+	grid-template-areas:
+		'top'
+		'canvas';
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* A drawing that is not here: the sentence that says so, and the way back,
+   the same on every size. */
+.editor.editor-missing {
+	align-content: center;
+	gap: var(--space-m);
+	justify-items: center;
+	padding: var(--space-l) var(--gutter);
+	text-align: center;
+}
+
+.editor-missing > p {
+	color: var(--muted);
+	margin: 0;
+	max-width: 32em;
+}
+
+/* The top bar, on every size; taller only while it asks a question that
+   does not fit one row. */
+.top-bar {
+	align-items: center;
+	border-block-end: 1px solid var(--border);
+	display: flex;
+	gap: var(--space-2xs);
+	grid-area: top;
+	min-height: calc(var(--target) + 2 * var(--space-xs));
+	padding: var(--space-xs) var(--space-xs) var(--space-xs)
+		calc(var(--space-xs) + env(safe-area-inset-left));
+	padding-inline-end: calc(var(--space-xs) + env(safe-area-inset-right));
+}
+
+.top-bar-title {
+	flex: 1;
+	font-size: var(--text-l);
+	font-weight: 600;
+	margin: 0 var(--space-xs);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.top-bar .inline-form {
+	align-items: center;
+	margin: 0 var(--space-xs);
+	min-width: 0;
+}
+
+.top-bar-field {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+}
+
+/* The question's own controls are as easy to hit as the bar's. */
+.top-bar .inline-form input,
+.top-bar .inline-actions button {
+	min-height: var(--target);
+}
+
+.top-bar-zoom {
+	font-size: var(--text-s);
+	font-variant-numeric: tabular-nums;
+	padding: 0 var(--space-xs);
+}
+
+.top-bar-status {
+	color: var(--muted);
+	font-size: var(--text-s);
+	padding-inline-end: var(--space-xs);
+	white-space: nowrap;
+}
+
+/* The rail: the tools down the start side, scrolling when the window is short. */
+.editor-rail {
+	border-inline-end: 1px solid var(--border);
+	grid-area: rail;
+	min-height: 0;
+	overflow-y: auto;
+	padding-inline-start: env(safe-area-inset-left);
+}
+
+/* The tools along the bottom, on compact. */
+.editor-tools {
+	border-block-start: 1px solid var(--border);
+	grid-area: tools;
+	padding-block-end: env(safe-area-inset-bottom);
+}
+
+/* One row of options for the tool in hand; it scrolls sideways when narrow (`ui.css`). */
+.options-strip {
+	border-block-end: 1px solid var(--border);
+	grid-area: options;
+	height: calc(var(--target) + 2 * var(--space-2xs));
+}
+
+.editor[data-size='compact'] .options-strip {
+	border-block-end: 0;
+	border-block-start: 1px solid var(--border);
+}
+
+/* The canvas, and the notice over it. */
+.editor-canvas {
+	display: flex;
+	flex-direction: column;
+	grid-area: canvas;
+	min-height: 0;
+	min-width: 0;
+	position: relative;
+}
+
+.editor-canvas > .viewport,
+.editor-canvas > .drawing-canvas {
+	flex: 1;
+	min-height: 0;
+}
+
+.editor-dock {
+	display: flex;
+	grid-area: dock;
+	min-height: 0;
+}
+
+/* The colour and the layers at the bar's far end: past the tools where there
+   is room, and kept in reach over them where the tools scroll. */
+.tool-group-end {
+	background: var(--bg);
+	display: flex;
+	flex: none;
+	gap: var(--space-2xs);
+	position: sticky;
+}
+
+.toolbar-horizontal > .tool-group-end {
+	flex-direction: row;
+	inset-inline-end: 0;
+	margin-inline-start: auto;
+}
+
+.toolbar-vertical > .tool-group-end {
+	flex-direction: column;
+	inset-block-end: 0;
+	margin-block-start: auto;
+}
+
+/* The badge on the colour button when the fill is none: struck through. */
+.swatch-none {
+	background: linear-gradient(
+		to top right,
+		transparent calc(50% - 1px),
+		var(--bad) calc(50% - 1px),
+		var(--bad) calc(50% + 1px),
+		transparent calc(50% + 1px)
+	);
+}
+
+/* The layers: top first, each row an eye, the kind, the name and a lock. */
+.layer-list {
+	display: flex;
+	flex-direction: column;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.layer-row {
+	align-items: center;
+	border-radius: var(--radius-s);
+	cursor: default;
+	display: flex;
+	gap: var(--space-2xs);
+	min-height: var(--target);
+}
+
+.layer-row:hover {
+	background: var(--hover-bg);
+}
+
+.layer-row[data-active] {
+	background: var(--on-bg);
+	color: var(--on-fg);
+}
+
+/* The layer itself, between its eye and its lock: the whole of the middle. */
+.layer-pick {
+	align-items: center;
+	background: none;
+	border: 0;
+	border-radius: var(--radius-s);
+	color: inherit;
+	cursor: default;
+	display: flex;
+	flex: 1;
+	gap: var(--space-2xs);
+	min-height: var(--target);
+	min-width: 0;
+	padding: 0 var(--space-2xs);
+	text-align: start;
+}
+
+.layer-pick:not(:disabled):hover {
+	background: none;
+}
+
+.layer-pick:focus-visible {
+	outline-offset: -2px;
+}
+
+.layer-row[data-hidden] .layer-name {
+	color: var(--muted);
+}
+
+.layer-kind-icon {
+	color: var(--muted);
+	flex: none;
+}
+
+.layer-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.layer-name-field {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: 1;
+	font: inherit;
+	font-size: var(--text-field-floor);
+	min-height: var(--target);
+	min-width: 0;
+	padding: 0 var(--space-s);
+}
+
+/* Under the list, or in the properties panel: the name, the opacity, the blend. */
+.layer-properties {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-s);
+	margin-block-start: var(--space-s);
+}
+
+.layer-properties .layer-name-field {
+	flex: none;
+}
+
+.layer-kind,
+.panel-empty {
+	color: var(--muted);
+	font-size: var(--text-s);
+	margin: var(--space-xs) 0;
+}
+
+/* The library in its drawer: the two panes stacked, with no rules between. */
+.library-panel .sidebar,
+.library-panel .drawing-list {
+	border: 0;
+	padding-inline: 0;
+}

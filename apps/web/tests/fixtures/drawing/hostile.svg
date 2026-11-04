@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:draw="https://skysa.org/draw/1" xmlns:html="http://www.w3.org/1999/xhtml" xmlns:x="urn:example:inert" draw:id="0f3c2a1e-hostile" viewBox="0 0 100 100" onload="alert('root')">
+  <title>Hostile</title>
+  <script>alert('script')</script>
+  <script xlink:href="https://evil.example/x.js"/>
+  <defs>
+    <linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient>
+  </defs>
+  <g id="layer-1" draw:kind="vector" onclick="alert('click')" ONMOUSEOVER="alert('hover')">
+    <rect width="10" height="10" fill="url(#g)" onerror="alert('error')"/>
+    <a href="javascript:alert('link')"><text x="0" y="20">link</text></a>
+    <a xlink:href="java&#x09;script:alert('tab')"><text x="0" y="30">tab</text></a>
+    <a href="&#106;avascript:alert('entity')"><text x="0" y="40">entity</text></a>
+    <a href=" JAVASCRIPT:alert('case')"><text x="0" y="50">case</text></a>
+    <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="><text x="0" y="60">html</text></a>
+    <a href="https://example.com/"><text x="0" y="70">safe</text></a>
+    <image href="data:text/html,&lt;script&gt;alert('image')&lt;/script&gt;" width="1" height="1"/>
+    <use href="#g"/>
+    <use href="https://evil.example/sprite.svg#icon"/>
+    <use xlink:href="data:image/svg+xml;base64,PHN2Zy8+#x"/>
+    <foreignObject width="100" height="100"><html:div onclick="alert('foreign')">html</html:div></foreignObject>
+    <animate attributeName="href" values="javascript:alert('animate')"/>
+    <set attributeName="xlink:href" to="javascript:alert('set')"/>
+    <html:script src="https://evil.example/x.js"/>
+    <x:note x:about="kept">an inert note<script>alert('nested')</script></x:note>
+    <x:note onclick="alert('foreign handler')" xlink:href="javascript:alert('foreign link')"/>
+  </g>
+</svg>

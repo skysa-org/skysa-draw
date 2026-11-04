@@ -599,6 +599,30 @@ export default tseslint.config(
 		},
 	},
 
+	{
+		// Painting is mutation by nature: a 2D context's state (`ctx.fillStyle`)
+		// and a canvas's size are set, not derived. Allowed under those names,
+		// `ctx` and `canvas`, in the editor alone; the drawing's own DOM is
+		// changed through `setAttribute`, a call, which needs no carve-out.
+		files: ['apps/web/src/drawing/**/*.ts'],
+		rules: {
+			'functional/immutable-data': [
+				'error',
+				{
+					ignoreMapsAndSets: true,
+					ignoreAccessorPattern: [
+						'**.current',
+						'window.**',
+						'ctx.**',
+						'**.ctx.**',
+						'canvas.**',
+						'**.canvas.**',
+					],
+				},
+			],
+		},
+	},
+
 	// ---- File size ----------------------------------------------------------
 
 	{

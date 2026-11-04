@@ -6,6 +6,7 @@ import {
 	emptyDrawing,
 	isDrawingText,
 	readDrawingId,
+	readDrawingProlog,
 	readDrawingSize,
 	readDrawingTitle,
 	SVG_NAMESPACE,
@@ -30,6 +31,18 @@ const FOREIGN = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
   <rect x="10" y="10" width="50" height="50" />
 </svg>
 `;
+
+/** An SVG as Illustrator saves one: a BOM, a comment, and a doctype with an internal subset. */
+const WITH_SUBSET = `\uFEFF<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator -->
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [
+	<!ENTITY ns_svg "http://www.w3.org/2000/svg">
+]>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="5" height="5"/></svg>
+`;
+
+/** The root tag and everything after it: what a prolog is not. */
+const fromRoot = (text: string): string => text.slice(text.indexOf('<svg'));
 
 describe('isDrawingText', () => {
 	it('is true of an SVG document, with or without a prolog', () => {
@@ -61,6 +74,42 @@ describe('isDrawingText', () => {
 		expect(isDrawingText(large)).toBe(true);
 		expect(readDrawingId(large)).toBeUndefined();
 		expect(performance.now() - started).toBeLessThan(200);
+	});
+});
+
+describe('readDrawingProlog', () => {
+	it('is the XML declaration and its line break on a drawing this app wrote', () => {
+		expect(readDrawingProlog(emptyDrawing({ id: ID }))).toBe(
+			'<?xml version="1.0" encoding="UTF-8"?>\n'
+		);
+	});
+
+	it('is everything before the root tag, byte for byte, on a file from elsewhere', () => {
+		expect(readDrawingProlog(FOREIGN)).toBe(FOREIGN.slice(0, -fromRoot(FOREIGN).length));
+		const prolog = readDrawingProlog(WITH_SUBSET);
+		expect(prolog).toBe(WITH_SUBSET.slice(0, -fromRoot(WITH_SUBSET).length));
+		expect(prolog?.startsWith('\uFEFF<?xml')).toBe(true);
+		expect(prolog).toContain('<!-- Generator: Adobe Illustrator -->');
+		expect(prolog?.endsWith('<!ENTITY ns_svg "http://www.w3.org/2000/svg">\n]>\n')).toBe(true);
+	});
+
+	it('is empty where the root tag opens the file', () => {
+		expect(readDrawingProlog(`<svg xmlns="${SVG_NAMESPACE}"/>`)).toBe('');
+	});
+
+	it('is nothing for text that is not an SVG document', () => {
+		expect(readDrawingProlog('<html/>')).toBeUndefined();
+		expect(readDrawingProlog('not xml')).toBeUndefined();
+		expect(readDrawingProlog('<?xml version="1.0"?>\n<svg>no namespace</svg>')).toBeUndefined();
+		expect(readDrawingProlog('')).toBeUndefined();
+	});
+
+	it('puts the file back together with what follows it', () => {
+		[emptyDrawing({ id: ID, title: 'Logo' }), FOREIGN, WITH_SUBSET].forEach((text) => {
+			const prolog = readDrawingProlog(text) ?? 'not a drawing';
+			expect(prolog + text.slice(prolog.length)).toBe(text);
+			expect(text.slice(prolog.length)).toBe(fromRoot(text));
+		});
 	});
 });
 
@@ -221,6 +270,32 @@ describe('emptyDrawing', () => {
 		expect(text).toContain('viewBox="0 0 400 300" width="400" height="300"');
 	});
 
+	it('is the root, the title and one empty vector layer, as docs/ARCHITECTURE.md §3 shows', () => {
+		expect(emptyDrawing({ id: ID, title: 'Floor plan' })).toBe(
+			[
+				'<?xml version="1.0" encoding="UTF-8"?>',
+				`<svg xmlns="http://www.w3.org/2000/svg" xmlns:draw="https://skysa.org/draw/1" draw:id="${ID}" viewBox="0 0 1600 1000" width="1600" height="1000">`,
+				'  <title>Floor plan</title>',
+				'  <g id="layer-1" draw:kind="vector"/>',
+				'</svg>',
+				'',
+			].join('\n')
+		);
+	});
+
+	it('has the layer follow the root tag directly where there is no title', () => {
+		expect(emptyDrawing({ id: ID })).toBe(
+			[
+				'<?xml version="1.0" encoding="UTF-8"?>',
+				`<svg xmlns="http://www.w3.org/2000/svg" xmlns:draw="https://skysa.org/draw/1" draw:id="${ID}" viewBox="0 0 1600 1000" width="1600" height="1000">`,
+				'  <g id="layer-1" draw:kind="vector"/>',
+				'</svg>',
+				'',
+			].join('\n')
+		);
+		expect(emptyDrawing({ id: ID, title: '  ' })).toBe(emptyDrawing({ id: ID }));
+	});
+
 	it('refuses an id or a size it would not write', () => {
 		expect(() => emptyDrawing({ id: 'not an id' })).toThrow(RangeError);
 		expect(() => emptyDrawing({ id: ID, size: { width: 0, height: 10 } })).toThrow(RangeError);
@@ -241,7 +316,11 @@ describe('withDrawingTitle', () => {
 		const text = emptyDrawing({ id: ID });
 		const titled = withDrawingTitle(text, 'Plan & <sketch>');
 		expect(readDrawingTitle(titled)).toBe('Plan & <sketch>');
-		expect(titled).toContain('>\n  <title>Plan &amp; &lt;sketch&gt;</title>\n</svg>');
+		expect(titled).toContain(
+			'>\n  <title>Plan &amp; &lt;sketch&gt;</title>\n  <g id="layer-1" draw:kind="vector"/>\n</svg>'
+		);
+		// Before the first layer, so a title given later is the same bytes as one given at birth.
+		expect(titled).toBe(emptyDrawing({ id: ID, title: 'Plan & <sketch>' }));
 		expect(withDrawingId(titled, ID)).toBe(titled);
 	});
 
@@ -263,6 +342,8 @@ describe('withDrawingTitle', () => {
 		expect(untitled).toBe(FOREIGN.replace('\n  <title>A4 sheet</title>', ''));
 		const plain = emptyDrawing({ id: ID });
 		expect(withDrawingTitle(plain, '  ')).toBe(plain);
+		// The layer line stays where it was, so an untitled drawing is the same bytes either way.
+		expect(withDrawingTitle(emptyDrawing({ id: ID, title: 'Logo' }), '')).toBe(plain);
 	});
 
 	it('leaves a nested title alone, which is not the drawing’s', () => {

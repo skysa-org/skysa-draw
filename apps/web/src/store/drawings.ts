@@ -76,6 +76,12 @@ export interface NewDrawing {
 	/** A file brought in from elsewhere, given this app's id if it has none. */
 	text?: string;
 	id?: string;
+	/**
+	 * The file's name, chosen from the names the folder already has, where it
+	 * is not the title's slug: a conflict copy's, beside the drawing it came
+	 * from (`conflictPath`, docs/ARCHITECTURE.md §7, "Conflict rule").
+	 */
+	filename?: (taken: readonly string[]) => string;
 	now?: () => number;
 }
 
@@ -92,6 +98,7 @@ export const createDrawing = async (
 		connectionId = LOCAL_CONNECTION_ID,
 		text,
 		id = crypto.randomUUID(),
+		filename,
 		now = Date.now,
 	}: NewDrawing = {}
 ): Promise<DrawingRecord> => {
@@ -106,7 +113,7 @@ export const createDrawing = async (
 	const hash = await contentHash(content);
 	return db.transaction('rw', db.drawings, db.folders, db.opQueue, async () => {
 		const taken = await namesIn(db, connectionId, folderPath);
-		const path = joinPath(folderPath, uniqueFilename(named, taken));
+		const path = joinPath(folderPath, filename?.(taken) ?? uniqueFilename(named, taken));
 		const at = now();
 		const record: DrawingRecord = {
 			id: ownId,

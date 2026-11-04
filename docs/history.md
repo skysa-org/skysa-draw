@@ -16,3 +16,12 @@ For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` her
 - One screen: folders down the side, the open folder's drawings, and the open drawing shown as an image through a `blob:` URL, with rename and delete.
   What is open is in the query, `/?f=<folder>&d=<id>`.
 - Not yet: the sync engine (to be ported behind a document-format seam, §10), the connect flow's screens, the editor.
+
+## Phase 1 — Layers, tools and the frame (2026-11-04)
+- SVG confirmed as the drawing file; the layer model decided (`decisions/0003-layers.md`): a layer is a direct child of the root, `vector`, `raster` or `group`, SVG's own attributes for what SVG can say and `draw:*` for the rest; `emptyDrawing` writes one empty vector layer; the vocabulary in `packages/core/src/drawing/layers.ts`; `readDrawingProlog` and `conflictStamp` added to core.
+- The interface decided (`decisions/0004-the-interface.md`): one component set placed by window size class, the tools users know under the keys they know, Pointer Events only.
+- Built by seven agents in parallel against contracts written first (`drawing/document/model.ts`, `drawing/tools/types.ts`, `drawing/types.ts`), then integrated: the component set (`components/ui/`), the document model with DOMPurify, commands and a byte-capped history (`drawing/document/`), select, hand, zoom, pencil, brush, eraser, fill, eyedropper, rectangle, ellipse and line on vector and raster layers, the viewport with gestures and the key map, and the frame with its layers, properties, colour and options panels.
+- DOMPurify 3.4 added: the one sanitizer, Apache-2.0 or MPL-2.0. It removes every element outside SVG, XHTML and MathML whatever it is told, so foreign elements are lifted out around it and put back.
+- Learned on the way: `outerHTML` of an SVG in the page is HTML serialization and not always XML, so commands keep clones; the DOM Parsing serializer writes an Inkscape root as `<svg:svg>`, which DOMPurify then refuses, so the serializer writes `<svg>`; an SVG `<style>` styles the whole page, so the drawing is mounted in a shadow root; browsers keep Ctrl+Shift+N for a private window, so a new layer is Insert.
+- The conflict rule applied in the editor: a drawing changed or deleted elsewhere under unsaved edits keeps the edits as a drawing of their own.
+- Tests: core 1016, web over 840, API 423, all under jsdom; nothing yet run in a real browser.

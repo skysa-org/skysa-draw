@@ -1,0 +1,439 @@
+/* The shared components (docs/ARCHITECTURE.md §7, "The interface"), each sized to its container. */
+
+:root {
+	/* The least a control is in either direction, whatever the pointer
+	   (docs/decisions/0004-the-interface.md): Apple's 44 px. */
+	--target: 2.75rem;
+	/* A bar of tools across the breadth: a target and a little air. */
+	--rail: 3.25rem;
+	/* A docked column of panels, and a drawer where there is the room. */
+	--dock: 17.5rem;
+	/* The most of the window a sheet may take, leaving the canvas to look at. */
+	--sheet-max: 70dvh;
+}
+
+/* Every button here starts bare, and is never less than a target either way. */
+.icon-button,
+.color-none,
+.color-recent-swatch,
+.menu-item {
+	background: none;
+	border: 0;
+	border-radius: var(--radius-m);
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	min-height: var(--target);
+	min-width: var(--target);
+	padding: 0;
+}
+
+.icon-button {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+	position: relative;
+	touch-action: manipulation;
+	user-select: none;
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+}
+
+/* Under the pointer. In `:where()`, so a pressed toggle there still shows it is on. */
+.icon-button:hover:where(:enabled),
+.color-none:hover,
+.menu-item:hover:where(:not([aria-disabled='true'])),
+.menu-item:focus-visible {
+	background: var(--hover-bg);
+}
+
+.icon-button[aria-pressed='true'],
+.color-none[aria-pressed='true'] {
+	background: var(--on-bg);
+	border-color: transparent;
+	color: var(--on-fg);
+}
+
+.icon-button:disabled,
+.slider.is-disabled {
+	cursor: default;
+	opacity: 0.4;
+}
+
+.tool-button-icon {
+	display: flex;
+}
+
+/* The colour a tool will draw with, ringed in the page's so it sits on the icon. */
+.tool-button-badge {
+	border-radius: 50%;
+	box-shadow: 0 0 0 1.5px var(--bg);
+	display: flex;
+	height: 0.75rem;
+	inset-block-end: 0.25rem;
+	inset-inline-end: 0.25rem;
+	pointer-events: none;
+	position: absolute;
+	width: 0.75rem;
+}
+
+/* A row of controls a hair apart: a bar, a panel's header and its actions. */
+.toolbar,
+.panel-header,
+.panel-actions {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2xs);
+	scrollbar-width: none;
+}
+
+/* More tools than fit scroll along the bar rather than wrap: a bar that wraps is two. */
+.toolbar-horizontal {
+	min-height: var(--rail);
+	overflow: auto hidden;
+	padding: var(--space-2xs) var(--space-xs);
+}
+
+.toolbar-vertical {
+	flex-direction: column;
+	overflow: hidden auto;
+	padding: var(--space-xs) var(--space-2xs);
+	width: var(--rail);
+}
+
+/* A column whose body scrolls: a panel, and the dock and the host around one. */
+.panel,
+.panel-dock,
+.panel-host {
+	background: var(--bg);
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.panel {
+	container: panel / inline-size;
+	flex: 1 1 0;
+}
+
+.panel-header {
+	border-block-end: 1px solid var(--border);
+	flex: none;
+	min-height: var(--target);
+	padding-inline: var(--gutter) var(--space-2xs);
+}
+
+.panel-title,
+.menu-item-label {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.panel-title {
+	font-size: var(--text-m);
+	font-weight: 600;
+	margin: 0;
+}
+
+.panel-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding: var(--space-s) var(--gutter);
+}
+
+/* The dock: in the flow beside the canvas, its panels sharing its height. */
+.panel-dock {
+	border-inline-start: 1px solid var(--border);
+	flex: none;
+	overflow: hidden;
+	width: var(--dock);
+}
+
+.panel-dock > .panel + .panel {
+	border-block-start: 1px solid var(--border);
+}
+
+/* A sheet or a drawer: over the canvas, on a backdrop a tap beside it lands on. */
+.panel-backdrop,
+.panel-host {
+	position: fixed;
+	z-index: var(--z-sheet);
+}
+
+.panel-backdrop {
+	animation: dim-in var(--duration-l) var(--ease-out);
+	background: rgb(0 0 0 / 0.25);
+	inset: 0;
+}
+
+.panel-host {
+	box-shadow: var(--shadow-xl);
+	outline: none;
+}
+
+/* As tall as what it holds, to the host's limit: from a basis of 0 it would be nothing. */
+.panel-host > .panel {
+	flex: 1 1 auto;
+}
+
+.panel-sheet {
+	--arrive-y: 1rem;
+	animation: arrive var(--duration-l) var(--ease-out);
+	border-start-end-radius: var(--radius-l);
+	border-start-start-radius: var(--radius-l);
+	inset: auto 0 0;
+	max-height: var(--sheet-max);
+	padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* The grab handle: a pill, centred in a strip a target tall. */
+.sheet-handle {
+	cursor: grab;
+	display: grid;
+	flex: none;
+	height: var(--target);
+	place-items: center;
+	touch-action: none;
+}
+
+.sheet-handle::before {
+	background: var(--border);
+	border-radius: var(--radius-pill);
+	content: '';
+	height: 0.25rem;
+	width: 2.25rem;
+}
+
+/* A drawer comes in from its own side, which `arrive` has no axis for. */
+@keyframes slide-in {
+	from {
+		opacity: 0;
+		translate: calc(var(--slide-x) * var(--slide-flip, 1)) 0;
+	}
+}
+
+.panel-drawer {
+	animation: slide-in var(--duration-xl) var(--ease-glide);
+	inset-block: 0;
+	padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
+	width: min(var(--dock), 90vw);
+}
+
+.panel-drawer-end {
+	--slide-x: 1.5rem;
+	inset-inline-end: 0;
+	padding-inline-end: env(safe-area-inset-right);
+}
+
+.panel-drawer-start {
+	--slide-x: -1.5rem;
+	inset-inline-start: 0;
+	padding-inline-start: env(safe-area-inset-left);
+}
+
+.panel-drawer:dir(rtl) {
+	--slide-flip: -1;
+}
+
+.field-label {
+	font-size: var(--text-s);
+	white-space: nowrap;
+}
+
+.slider,
+.select,
+.color-field {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	min-height: var(--target);
+	min-width: 0;
+}
+
+.toolbar .slider {
+	flex: 1 1 10rem;
+	max-width: 18rem;
+}
+
+.slider input {
+	accent-color: var(--accent);
+	cursor: pointer;
+	flex: 1;
+	height: var(--target);
+	margin: 0;
+	min-width: 4rem;
+}
+
+/* A value read out beside a slider, and a key beside a menu's item. */
+.slider output,
+.menu-shortcut {
+	color: var(--muted);
+	font-family: inherit;
+	font-size: var(--text-s);
+	font-variant-numeric: tabular-nums;
+	min-width: 2.5rem;
+	text-align: end;
+}
+
+.select select,
+.color-hex,
+.color-none {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	font: inherit;
+	/* What Safari on a phone needs of a field, or it zooms in on focus. */
+	font-size: var(--text-field-floor);
+	max-width: 100%;
+	min-height: var(--target);
+	min-width: var(--target);
+	padding: 0 var(--space-s);
+}
+
+.color-hex {
+	font-family: var(--font-mono);
+	width: 6.5rem;
+}
+
+.color-field {
+	flex-wrap: wrap;
+}
+
+/* In `currentColor`, under a picker that takes the press unseen; none is struck through. */
+.color-swatch {
+	background: currentColor;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-m);
+	flex: none;
+	height: var(--target);
+	position: relative;
+	width: var(--target);
+}
+
+.color-swatch.is-none {
+	background:
+		linear-gradient(to top right, transparent 48%, var(--bad) 48% 52%, transparent 52%),
+		color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.color-swatch input {
+	cursor: pointer;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	position: absolute;
+	width: 100%;
+}
+
+.color-swatch:has(:focus-visible) {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
+.color-recent {
+	display: flex;
+	flex-basis: 100%;
+	flex-wrap: wrap;
+	gap: var(--space-2xs);
+}
+
+/* A target around a smaller square of its colour, in `currentColor`. */
+.color-recent-swatch {
+	display: grid;
+	padding: var(--space-s);
+}
+
+.color-recent-swatch::before {
+	background: currentColor;
+	border-radius: var(--radius-s);
+	box-shadow: inset 0 0 0 1px var(--border);
+	content: '';
+}
+
+.color-recent-swatch[aria-pressed='true']::before {
+	outline: 2px solid var(--on-fg);
+	outline-offset: 2px;
+}
+
+.menu {
+	display: inline-flex;
+	position: relative;
+}
+
+/* What floats over the page, a menu and a notice, has the one edge. */
+.menu-list,
+.notice-card {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-l);
+}
+
+.menu-list {
+	--arrive-scale: 0.98;
+	--arrive-y: -0.25rem;
+	animation: arrive var(--duration-m) var(--ease-out);
+	background: var(--bg);
+	display: flex;
+	flex-direction: column;
+	inset-block-start: calc(100% + var(--space-2xs));
+	inset-inline-start: 0;
+	max-width: min(20rem, 90vw);
+	min-width: 12rem;
+	padding: var(--space-2xs);
+	position: absolute;
+	transform-origin: top;
+	z-index: var(--z-menu);
+}
+
+.menu-end {
+	inset-inline: auto 0;
+}
+
+.menu-item {
+	align-items: center;
+	border-radius: var(--radius-s);
+	display: flex;
+	gap: var(--space-m);
+	padding: 0 var(--space-m);
+	text-align: start;
+	width: 100%;
+}
+
+.menu-item:focus-visible {
+	outline-offset: -2px;
+}
+
+.menu-item[aria-disabled='true'] {
+	color: var(--muted);
+	cursor: default;
+}
+
+.menu-item-danger {
+	color: var(--bad);
+}
+
+/* Over the foot of what holds it, the canvas; taps go through all but the card. */
+.notice {
+	display: flex;
+	inset: auto 0 max(var(--space-l), env(safe-area-inset-bottom));
+	justify-content: center;
+	padding-inline: var(--space-l);
+	pointer-events: none;
+	position: absolute;
+	z-index: var(--z-float);
+}
+
+.notice-card {
+	--arrive-y: 0.5rem;
+	animation: arrive var(--duration-l) var(--ease-out);
+	background: var(--surface);
+	font-size: var(--text-s);
+	max-width: 28rem;
+	padding: var(--space-s) var(--space-m);
+	pointer-events: auto;
+}

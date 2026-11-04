@@ -20,7 +20,20 @@ export const useDrawings = (folderPath: string): DrawingRecord[] | undefined => 
 	return useLiveQuery(() => drawingsIn(db, folderPath), [db, folderPath]);
 };
 
-export const useDrawing = (id: string | undefined): DrawingRecord | undefined => {
+/**
+ * A drawing by its id: `loading` until the store has answered for this id,
+ * then the row, or `missing` where there is none. The answer carries the id it
+ * is for, since a live query keeps its last answer while the next one is
+ * asked: the drawing before this one is not this one, and neither is its
+ * absence.
+ */
+export const useDrawing = (id: string): DrawingRecord | 'loading' | 'missing' => {
 	const db = useDb();
-	return useLiveQuery(async () => (id === undefined ? undefined : db.drawings.get(id)), [db, id]);
+	const answer = useLiveQuery(
+		async () => ({ id, row: await db.drawings.get(id) }),
+		[db, id],
+		undefined
+	);
+	if (answer?.id !== id) return 'loading';
+	return answer.row ?? 'missing';
 };

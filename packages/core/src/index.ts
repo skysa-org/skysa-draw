@@ -18,12 +18,26 @@ export {
 	emptyDrawing,
 	isDrawingText,
 	readDrawingId,
+	readDrawingProlog,
 	readDrawingSize,
 	readDrawingTitle,
 	SVG_NAMESPACE,
 	withDrawingId,
 	withDrawingTitle,
 } from './drawing/document.js';
+export {
+	BLEND_MODES,
+	type BlendMode,
+	GRAPHICS_ELEMENTS,
+	isBlendMode,
+	isGraphicsElement,
+	LAYER_ATTRIBUTES,
+	LAYER_KINDS,
+	layerId,
+	type LayerKind,
+	layerNumber,
+	RASTER_MAX_SIDE,
+} from './drawing/layers.js';
 export { messageOf } from './errors.js';
 // With the types a deployment's policy is written against (CLAUDE.md, the
 // `EntitlementProvider` and `RateLimiter` seams): no app imports them, but an
@@ -55,7 +69,12 @@ export {
 } from './files/pictures.js';
 export { bytesHash, contentHash } from './hash.js';
 export { clusters } from './names/bytes.js';
-export { conflictFilePath, conflictFolderPath, conflictPath } from './names/conflicts.js';
+export {
+	conflictFilePath,
+	conflictFolderPath,
+	conflictPath,
+	conflictStamp,
+} from './names/conflicts.js';
 export { extensionOf } from './names/extension.js';
 export { foldName, isDrawingName } from './names/fold.js';
 export {

@@ -1,0 +1,66 @@
+/* The viewport (docs/ARCHITECTURE.md §7, "The interface"): the stage the
+   drawing is mounted on, the overlay over it, the screen canvas for a live
+   raster stroke, and the paper behind the drawing. */
+
+/* `touch-action: none` so every finger reaches the pointer events and none
+   scrolls the page; no text selection, since a drag over a `<text>` would
+   otherwise select it; and no callout on a long press, which on iOS would
+   open over a finger that is drawing. */
+.viewport {
+	position: relative;
+	height: 100%;
+	overflow: hidden;
+	background: var(--surface);
+	outline: none;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+}
+
+.viewport:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
+/* As wide and tall in CSS pixels as the drawing is in user units, and moved
+   and scaled about its corner by the view (`viewport/transform.ts`). */
+.viewport-stage {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
+}
+
+/* White paper under the drawing; a checkerboard behind transparent pixels is for later. */
+.viewport-paper {
+	position: absolute;
+	inset: 0;
+	background: #fff;
+	box-shadow: var(--shadow-m);
+}
+
+/* The mount holds the drawing's root in a shadow root of its own, whose rules
+   (`SHADOW_RULES` in `Viewport.tsx`) size it: nothing here reaches inside, and
+   nothing of the drawing's reaches out. */
+.viewport-mount,
+.viewport-overlay {
+	position: absolute;
+	inset: 0;
+}
+
+/* Previews and handles in the drawing's user units, over it and out of the
+   pointer's way; `visible` so a handle past the paper's edge is drawn. */
+.viewport-overlay {
+	overflow: visible;
+	pointer-events: none;
+}
+
+/* A live raster stroke, in device pixels over the whole viewport. */
+.viewport-screen {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}

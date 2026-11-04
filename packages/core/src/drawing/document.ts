@@ -14,6 +14,8 @@
  * of its own.
  */
 
+import { LAYER_ATTRIBUTES, layerId, type LayerKind } from './layers.js';
+
 export const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 /** The namespace of this app's own attributes on a drawing's root element. */
@@ -90,6 +92,21 @@ const isSvgRoot = (root: RootTag): boolean =>
 export const isDrawingText = (text: string): boolean => {
 	const root = rootTagOf(text);
 	return root !== undefined && isSvgRoot(root);
+};
+
+/**
+ * Everything before the root's start tag, byte for byte: a BOM, the XML
+ * declaration, processing instructions, comments, a doctype and the whitespace
+ * between them; `''` where the root tag opens the file. The editor serializes
+ * the tree it holds and puts this back in front of it (docs/ARCHITECTURE.md §7,
+ * "The editor"), so a file from Inkscape keeps its comment and its doctype
+ * through an edit, and a drawing opened and closed is the same bytes.
+ * `undefined` for text that is not an SVG document, which has no root to
+ * serialize.
+ */
+export const readDrawingProlog = (text: string): string | undefined => {
+	const root = rootTagOf(text);
+	return root === undefined || !isSvgRoot(root) ? undefined : text.slice(0, root.start);
 };
 
 /** The prefix the root binds to `DRAWING_NAMESPACE`, where it binds one. */
@@ -249,10 +266,14 @@ export const withDrawingTitle = (text: string, title: string): string => {
 /** The size a new drawing is given where nothing says otherwise: a 16:10 canvas. */
 export const DEFAULT_DRAWING_SIZE: DrawingSize = { width: 1600, height: 1000 };
 
+/** The kind of the one layer a new drawing starts with: something to draw on. */
+const FIRST_LAYER_KIND: LayerKind = 'vector';
+
 /**
- * A new, empty drawing: the root with its namespaces, id and canvas, and a
- * title where one is given. What the app writes on "new drawing", and the
- * shape every drawing it saves keeps.
+ * A new, empty drawing: the root with its namespaces, id and canvas, a title
+ * where one is given, and one empty vector layer, so the first stroke has a
+ * layer to land on (docs/ARCHITECTURE.md §3, "The drawing file"). What the app
+ * writes on "new drawing", and the shape every drawing it saves keeps.
  */
 export const emptyDrawing = ({
 	id,
@@ -271,9 +292,13 @@ export const emptyDrawing = ({
 		title === undefined || title.trim() === ''
 			? ''
 			: `\n  <title>${escapeText(title.trim())}</title>`;
+	// After the title, as §3 shows it: the title is the root's first child, and
+	// the layer the first thing that draws. Its kind is written, not left to be
+	// inferred, so the file says what the app meant.
+	const layer = `\n  <g id="${layerId(1)}" ${PREFERRED_PREFIX}:${LAYER_ATTRIBUTES.kind}="${FIRST_LAYER_KIND}"/>`;
 	return [
 		'<?xml version="1.0" encoding="UTF-8"?>',
-		`<svg xmlns="${SVG_NAMESPACE}" xmlns:${PREFERRED_PREFIX}="${DRAWING_NAMESPACE}" ${PREFERRED_PREFIX}:id="${id}" viewBox="0 0 ${size.width} ${size.height}" width="${size.width}" height="${size.height}">${titled}`,
+		`<svg xmlns="${SVG_NAMESPACE}" xmlns:${PREFERRED_PREFIX}="${DRAWING_NAMESPACE}" ${PREFERRED_PREFIX}:id="${id}" viewBox="0 0 ${size.width} ${size.height}" width="${size.width}" height="${size.height}">${titled}${layer}`,
 		'</svg>',
 		'',
 	].join('\n');

@@ -6,8 +6,6 @@
  */
 export const common = {
 	cancel: 'Cancel',
-	close: 'Close',
-	dismiss: 'Dismiss',
 	reload: 'Reload',
 	tryAgain: 'Try again',
 	later: 'Later',

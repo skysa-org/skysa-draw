@@ -2,15 +2,18 @@ import { normalizePath, ROOT } from '@skysa/draw-core';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { z } from 'zod';
 
-import { DrawingView } from '../components/drawing/DrawingView.js';
 import { DrawingList } from '../components/list/DrawingList.js';
 import { ErrorScreen } from '../components/shell/ErrorScreen.js';
 import { Sidebar } from '../components/sidebar/Sidebar.js';
+import { Editor } from '../drawing/Editor.js';
+import { t } from '../i18n/t.js';
 
 /**
- * The one screen: folders, the drawings in the open folder, and the open
- * drawing. What is open is in the query, so a link opens it and the service
- * worker answers it with the shell (`pwa.ts`): `/?f=Work&d=<id>`.
+ * The one route: the library — folders and the drawings in the open folder —
+ * and, when a drawing is open, the editor filling the window with the library
+ * in a drawer (docs/ARCHITECTURE.md §7, "The interface"). What is open is in
+ * the query, so a link opens it and the service worker answers it with the
+ * shell (`pwa.ts`): `/?f=Work&d=<id>`.
  */
 const searchSchema = z.object({
 	/** The open folder's path; the root when absent. */
@@ -24,8 +27,8 @@ const Home = () => {
 	const navigate = useNavigate({ from: Route.fullPath });
 	const folderPath = f === undefined ? ROOT : normalizePath(f);
 
-	return (
-		<main className="home">
+	const library = (
+		<>
 			<Sidebar
 				folderPath={folderPath}
 				onOpen={(path) => {
@@ -39,12 +42,35 @@ const Home = () => {
 					void navigate({ search: (previous) => ({ ...previous, d: id }) });
 				}}
 			/>
-			<DrawingView
+		</>
+	);
+
+	if (d !== undefined) {
+		return (
+			<Editor
 				id={d}
-				onDeleted={() => {
+				library={library}
+				onBack={() => {
 					void navigate({ search: ({ d: _gone, ...rest }) => rest });
 				}}
+				onReplaced={(id) => {
+					// In place of the drawing deleted from under its edits, which
+					// a step back would only find not here.
+					void navigate({
+						search: (previous) => ({ ...previous, d: id }),
+						replace: true,
+					});
+				}}
 			/>
+		);
+	}
+
+	return (
+		<main className="home">
+			{library}
+			<section className="drawing-view" aria-label={t('shell.panes.drawing')}>
+				<p className="pane-empty">{t('drawings.nothingOpen')}</p>
+			</section>
 		</main>
 	);
 };
