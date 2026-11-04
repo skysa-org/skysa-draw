@@ -158,7 +158,7 @@ const angleBetween = (u: Point, v: Point): number =>
 	Math.atan2(u.x * v.y - u.y * v.x, u.x * v.x + u.y * v.y);
 
 /**
- * An elliptical arc as cubics, by the conversion from endpoints to a centre in
+ * An elliptical arc as cubics, by the conversion from endpoints to a center in
  * SVG's implementation notes
  * (https://www.w3.org/TR/SVG2/implnote.html#ArcConversionEndpointToCenter),
  * radii too small for the endpoints grown until they reach
@@ -206,7 +206,7 @@ export const arcToCubics = (
 	const count = Math.max(1, Math.ceil(Math.abs(delta) / (Math.PI / 2) - 1e-9));
 	const step = delta / count;
 	const k = (4 / 3) * Math.tan(step / 4);
-	// A point of the unit circle onto the ellipse: scaled by the radii, turned, moved to the centre.
+	// A point of the unit circle onto the ellipse: scaled by the radii, turned, moved to the center.
 	const place = (p: Point): Point => ({
 		x: cx + cos * a * p.x - sin * b * p.y,
 		y: cy + sin * a * p.x + cos * b * p.y,

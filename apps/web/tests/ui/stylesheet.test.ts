@@ -82,4 +82,12 @@ describe('ui.css', () => {
 	it('docks a column the width of --dock', () => {
 		expect(declarationsOf('.panel-dock')).toContain('width: var(--dock);');
 	});
+
+	it('lights a color of the pair under the pointer by its square, not by the target it is drawn across', () => {
+		// Above `shell.css`'s `button:not(.primary):hover` (0,2,1), which would light the target.
+		expect(declarationsOf('.color-pair-slot:hover:enabled')).toContain('background: none;');
+		expect(declarationsOf('.color-pair-slot:hover > .color-pair-square')).toMatch(
+			/outline: [^;]+ solid /
+		);
+	});
 });

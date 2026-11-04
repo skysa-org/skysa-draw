@@ -1,5 +1,6 @@
 import type { Catalog } from '../catalog.js';
 import { account } from './account.js';
+import { colorPair } from './colorPair.js';
 import { common } from './common.js';
 import { connect } from './connect.js';
 import { connection } from './connection.js';
@@ -13,6 +14,7 @@ import { paths } from './paths.js';
 import { raster } from './raster.js';
 import { regions } from './regions.js';
 import { scheduler } from './scheduler.js';
+import { selection } from './selection.js';
 import { shell } from './shell.js';
 import { sources } from './sources.js';
 import { text } from './text.js';
@@ -32,12 +34,14 @@ export const en = {
 	drawings,
 	ui,
 	editor,
+	colorPair,
 	layers,
 	tools,
 	raster,
 	paths,
 	text,
 	regions,
+	selection,
 	exporting,
 	connection,
 	scheduler,

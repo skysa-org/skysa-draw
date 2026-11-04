@@ -26,15 +26,15 @@ Under `drive.file` the app **cannot see files it did not create**. Drawings put 
    - Set the app name to what your users should see (the app folder it makes in Drive is always `skysa-draw`).
    - Add a support email.
    - Add your home page, privacy policy and terms URLs if you have them.
-   - Add the domain of `APP_ORIGIN` under authorised domains.
+   - Add the domain of `APP_ORIGIN` under authorized domains.
 2. **Audience:**
-   - Choose **External**, unless everyone who will connect is in your own Google Workspace organisation. In that case **Internal** avoids everything under "Testing" below.
+   - Choose **External**, unless everyone who will connect is in your own Google Workspace organization. In that case **Internal** avoids everything under "Testing" below.
 3. **Data access:** add the three scopes in the table above.
 
 ## 3. OAuth client
 
 1. **Clients → Create client**, type **Web application**.
-2. Authorised redirect URI: `<APP_ORIGIN>/api/auth/connect/gdrive/callback`, for example `https://draw.example.com/api/auth/connect/gdrive/callback`. For local development, add `http://localhost:5173/api/auth/connect/gdrive/callback` as well.
+2. Authorized redirect URI: `<APP_ORIGIN>/api/auth/connect/gdrive/callback`, for example `https://draw.example.com/api/auth/connect/gdrive/callback`. For local development, add `http://localhost:5173/api/auth/connect/gdrive/callback` as well.
 3. No JavaScript origins are needed. The browser never talks to Google's token endpoint; the exchange happens on this server, with the secret.
 4. Put the client ID and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, using `wrangler secret put` in production or `apps/api/.dev.vars` locally.
 
@@ -50,7 +50,7 @@ A new External app starts with the publishing status **Testing**. That status is
 
 On the **Audience** page, **Publish app**. The app asks only for non-sensitive scopes, so Google does not require verification before anyone with a Google account can connect ([Verification requirements](https://support.google.com/cloud/answer/13463073)). The warnings and the 100-user cap that go with unverified apps are for sensitive and restricted scopes, which this app does not ask for.
 
-**Brand verification** is optional. Google asks for it only if the consent screen is to show your app's name and logo. It checks the branding details (name, logo, home page, privacy policy, authorised domains) and asks you to prove you own the domains.
+**Brand verification** is optional. Google asks for it only if the consent screen is to show your app's name and logo. It checks the branding details (name, logo, home page, privacy policy, authorized domains) and asks you to prove you own the domains.
 
 Once published, refresh tokens no longer expire after a week. They still stop working when:
 - the user revokes access;
@@ -64,6 +64,6 @@ There is one exception. A Workspace admin who marks Drive as restricted for thei
 
 ## What users see
 
-- **Connect:** Google's account chooser, then the consent screen. Google lets the user untick individual permissions. If they untick Drive, nothing is stored and the app says access to their files was not granted and to connect again (`connect=partial`). Nothing is revoked either, since a revoke would also end the same user's working connection on another device. What they did grant (name and email) stays listed on their Google account until they remove it.
+- **Connect:** Google's account chooser, then the consent screen. Google lets the user uncheck individual permissions. If they uncheck Drive, nothing is stored and the app says access to their files was not granted and to connect again (`connect=partial`). Nothing is revoked either, since a revoke would also end the same user's working connection on another device. What they did grant (name and email) stays listed on their Google account until they remove it.
 - **Disconnect:** the app revokes the grant at Google, so it disappears from the user's [third-party access](https://myaccount.google.com/connections) page as well. Every device shares the one connection, so all of them are disconnected. The revoke reaches further than this app: it removes the user's grants to every client in the same Cloud project, which is one more reason to give the deployment a project of its own.
 - **Reconnect weekly** while the app is in Testing (above).

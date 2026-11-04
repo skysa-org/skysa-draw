@@ -3,7 +3,7 @@
 > **Draft — not reviewed by counsel.** This states the project's intent. It has
 > not been checked by a lawyer and may change. See `docs/ARCHITECTURE.md` §13.
 
-The code in this repository is licensed under [AGPL-3.0](LICENSE). That licence
+The code in this repository is licensed under [AGPL-3.0](LICENSE). That license
 covers the **code**. It does not grant any right to the **names and marks** the
 project goes by:
 
@@ -16,7 +16,7 @@ project goes by:
 
 This is the ordinary split for an open-source project, and it exists for one
 reason: someone running a modified instance should not be able to make users
-believe it is the one the project publishes. The licence is meant to let you
+believe it is the one the project publishes. The license is meant to let you
 change the software freely; it is not meant to let you speak in the project's
 name.
 
@@ -39,7 +39,7 @@ name.
 The app as this repository builds it is called **Draw**, in gray, with the
 pen-stroke icons on that gray (`apps/web/brand/`). None of that is a mark this
 policy claims: it is part of the code you received, and you may ship it as it
-is. To give your instance its own name, colours, icons and fonts, set
+is. To give your instance its own name, colors, icons and fonts, set
 `DRAW_BRAND` when you build (`docs/self-hosting.md`, "Your own brand"); that
 is how the project's own hosted service, Skysa Draw, gets its name and look,
 so a deployment never has to edit the code to rebrand.
@@ -58,7 +58,7 @@ so a deployment never has to edit the code to rebrand.
 
 ## Accuracy, not permission
 
-None of the above is a licence fee or an approval queue. If you have rebranded
+None of the above is a license fee or an approval queue. If you have rebranded
 and are describing your relationship to the project accurately, you are within
 this policy and do not need to contact anyone.
 

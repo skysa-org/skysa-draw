@@ -19,7 +19,7 @@ import {
 /**
  * Connecting Google Drive: the same routes again, over Google's OAuth. What
  * these hold is what Google does differently — offline access has to be asked
- * for, the user can untick the Drive scope and the grant still succeeds, a
+ * for, the user can uncheck the Drive scope and the grant still succeeds, a
  * refresh keeps the refresh token, and there is a revoke to call — one that
  * reaches every grant to the Cloud project, so it is called only on disconnect.
  */
@@ -97,7 +97,7 @@ describe('callback', () => {
 		expect(app.stub.calls).toHaveLength(1);
 	});
 
-	it('sends the user back to try again when Drive was unticked, revoking nothing', async () => {
+	it('sends the user back to try again when Drive was unchecked, revoking nothing', async () => {
 		const log = workerLog();
 		const app = buildApp({
 			config: allProvidersConfig(),

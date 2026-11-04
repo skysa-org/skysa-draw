@@ -464,7 +464,7 @@ export const disconnectAccount = async (
 			client.withCredential(held.credential).signOut()
 		);
 		// Already gone on the server is what was asked for. So is a credential it
-		// no longer honours: whatever removed it did the disconnecting.
+		// no longer honors: whatever removed it did the disconnecting.
 		const done =
 			result.ok || result.refusal === 'not_found' || result.refusal === 'credential_revoked';
 		if (!done) return result;
@@ -488,7 +488,7 @@ export const stopSyncingHere = async (db: DrawDatabase, connectionId: string): P
 };
 
 export type CancelImportResult =
-	{ ok: true; outcome: 'cancelled' | 'imported' | 'written' } | { ok: false; refusal: Refusal };
+	{ ok: true; outcome: 'canceled' | 'imported' | 'written' } | { ok: false; refusal: Refusal };
 
 /**
  * Asks the server to sign this device out of an importing connection, and
@@ -512,7 +512,7 @@ const serverRefuses = async (
 };
 
 /**
- * A source's first import, cancelled: the sync stops, the server signs this
+ * A source's first import, canceled: the sync stops, the server signs this
  * device out of the account, and the source and everything it brought are
  * thrown away here (`abandonImport`) — so the device is as it was before
  * Connect was pressed.
@@ -547,7 +547,7 @@ export const cancelImport = async (
 		if (refused !== undefined) return refused;
 		await forgetCredential(db, connectionId);
 		const outcome = await abandonImport(db, connectionId);
-		if (outcome === 'abandoned') return { ok: true, outcome: 'cancelled' };
+		if (outcome === 'abandoned') return { ok: true, outcome: 'canceled' };
 		await letGo(db, connectionId, 'disconnected');
 		return { ok: true, outcome };
 	} finally {

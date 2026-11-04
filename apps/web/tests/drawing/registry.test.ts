@@ -2,7 +2,7 @@ import { LAYER_KINDS } from '@skysa/draw-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-	behaviourFor,
+	behaviorFor,
 	notAvailableMessage,
 	toolById,
 	TOOLS,
@@ -11,7 +11,7 @@ import {
 	DEFAULT_TOOL_OPTIONS,
 	type Tool,
 	TOOL_IDS,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolId,
 } from '../../src/drawing/tools/types.js';
 import { t } from '../../src/i18n/t.js';
@@ -21,20 +21,19 @@ import { t } from '../../src/i18n/t.js';
  * shows, each one tool with one name, and how the viewport finds what one does
  * on a layer. What each tool does on a vector or a raster layer is the
  * business of those modules and their tests; here they are stand-ins, one
- * behaviour per tool and kind, so the registry is seen to put each where it
+ * behavior per tool and kind, so the registry is seen to put each where it
  * belongs. The hand and the zoom are the registry's own, and real.
  */
 
 const doubles = vi.hoisted(() => {
-	const behaviour = () => ({
+	const behavior = () => ({
 		begin: () => undefined,
 		move: () => undefined,
 		end: () => undefined,
 		cancel: () => undefined,
 	});
 	const both = ['select', 'pencil', 'brush', 'eraser', 'fill', 'eyedropper', 'rectangle'];
-	const table = (ids: readonly string[]) =>
-		Object.fromEntries(ids.map((id) => [id, behaviour()]));
+	const table = (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, behavior()]));
 	return {
 		// Each kind lacks one the other has, as the node tool is vector's alone
 		// and the smudge raster's.
@@ -42,10 +41,10 @@ const doubles = vi.hoisted(() => {
 		raster: table([...both, 'line', 'smudge']),
 	};
 });
-vi.mock('../../src/drawing/tools/vector/index.js', () => ({ vectorBehaviours: doubles.vector }));
-vi.mock('../../src/drawing/tools/raster/index.js', () => ({ rasterBehaviours: doubles.raster }));
+vi.mock('../../src/drawing/tools/vector/index.js', () => ({ vectorBehaviors: doubles.vector }));
+vi.mock('../../src/drawing/tools/raster/index.js', () => ({ rasterBehaviors: doubles.raster }));
 
-const noop = (): ToolBehaviour => ({
+const noop = (): ToolBehavior => ({
 	begin: () => undefined,
 	move: () => undefined,
 	end: () => undefined,
@@ -64,6 +63,7 @@ describe('TOOLS', () => {
 			'node',
 			'marquee',
 			'lasso',
+			'wand',
 			'hand',
 			'zoom',
 			'crop',
@@ -106,37 +106,44 @@ describe('TOOLS', () => {
 			'smoothing',
 			'fill',
 		]);
-		expect(toolById('select')?.options).toEqual([]);
+		expect(toolById('select')?.options).toEqual(['autoSelect']);
 	});
 
-	it("puts each kind's behaviour under its tool, one tool for both kinds", () => {
-		expect(toolById('pencil')?.behaviours).toEqual({
+	it('lets the select tool alone pick the layer a press acts on, which its Auto-Select does', () => {
+		expect(toolById('select')?.pick).toBeDefined();
+		TOOLS.filter((tool) => tool.id !== 'select').forEach((tool) => {
+			expect(tool.pick).toBeUndefined();
+		});
+	});
+
+	it("puts each kind's behavior under its tool, one tool for both kinds", () => {
+		expect(toolById('pencil')?.behaviors).toEqual({
 			vector: doubles.vector.pencil,
 			raster: doubles.raster.pencil,
 		});
-		expect(toolById('pencil')?.behaviours.vector).toBe(doubles.vector.pencil);
-		expect(toolById('pencil')?.behaviours.raster).toBe(doubles.raster.pencil);
+		expect(toolById('pencil')?.behaviors.vector).toBe(doubles.vector.pencil);
+		expect(toolById('pencil')?.behaviors.raster).toBe(doubles.raster.pencil);
 	});
 
-	it('names a kind only where the tool has a behaviour for it', () => {
-		expect(Object.keys(toolById('ellipse')?.behaviours ?? {})).toEqual(['vector']);
-		expect(Object.keys(toolById('line')?.behaviours ?? {})).toEqual(['raster']);
-		expect(Object.keys(toolById('hand')?.behaviours ?? {})).toEqual(['any']);
+	it('names a kind only where the tool has a behavior for it', () => {
+		expect(Object.keys(toolById('ellipse')?.behaviors ?? {})).toEqual(['vector']);
+		expect(Object.keys(toolById('line')?.behaviors ?? {})).toEqual(['raster']);
+		expect(Object.keys(toolById('hand')?.behaviors ?? {})).toEqual(['any']);
 		TOOLS.forEach((tool) => {
-			Object.values(tool.behaviours).forEach((behaviour) => {
-				expect(behaviour).toBeDefined();
+			Object.values(tool.behaviors).forEach((behavior) => {
+				expect(behavior).toBeDefined();
 			});
 		});
 	});
 
-	it('gives the hand, the zoom and the crop a behaviour for any layer, and none to the rest', () => {
+	it('gives the hand, the zoom and the crop a behavior for any layer, and none to the rest', () => {
 		const anyLayer: readonly ToolId[] = ['hand', 'zoom', 'crop'];
 		anyLayer.forEach((id) => {
-			expect(toolById(id)?.behaviours.any).toBeDefined();
+			expect(toolById(id)?.behaviors.any).toBeDefined();
 		});
-		expect(toolById('hand')?.behaviours.any).not.toBe(toolById('zoom')?.behaviours.any);
+		expect(toolById('hand')?.behaviors.any).not.toBe(toolById('zoom')?.behaviors.any);
 		TOOLS.filter((tool) => !anyLayer.includes(tool.id)).forEach((tool) => {
-			expect(tool.behaviours.any).toBeUndefined();
+			expect(tool.behaviors.any).toBeUndefined();
 		});
 	});
 
@@ -147,30 +154,30 @@ describe('TOOLS', () => {
 	});
 });
 
-describe('behaviourFor', () => {
+describe('behaviorFor', () => {
 	const vector = noop();
 	const any = noop();
-	const tool: Tool = { id: 'select', options: [], behaviours: { vector, any } };
+	const tool: Tool = { id: 'select', options: [], behaviors: { vector, any } };
 
 	it("prefers the layer's kind over any, and falls back to any for a kind not named", () => {
-		expect(behaviourFor(tool, 'vector')).toBe(vector);
-		expect(behaviourFor(tool, 'raster')).toBe(any);
-		expect(behaviourFor(tool, 'group')).toBe(any);
-		expect(behaviourFor(tool, undefined)).toBe(any);
+		expect(behaviorFor(tool, 'vector')).toBe(vector);
+		expect(behaviorFor(tool, 'raster')).toBe(any);
+		expect(behaviorFor(tool, 'group')).toBe(any);
+		expect(behaviorFor(tool, undefined)).toBe(any);
 	});
 
 	it('is nothing where the tool has neither', () => {
-		const only: Tool = { id: 'pencil', options: [], behaviours: { vector } };
-		expect(behaviourFor(only, 'raster')).toBeUndefined();
-		expect(behaviourFor(only, undefined)).toBeUndefined();
-		expect(behaviourFor(toolById('hand') as Tool, undefined)).toBeDefined();
-		expect(behaviourFor(toolById('ellipse') as Tool, 'raster')).toBeUndefined();
-		expect(behaviourFor(toolById('ellipse') as Tool, 'vector')).toBe(doubles.vector.ellipse);
+		const only: Tool = { id: 'pencil', options: [], behaviors: { vector } };
+		expect(behaviorFor(only, 'raster')).toBeUndefined();
+		expect(behaviorFor(only, undefined)).toBeUndefined();
+		expect(behaviorFor(toolById('hand') as Tool, undefined)).toBeDefined();
+		expect(behaviorFor(toolById('ellipse') as Tool, 'raster')).toBeUndefined();
+		expect(behaviorFor(toolById('ellipse') as Tool, 'vector')).toBe(doubles.vector.ellipse);
 	});
 });
 
 describe('notAvailableMessage', () => {
-	const smudge: Tool = { id: 'smudge', options: [], behaviours: {} };
+	const smudge: Tool = { id: 'smudge', options: [], behaviors: {} };
 
 	it('names the tool and the kind of layer, in the user words', () => {
 		expect(notAvailableMessage(smudge, 'vector')).toBe(

@@ -1,15 +1,15 @@
-import type { ToolBehaviour } from '../types.js';
+import type { ToolBehavior } from '../types.js';
 import { smoothPath } from './geometry.js';
-import { createStrokeBehaviour } from './stroke.js';
+import { createStrokeBehavior } from './stroke.js';
 import { inkOf, opacityOf } from './svg.js';
 
 /**
  * The pencil on a vector layer (docs/decisions/0004-the-interface.md): a
  * freehand `<path>` of one width, smoothed by the smoothing option. It always
- * makes a mark, so with no stroke colour it draws in the fill colour.
+ * makes a mark, so with no stroke color it draws in the fill color.
  */
-export const createPencil = (): ToolBehaviour =>
-	createStrokeBehaviour({
+export const createPencil = (): ToolBehavior =>
+	createStrokeBehavior({
 		label: 'tools.pencil',
 		point: (sample) => ({ x: sample.x, y: sample.y }),
 		attributes: (options) => ({

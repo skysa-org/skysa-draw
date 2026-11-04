@@ -165,7 +165,7 @@ export const createPullDecide = (
 		const renaming = renamesQueued(queue);
 		const batch: Batch = {
 			// Everything this batch says still exists, and where, so a deletion
-			// elsewhere in it can be recognised as the first half of a move.
+			// elsewhere in it can be recognized as the first half of a move.
 			live: liveEntries(entries),
 			listed: unhidden(liveEntries(entries)),
 			claimed: new Set([...claimedPaths(entries), ...renaming.values()]),

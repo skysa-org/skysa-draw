@@ -14,7 +14,7 @@ import { Question, QuestionActions } from './Question.js';
  * The one place in the app where a user's writing crosses from one storage
  * account into another, so it is two steps and both of them name the account it
  * is going to (docs/ARCHITECTURE.md §10). The first offers it; the second says exactly
- * what will be in each account afterwards, including the two things people are
+ * what will be in each account afterward, including the two things people are
  * entitled to be surprised by — a drawing that was pushed once is left behind in
  * an older version as well as copied, and an unsent rename or delete is not
  * carried at all, because it is about a file only the old account has.
@@ -84,7 +84,7 @@ export const canMove = (listed: Unsynced, targets: readonly ConnectedSource[]): 
  * list would call a source one thing before it had been shown and another
  * after. That trade is about a switcher. This is the one confirm in the app
  * that writes a user's drawings into another storage account, and "Dropbox ·
- * dbid:AAAA…" is not an account anybody can recognise.
+ * dbid:AAAA…" is not an account anybody can recognize.
  */
 const targetName = (source: ConnectedSource): string => sourceName(source) ?? connectedName(source);
 
@@ -193,7 +193,7 @@ export const MoveUnsent = ({ listed, from, targets, busy, disabled, onMove }: Mo
 	const asked = useRef(false);
 	useEffect(() => {
 		// The second step takes the focus as every question does (`Question`);
-		// cancelled, it gives it back to the button that asked, rather than let
+		// canceled, it gives it back to the button that asked, rather than let
 		// it fall to the page, where Escape reaches nothing.
 		const was = asked.current;
 		asked.current = confirming;

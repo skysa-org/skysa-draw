@@ -90,7 +90,7 @@ jobs:
                   # the Changesets bot was turned down for, arriving from the
                   # other side.
                   #
-                  # Recognised by shape rather than by branch name, which anyone
+                  # Recognized by shape rather than by branch name, which anyone
                   # could adopt: a version pull request touches nothing in a
                   # package but its `package.json` and its `CHANGELOG.md`. A
                   # source file alongside them is not a release and is asked for

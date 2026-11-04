@@ -11,7 +11,7 @@ import { z } from 'zod';
  * built (docs/ARCHITECTURE.md §8, "Brand").
  *
  * A deployment points `DRAW_BRAND` at its own `brand.json` and gets its own
- * name, colours, icons and fonts without changing anything in this repo.
+ * name, colors, icons and fonts without changing anything in this repo.
  * Without it, the build uses `brand/brand.json`: "Notes", in gray, on the
  * system fonts. It is a build input and not something `/api/config` answers,
  * because the manifest, the home-screen title and icon, the precache and the
@@ -41,14 +41,14 @@ export const DEFAULT_BRAND = join(dirname(fileURLToPath(import.meta.url)), 'bran
 const SANS_STACK = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
 const MONO_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace";
 
-const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'a colour is #RRGGBB');
+const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'a color is #RRGGBB');
 
 const scheme = z.strictObject({
-	brand: colour.describe(
+	brand: color.describe(
 		"Filled buttons, links and the progress bar. The light theme's is also the installed app's navigation bar on Android 14 and older."
 	),
-	onBrand: colour.describe('Text on `brand`.'),
-	theme: colour.describe("The browser's and the installed app's title bar."),
+	onBrand: color.describe('Text on `brand`.'),
+	theme: color.describe("The browser's and the installed app's title bar."),
 });
 
 const fontFile = z.strictObject({
@@ -93,7 +93,7 @@ const brandSchema = z.strictObject({
 	colors: z.strictObject({
 		light: scheme,
 		dark: scheme,
-		background: colour.describe(
+		background: color.describe(
 			"The splash screen behind the icon while the app opens, and the installed app's navigation bar on Android 15 and later, in both themes."
 		),
 	}),
@@ -252,7 +252,7 @@ const stack = (given: BrandFont | undefined, fallback: string): string =>
 
 /**
  * The brand as a stylesheet: the fonts, and the custom properties `styles/`
- * reads for them and for the brand colour. A file of its own on this origin,
+ * reads for them and for the brand color. A file of its own on this origin,
  * so the Content-Security-Policy needs nothing new.
  */
 export const brandCss = (brand: Brand): string => {

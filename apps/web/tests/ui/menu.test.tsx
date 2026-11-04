@@ -194,6 +194,70 @@ describe('Menu', () => {
 		).toBe(false);
 	});
 
+	it('draws a rule before an item that begins a group, and the arrows pass over it', async () => {
+		const user = userEvent.setup();
+		const item = (id: string, extra: Partial<MenuItem> = {}): MenuItem => ({
+			id,
+			label: id,
+			onSelect: vi.fn(),
+			...extra,
+		});
+		render(
+			<Menu
+				label="Layer"
+				icon={<svg />}
+				items={[
+					item('Rename', { separatorBefore: true }),
+					item('Duplicate'),
+					item('Merge down', { separatorBefore: true }),
+					item('Delete', { separatorBefore: true, danger: true }),
+				]}
+			/>
+		);
+		await user.click(screen.getByRole('button', { name: 'Layer' }));
+		const rules = screen.getAllByRole('separator');
+		expect(rules).toHaveLength(2);
+		expect(rules.map((rule) => rule.nextElementSibling?.textContent)).toEqual([
+			'Merge down',
+			'Delete',
+		]);
+
+		await user.keyboard('{ArrowDown}{ArrowDown}');
+		expect(focusedItem()).toBe('Merge down');
+		await user.keyboard('{ArrowDown}');
+		expect(focusedItem()).toBe('Delete');
+		await user.keyboard('{ArrowDown}');
+		expect(focusedItem()).toBe('Rename');
+		await user.keyboard('{End}');
+		expect(focusedItem()).toBe('Delete');
+		await user.keyboard('{Home}');
+		expect(focusedItem()).toBe('Rename');
+	});
+
+	it('keeps a key pressed in it, a press and a right-click on it, from what holds it', async () => {
+		const user = userEvent.setup();
+		const under = vi.fn();
+		const { items } = makeItems();
+		render(
+			<div role="presentation" onPointerDown={under} onContextMenu={under}>
+				<Menu label="More" icon={<svg />} items={items} />
+			</div>
+		);
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		under.mockClear();
+		const keys = vi.fn();
+		window.addEventListener('keydown', keys);
+		await user.keyboard('d{Delete}{ArrowDown}');
+		window.removeEventListener('keydown', keys);
+		expect(keys).not.toHaveBeenCalled();
+
+		const menu = screen.getByRole('menu');
+		fireEvent.pointerDown(menu);
+		expect(fireEvent.contextMenu(menu)).toBe(false);
+		expect(under).not.toHaveBeenCalled();
+		expect(screen.getByRole('menu')).toBeDefined();
+	});
+
 	it('lines up with the side it is told', async () => {
 		const user = userEvent.setup();
 		const { trigger } = renderMenu('end');

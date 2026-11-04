@@ -223,7 +223,7 @@ describe('two devices at random', () => {
 
 	it('lets go of a drawing whose file moved and went, when the deletion comes in a later batch', async () => {
 		// A page boundary between the two, or the file deleted between the feed
-		// and the read: nothing at the new path to find the drawing by afterwards.
+		// and the read: nothing at the new path to find the drawing by afterward.
 		const { entry, drawing } = await pulledDrawing('a.svg', svg('one\n'));
 		await world.provider.delete(entry);
 

@@ -1,7 +1,8 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
-import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
+import type { Handover, PointerSample, ToolBehavior, ToolContext, ToolId } from '../types.js';
+import { isDoublePress, near, type Press, pressOf } from './doublePress.js';
 import {
 	apply,
 	type Box,
@@ -33,6 +34,7 @@ import {
 	topmostAt,
 } from './hit.js';
 import type { Measure } from './measure.js';
+import { hasNodes, pointsElementAt } from './node.js';
 import {
 	anchorOf,
 	axesOf,
@@ -48,13 +50,22 @@ import { CHROME_STYLE, createSvg, setAttributes } from './svg.js';
  * The select tool on a vector layer (docs/decisions/0004-the-interface.md):
  * pick, move, resize and rotate elements, each as a `transform`. A drag of a
  * selected element moves it; a drag of a handle of the selection's box
- * resizes about the opposite side or rotates about the centre; a drag from
+ * resizes about the opposite side or rotates about the center; a drag from
  * nothing is a marquee that selects what it crosses. While the drag lasts the
  * elements carry the live transform so the user sees it; at the end the
  * originals are put back and one command sets the final ones, so the layer is
  * as the command's snapshot expects it (docs/ARCHITECTURE.md §7, "Commands and
  * history"). Shift adds to a selection, keeps a resize to the ratio and snaps
  * a rotation to 15°.
+ *
+ * A double press edits what it is on, in the tool that edits it, as a
+ * double-click does in Illustrator, Figma and Inkscape (`doublePress.ts`): a
+ * text in the text tool, its caret at the press; a path or a shape in the
+ * node tool, its anchors shown; a group in the layer goes in, to the path
+ * under the press. The first press selects as any press; the second starts
+ * no drag, and as the pointer lifts the other tool is put in hand
+ * (`ToolContext.useTool`), so a second finger that turns it into a pinch
+ * changes nothing.
  */
 
 /** How near a click may be to an element's box and still hit it, in CSS pixels. */
@@ -76,11 +87,34 @@ type Drag =
 	| Readonly<{ kind: 'marquee'; from: Point; preview: SVGElement }>
 	| (Transforming & Readonly<{ kind: 'move' }>)
 	| (Transforming & Readonly<{ kind: 'resize'; handle: Handle; anchor: Point }>)
-	| (Transforming & Readonly<{ kind: 'rotate'; centre: Point }>);
+	| (Transforming & Readonly<{ kind: 'rotate'; center: Point }>);
 
 type TransformDrag = Exclude<Drag, { kind: 'marquee' }>;
 
+/** What a double press hands over as the pointer lifts: the tool, and what it is to edit. */
+type Handing = Readonly<{ id: ToolId; handover: Handover }>;
+
 const pointOf = (sample: PointerSample): Point => ({ x: sample.x, y: sample.y });
+
+/**
+ * The element of `layer` a press at `point`, in the drawing's units, is on:
+ * the topmost whose box, grown by `HIT_SLOP_PX` on the screen, holds it. The
+ * select tool's own hit, which its Auto-Select reads too, so a press that
+ * picks a layer by an element is on that element (`tools/common/autoSelect.ts`).
+ * `scale` is screen pixels per user unit.
+ */
+export const elementAt = (
+	measure: Measure,
+	layer: Element,
+	point: Point,
+	scale: number
+): Element | undefined =>
+	topmostAt(
+		elementsOf(layer),
+		apply(layerSpace(layer).into, point),
+		measure,
+		HIT_SLOP_PX / scale
+	);
 
 const itemsOf = (layer: Element, elements: readonly Element[]): readonly Item[] => {
 	const own = elementsOf(layer);
@@ -138,14 +172,14 @@ const resizeMatrix = (
 };
 
 const rotateMatrix = (
-	drag: Transforming & Readonly<{ centre: Point }>,
+	drag: Transforming & Readonly<{ center: Point }>,
 	to: Point,
 	snap: boolean
 ): Mat => {
-	const start = Math.atan2(drag.from.y - drag.centre.y, drag.from.x - drag.centre.x);
-	const now = Math.atan2(to.y - drag.centre.y, to.x - drag.centre.x);
+	const start = Math.atan2(drag.from.y - drag.center.y, drag.from.x - drag.center.x);
+	const now = Math.atan2(to.y - drag.center.y, to.x - drag.center.x);
 	const degrees = ((now - start) * 180) / Math.PI;
-	return rotate(snap ? Math.round(degrees / ROTATE_STEP) * ROTATE_STEP : degrees, drag.centre);
+	return rotate(snap ? Math.round(degrees / ROTATE_STEP) * ROTATE_STEP : degrees, drag.center);
 };
 
 /**
@@ -159,6 +193,54 @@ const deltaOf = (drag: TransformDrag, sample: PointerSample): Mat => {
 	return translate(to.x - drag.from.x, to.y - drag.from.y);
 };
 
+/** The box around `elements` in the drawing's units, as the overlay shows it; none for none. */
+const selectionBox = (
+	measure: Measure,
+	elements: readonly Element[],
+	space: LayerSpace
+): Box | undefined => {
+	const box = unionBox(elements.map((element) => placedBox(measure, element)));
+	return box === undefined ? undefined : transformBox(space.outOf, box);
+};
+
+/**
+ * Whether a press at `point`, in the drawing's units, is on a handle of the
+ * box around what is selected on the active layer, where it resizes or rotates
+ * that, whatever is under it: Auto-Select picks no layer there
+ * (`tools/common/autoSelect.ts`), as Photoshop's transform controls take the
+ * press before it.
+ */
+export const onSelectionHandle = (
+	measure: Measure,
+	context: ToolContext,
+	point: Point
+): boolean => {
+	const layer = activeLayerElement(context);
+	if (layer === undefined) return false;
+	const box = selectionBox(measure, selectedOn(layer, context), layerSpace(layer));
+	return box !== undefined && handleAt(box, point, context.viewport.scale) !== undefined;
+};
+
+/**
+ * What a double press on `hit` hands to another tool: a text to the text
+ * tool, a path or a shape to the node tool, and for a group in the layer the
+ * path or shape in it under the press, which is going into the group; nothing
+ * for anything else, which a double press only selects.
+ */
+const handingOf = (
+	context: ToolContext,
+	layer: Element,
+	hit: Element,
+	at: Point
+): Handing | undefined => {
+	if (hit.localName === 'text') return { id: 'text', handover: { element: hit, at } };
+	const element =
+		hit.localName === 'g' && hit !== layer ? pointsElementAt(context, layer, at, hit) : hit;
+	return element !== undefined && hasNodes(element)
+		? { id: 'node', handover: { element, at } }
+		: undefined;
+};
+
 /**
  * An element's own `transform` once `delta`, in the drawing's units, has moved
  * it where `space` places it: into the layer, after the delta, after where the
@@ -167,16 +249,17 @@ const deltaOf = (drag: TransformDrag, sample: PointerSample): Mat => {
 const movedBy = (delta: Mat, space: LayerSpace, matrix: Mat): string =>
 	formatTransform(multiply(space.into, multiply(delta, multiply(space.outOf, matrix))));
 
-export const createSelect = (measure: Measure): ToolBehaviour => {
+export const createSelect = (measure: Measure): ToolBehavior => {
 	const drag = cell<Drag | undefined>(undefined);
+	/** The last press on an element, which the next may make a double press of. */
+	const lastPress = cell<Press | undefined>(undefined);
+	/** A double press, to hand over as the pointer lifts. */
+	const handing = cell<Handing | undefined>(undefined);
 
-	/** The box round `elements` in the drawing's units, as the overlay shows it; none for none. */
-	const boxOf = (elements: readonly Element[], space: LayerSpace): Box | undefined => {
-		const box = unionBox(elements.map((element) => placedBox(measure, element)));
-		return box === undefined ? undefined : transformBox(space.outOf, box);
-	};
+	const boxOf = (elements: readonly Element[], space: LayerSpace): Box | undefined =>
+		selectionBox(measure, elements, space);
 
-	/** The box round `elements`, drawn over the active layer. */
+	/** The box around `elements`, drawn over the active layer. */
 	const redraw = (context: ToolContext, elements: readonly Element[]): void => {
 		drawSelectionBox(
 			context.overlay,
@@ -213,7 +296,7 @@ export const createSelect = (measure: Measure): ToolBehaviour => {
 				? {
 						...common,
 						kind: 'rotate',
-						centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+						center: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
 					}
 				: {
 						...common,
@@ -313,8 +396,32 @@ export const createSelect = (measure: Measure): ToolBehaviour => {
 		redraw(context, now);
 	};
 
+	/**
+	 * Whether this press, on `hit`, makes a double press with the last one,
+	 * and there is a tool to hand `hit` to: then it is kept for the lift, and
+	 * a third press starts afresh. Shift adds to the selection, and is never
+	 * a double press.
+	 */
+	const doublePressed = (
+		context: ToolContext,
+		sample: PointerSample,
+		layer: Element,
+		hit: Element | undefined
+	): boolean => {
+		const press = hit === undefined ? undefined : pressOf(hit, sample);
+		const first = lastPress.current;
+		lastPress.current = press;
+		if (press === undefined || sample.shiftKey || context.useTool === undefined) return false;
+		if (!isDoublePress(first, press, context.viewport.scale)) return false;
+		const next = handingOf(context, layer, press.element, press.at);
+		if (next === undefined) return false;
+		lastPress.current = undefined;
+		handing.current = next;
+		return true;
+	};
+
 	/** The drag abandoned: its preview gone, and what it moved put back as it was. */
-	const cancel = (context: ToolContext): void => {
+	const abandon = (context: ToolContext): void => {
 		const current = drag.current;
 		drag.current = undefined;
 		if (current === undefined) return;
@@ -331,12 +438,15 @@ export const createSelect = (measure: Measure): ToolBehaviour => {
 
 	return {
 		begin: (context, sample) => {
-			cancel(context);
+			abandon(context);
+			handing.current = undefined;
 			if (guardLayer(context) === undefined) return;
 			const layer = activeLayerElement(context);
 			if (layer === undefined) return;
 			const space = layerSpace(layer);
 			const point = pointOf(sample);
+			const hit = elementAt(measure, layer, point, context.viewport.scale);
+			if (doublePressed(context, sample, layer, hit)) return;
 			const selected = selectedOn(layer, context);
 			const box = boxOf(selected, space);
 			const handle =
@@ -349,12 +459,6 @@ export const createSelect = (measure: Measure): ToolBehaviour => {
 				});
 				return;
 			}
-			const hit = topmostAt(
-				elementsOf(layer),
-				apply(space.into, point),
-				measure,
-				HIT_SLOP_PX / context.viewport.scale
-			);
 			if (hit !== undefined) {
 				beginOnElement(context, sample, hit, selected, layer);
 				return;
@@ -384,6 +488,17 @@ export const createSelect = (measure: Measure): ToolBehaviour => {
 		},
 
 		end: (context, sample) => {
+			const handed = handing.current;
+			handing.current = undefined;
+			if (handed !== undefined) {
+				context.useTool?.(handed.id, handed.handover);
+				return;
+			}
+			// A press that dragged is not the first of a double press.
+			const first = lastPress.current;
+			if (first !== undefined && !near(first, pointOf(sample), context.viewport.scale)) {
+				lastPress.current = undefined;
+			}
 			const current = drag.current;
 			if (current === undefined) return;
 			drag.current = undefined;
@@ -394,7 +509,11 @@ export const createSelect = (measure: Measure): ToolBehaviour => {
 			endTransform(context, sample, current);
 		},
 
-		cancel,
+		cancel: (context) => {
+			handing.current = undefined;
+			lastPress.current = undefined;
+			abandon(context);
+		},
 
 		// The viewport empties the overlay when the tool changes; the box comes
 		// back with the first movement over the canvas.

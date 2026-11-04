@@ -58,7 +58,7 @@ export const unsent = {
 		/** In place of the headline, where the source has not been checked against its storage. */
 		unverified:
 			'Everything this device holds for {provider} is listed below. This source was connected again and its files have not been checked against {provider} yet, so nothing here can be told apart from work that was never sent. Most of it is probably already there. Cancel, and connecting again while this device is online settles it.',
-		/** After the headline, where what is listed cannot be sent for now; why is in the brackets. */
+		/** After the headline, where what is listed cannot be sent for now; why is in the parentheses. */
 		offline:
 			'They cannot be sent right now (this device is offline). Cancel and try again later to keep them.',
 		blocked:

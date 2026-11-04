@@ -1653,7 +1653,7 @@ describe('a file the user duplicated', () => {
 		// Duplicating a file is an ordinary thing to do in a folder the user can
 		// see, and the copy carries the original's id. Adopting it writes the
 		// copy over the drawing it came from — unpushed edits included — and leaves
-		// the two files fighting over one row on every sync afterwards.
+		// the two files fighting over one row on every sync afterward.
 		const entry = await remoteFile('a.svg', drawingFile('n1', 'original'));
 		world.store.put({
 			id: 'n1',

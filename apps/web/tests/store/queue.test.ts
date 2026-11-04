@@ -552,7 +552,7 @@ describe('a drawing deleted before its write was ever sent, on two devices', () 
 	 * longer run — no copy is made, their drawing
 	 * goes with the file, and it is gone from both devices. That seed is the
 	 * loss; this is the guard that holds the mechanism still whatever the
-	 * engine decides afterwards, and fails, deterministically, on a withdrawn
+	 * engine decides afterward, and fails, deterministically, on a withdrawn
 	 * write that runs anyway.
 	 */
 	const twoDevices = async () => {

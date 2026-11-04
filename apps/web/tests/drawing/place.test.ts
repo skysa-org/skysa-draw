@@ -23,7 +23,7 @@ const DRAWING_ID = '11111111-2222-4333-8444-555555555555';
 const SMALL_PNG =
 	'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8DwH4QZYAwAR8oH+Rq28akAAAAASUVORK5CYII=';
 
-/** A 3200 × 1000 one-bit grey PNG, every pixel black: twice as wide as the canvas. */
+/** A 3200 × 1000 one-bit gray PNG, every pixel black: twice as wide as the canvas. */
 const WIDE_PNG = `iVBORw0KGgoAAAANSUhEUgAADIAAAAPoAQAAAAA0EFkLAAABm0lEQVR42u3BMQEAAADCoPVPbQhfoA${'A'.repeat(516)}DgNx7CAAEQWxL/AAAAAElFTkSuQmCC`;
 
 /**
@@ -121,7 +121,7 @@ describe('placePicture', () => {
 		expect(document.text()).toContain(`href="data:image/png;base64,${SMALL_PNG}"`);
 	});
 
-	it('centres a picture smaller than the canvas, at one pixel a unit, never made larger', async () => {
+	it('centers a picture smaller than the canvas, at one pixel a unit, never made larger', async () => {
 		const document = open();
 		await placed(document, new File([bytesOf(SMALL_PNG)], 'dot.png', { type: 'image/png' }));
 		expect(geometryOf(imageIn(document, 'layer-2'))).toEqual({
@@ -132,7 +132,7 @@ describe('placePicture', () => {
 		});
 	});
 
-	it('makes a picture larger than the canvas smaller to fit, and centres it', async () => {
+	it('makes a picture larger than the canvas smaller to fit, and centers it', async () => {
 		const document = open();
 		await placed(document, new File([bytesOf(WIDE_PNG)], 'wide.png', { type: 'image/png' }));
 		expect(geometryOf(imageIn(document, 'layer-2'))).toEqual({

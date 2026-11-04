@@ -1,5 +1,6 @@
 import type { EditorDocument, LayerInfo } from '../document/model.js';
 import type {
+	Region,
 	RegionControl,
 	ScreenCanvas,
 	SelectionControl,
@@ -26,12 +27,16 @@ type ContextDeps = Readonly<{
 	pixelRatio: () => number;
 	view: Observable<View>;
 	selection: Observable<readonly Element[]>;
-	region: Observable<string | undefined>;
+	region: Observable<Region | undefined>;
 	host: HTMLElement;
 	fit: () => void;
 	actualSize: () => void;
-	setColour: ToolContext['setColour'];
+	setColor: ToolContext['setColor'];
 	notify: ToolContext['notify'];
+	/** None where the viewport has no frame to ask for a tool (`viewport/toolHandover.ts`). */
+	useTool?: ToolContext['useTool'];
+	/** None where the viewport has no frame to tell. */
+	setOptions?: ToolContext['setOptions'];
 }>;
 
 /** No elements, one array, so clearing a cleared selection is not a change. */
@@ -83,12 +88,20 @@ const selectionControl = (selection: Observable<readonly Element[]>): SelectionC
 	},
 });
 
-const regionControl = (region: Observable<string | undefined>): RegionControl => ({
+/** The area as a tool works it; the frame's feather dialog changes it through this too. */
+export const regionControl = (region: Observable<Region | undefined>): RegionControl => ({
 	get path() {
+		return region.get()?.path;
+	},
+	get region() {
 		return region.get();
 	},
 	set: (path) => {
-		region.set(path);
+		region.set(path === undefined ? undefined : { path, inverted: false, feather: 0 });
+	},
+	update: (change) => {
+		const now = region.get();
+		if (now !== undefined) region.set({ ...now, ...change });
 	},
 });
 
@@ -102,6 +115,8 @@ export const createToolContext = (deps: ContextDeps): ToolContext => ({
 	selection: selectionControl(deps.selection),
 	region: regionControl(deps.region),
 	host: deps.host,
-	setColour: deps.setColour,
+	setColor: deps.setColor,
 	notify: deps.notify,
+	...(deps.useTool === undefined ? {} : { useTool: deps.useTool }),
+	...(deps.setOptions === undefined ? {} : { setOptions: deps.setOptions }),
 });

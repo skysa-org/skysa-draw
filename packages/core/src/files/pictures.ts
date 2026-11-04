@@ -82,9 +82,9 @@ const sized = (width: number | undefined, height: number | undefined): boolean =
 const PNG_SIGNATURE = '\x89PNG\r\n\x1a\n';
 
 /**
- * A PNG: its size and colour type from IHDR, always the first chunk, and the
+ * A PNG: its size and color type from IHDR, always the first chunk, and the
  * chunks before its first IDAT, where an APNG's `acTL` and a see-through
- * colour's `tRNS` have to be. One that ends before its first IDAT is not
+ * color's `tRNS` have to be. One that ends before its first IDAT is not
  * read: the chunks it is missing might have said either.
  */
 const png = (view: DataView): PictureInfo | undefined => {
@@ -111,7 +111,7 @@ const png = (view: DataView): PictureInfo | undefined => {
 		width: width ?? 0,
 		height: height ?? 0,
 		animated: frames !== undefined && frames > 1,
-		// Grey with alpha, or RGBA; or any other type with a colour named see-through.
+		// Gray with alpha, or RGBA; or any other type with a color named see-through.
 		alpha: colorType === 4 || colorType === 6 || chunks.has('tRNS'),
 		orientation: 1,
 	};
@@ -206,7 +206,7 @@ const jpeg = (view: DataView): PictureInfo | undefined => {
 	};
 };
 
-/** The bytes of the colour table a GIF's flags say follows them, or none. */
+/** The bytes of the color table a GIF's flags say follows them, or none. */
 const colorTable = (flags: number): number => (flags & 0x80 ? 3 * 2 ** ((flags & 0x07) + 1) : 0);
 
 /** Past a run of a GIF's sub-blocks from `from`: each its size and that many bytes, until a size of 0. */
@@ -220,7 +220,7 @@ const pastBlocks = (view: DataView, from: number): number | undefined =>
 /**
  * A GIF: its size from the screen it describes, grown to its first frame
  * where that is larger, as browsers draw it; and its blocks walked as far as
- * a second frame, which makes it one that moves. A transparent colour in a
+ * a second frame, which makes it one that moves. A transparent color in a
  * frame's control block before then, or a first frame that leaves some of
  * the screen uncovered, makes it one that is see-through. One that ends
  * before a second frame or its end is not read: it might have moved.
@@ -229,7 +229,7 @@ const gif = (view: DataView): PictureInfo | undefined => {
 	const screen = { width: u16(view, 6, true), height: u16(view, 8, true) };
 	const flags = u8(view, 10);
 	if (!sized(screen.width, screen.height) || flags === undefined) return undefined;
-	// How many frames it has begun, whether a colour is see-through, and the
+	// How many frames it has begun, whether a color is see-through, and the
 	// first frame's edges.
 	const frameCount = cell(0);
 	const alpha = cell(false);
@@ -240,7 +240,7 @@ const gif = (view: DataView): PictureInfo | undefined => {
 		const introducer = u8(view, at);
 		if (introducer === undefined) return undefined;
 		if (introducer === 0x21) {
-			// A graphic control block, with its transparent colour flag set.
+			// A graphic control block, with its transparent color flag set.
 			if (u8(view, at + 1) === 0xf9 && ((u8(view, at + 3) ?? 0) & 0x01) === 1) {
 				alpha.current = true;
 			}
@@ -266,7 +266,7 @@ const gif = (view: DataView): PictureInfo | undefined => {
 				return undefined;
 			}
 			edges.current = { left, top, right: left + across, bottom: top + down };
-			// The descriptor, its own colour table, and the code size before the data.
+			// The descriptor, its own color table, and the code size before the data.
 			const next = pastBlocks(view, at + 10 + colorTable(local) + 1);
 			return next === undefined ? undefined : { next };
 		}

@@ -952,7 +952,7 @@ describe('changes, when things leave the tree', () => {
 		])('trusts the scan for %s, which is what we have always done', async (code) => {
 			const error = await resetOver({ error: { code, message: 'resync' } });
 			expect(error).toBeInstanceOf(CursorResetError);
-			// Nothing about the reset says to upload, and an unrecognised code
+			// Nothing about the reset says to upload, and an unrecognized code
 			// must never be the one that does.
 			expect((error as CursorResetError).uploadDifferences).toBe(false);
 		});

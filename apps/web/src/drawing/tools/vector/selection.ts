@@ -3,7 +3,7 @@ import { CHROME_STYLE, createSvg } from './svg.js';
 
 /**
  * The selection's box on the overlay (docs/decisions/0004-the-interface.md):
- * a dashed rectangle round what is selected, eight square handles to resize by
+ * a dashed rectangle around what is selected, eight square handles to resize by
  * and one above to rotate by, as Figma and Illustrator draw it. The overlay is
  * in the drawing's user units, so anything that should stay the same size on
  * screen is divided by the viewport's scale.
@@ -21,7 +21,7 @@ const ROTATE_OFFSET_PX = 24;
 /** The attribute that marks the selection's group, so it can be found and replaced. */
 const MARK = 'data-draw-selection';
 
-/** Where each handle sits round `box`. */
+/** Where each handle sits around `box`. */
 const handlePositions = (box: Box, scale: number): Readonly<Record<Handle, Point>> => {
 	const { x, y, width, height } = box;
 	const right = x + width;
@@ -41,7 +41,7 @@ const handlePositions = (box: Box, scale: number): Readonly<Record<Handle, Point
 };
 
 /**
- * The handle under `point`, if any: within a handle's own side of its centre,
+ * The handle under `point`, if any: within a handle's own side of its center,
  * which is twice the handle, since a finger is wider than a handle is drawn.
  */
 export const handleAt = (box: Box, point: Point, scale: number): Handle | undefined => {
@@ -82,7 +82,7 @@ export const clearSelectionBox = (overlay: SVGSVGElement): void => {
 export const hasSelectionBox = (overlay: SVGSVGElement): boolean =>
 	overlay.querySelector(`[${MARK}]`) !== null;
 
-/** The box drawn afresh round `box`, or taken away where there is nothing selected. */
+/** The box drawn afresh around `box`, or taken away where there is nothing selected. */
 export const drawSelectionBox = (
 	overlay: SVGSVGElement,
 	box: Box | undefined,

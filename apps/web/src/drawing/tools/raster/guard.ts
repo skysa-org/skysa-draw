@@ -13,17 +13,35 @@ import { clearCanvas, type RasterSurface, surfaceFor, UnreadablePictureError } f
  * nothing for the stroke.
  */
 
-/** The active layer, where a tool may change it; otherwise the user is told and nothing comes back. */
-export const guardedLayer = (context: ToolContext): LayerInfo | undefined => {
+/**
+ * The active layer, where a tool may change it, or, with `'read'`, take its
+ * pixels without changing them, which a locked layer allows and a hidden one
+ * does not, since what it would take cannot be seen; otherwise the user is
+ * told and nothing comes back.
+ */
+/** A layer's name, as the panel shows it, for a line to the user. */
+const nameOf = (context: ToolContext, layer: LayerInfo): string => {
+	const index = context.document.snapshot().layers.findIndex((each) => each.id === layer.id);
+	return layerDisplayName(layer, Math.max(0, index));
+};
+
+/** The active layer's name, as the panel shows it; nothing with none active. */
+export const activeLayerName = (context: ToolContext): string =>
+	context.layer === undefined ? '' : nameOf(context, context.layer);
+
+export const guardedLayer = (
+	context: ToolContext,
+	needs: 'change' | 'read' = 'change'
+): LayerInfo | undefined => {
 	const { layer } = context;
 	if (layer === undefined) {
 		context.notify(t('layers.noneActive'));
 		return undefined;
 	}
-	if (!layer.locked && !layer.hidden) return layer;
-	const index = context.document.snapshot().layers.findIndex((each) => each.id === layer.id);
-	const name = layerDisplayName(layer, Math.max(0, index));
-	context.notify(layer.locked ? t('layers.locked', { name }) : t('layers.hidden', { name }));
+	const locked = needs === 'change' && layer.locked;
+	if (!locked && !layer.hidden) return layer;
+	const name = nameOf(context, layer);
+	context.notify(locked ? t('layers.locked', { name }) : t('layers.hidden', { name }));
 	return undefined;
 };
 

@@ -41,7 +41,7 @@ export type Nearest = Readonly<{ t: number; point: Point; distance: number }>;
 /** Samples along the curve the nearest is first looked for among. */
 const SAMPLES = 24;
 
-/** Thirds taken off the span round the nearest sample: two-thirds to the sixteenth is a ten-thousandth of `t`. */
+/** Thirds taken off the span around the nearest sample: two-thirds to the sixteenth is a ten-thousandth of `t`. */
 const NARROWINGS = 16;
 
 /**

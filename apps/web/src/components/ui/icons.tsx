@@ -111,9 +111,15 @@ const FillIcon = (props: IconProps) => (
 
 const EyedropperIcon = (props: IconProps) => (
 	<Icon {...props}>
-		<path d="M14.5 5.5l2-2a2.1 2.1 0 0 1 3 3l-2 2" />
-		<path d="M14.5 5.5l4 4L8.3 19.7c-.5.5-1.1.8-1.8.9L3.5 21l.4-3c.1-.7.4-1.3.9-1.8z" />
-		<path d="M13 7l4 4" />
+		{/* A solid bulb, a collar wider than it and a drop at the tip: what the pencil has none of. */}
+		<path d="M15.5 5.1l1.9-1.9a2.4 2.4 0 0 1 3.4 3.4l-1.9 1.9z" fill="currentColor" />
+		<path d="M13.4 5l5.6 5.6" />
+		<path d="M15 7.8L6.8 16.7l8.9-8.2" />
+		<path
+			d="M6 18.9c.7 1.1 1.3 1.9 1.3 2.6a1.3 1.3 0 0 1-2.6 0c0-.7.6-1.5 1.3-2.6z"
+			fill="currentColor"
+			stroke="none"
+		/>
 	</Icon>
 );
 
@@ -167,6 +173,16 @@ const LassoIcon = (props: IconProps) => (
 	</Icon>
 );
 
+const WandIcon = (props: IconProps) => (
+	<Icon {...props}>
+		{/* A stick with a band at its tip, and a sparkle off it: no point, as the pencil and the brush have. */}
+		<path d="M4.6 21.2l-1.8-1.8 9.7-9.7 1.8 1.8z" />
+		<path d="M10.2 12l1.8 1.8" />
+		<path d="M17 2.5c.4 2.4 1.6 3.6 4 4-2.4.4-3.6 1.6-4 4-.4-2.4-1.6-3.6-4-4 2.4-.4 3.6-1.6 4-4z" />
+		<path d="M20.5 14v2.5M19.25 15.25h2.5" />
+	</Icon>
+);
+
 const CropIcon = (props: IconProps) => (
 	<Icon {...props}>
 		<path d="M6.5 2.5v15h15" />
@@ -184,7 +200,7 @@ export const LayersIcon = (props: IconProps) => (
 	</Icon>
 );
 
-export const ColourIcon = (props: IconProps) => (
+const ColorIcon = (props: IconProps) => (
 	<Icon {...props}>
 		<path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-.6-.3-1-.7-1.4-.4-.4-.6-.8-.6-1.3 0-1 .8-1.8 1.8-1.8H16c2.8 0 5-2.2 5-5 0-3.7-4-6.7-9-6.7z" />
 		<Dot cx={7.5} cy={11} />
@@ -432,9 +448,10 @@ export const ICONS = {
 	text: TextIcon,
 	marquee: MarqueeIcon,
 	lasso: LassoIcon,
+	wand: WandIcon,
 	crop: CropIcon,
 	layers: LayersIcon,
-	colour: ColourIcon,
+	color: ColorIcon,
 	undo: UndoIcon,
 	redo: RedoIcon,
 	more: MoreIcon,

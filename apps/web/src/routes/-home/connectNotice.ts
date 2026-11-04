@@ -74,7 +74,7 @@ const connectMessage = (
 		case 'failed':
 			return { message: t('connect.outcome.failed'), tone: 'error' };
 		// A warning rather than an error: this one worked exactly as it was
-		// asked to, and what to do about it is a tickbox away.
+		// asked to, and what to do about it is a checkbox away.
 		case 'partial':
 			return { message: t('connect.outcome.partial'), tone: 'warning' };
 		// Trying again will not help: this server will not have the account.

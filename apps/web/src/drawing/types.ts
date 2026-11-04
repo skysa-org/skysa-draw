@@ -1,7 +1,10 @@
 import type { Ref } from 'react';
 
 import type { EditorDocument } from './document/model.js';
-import type { Tool, ToolOptions } from './tools/types.js';
+import type { SelectionActionId } from './selectionActions.js';
+import type { FillSpec } from './tools/raster/areaFill.js';
+import type { Tool, ToolId, ToolOptions } from './tools/types.js';
+import type { ViewportSelection } from './viewport/selectionState.js';
 
 /**
  * The frame's contracts (docs/ARCHITECTURE.md §7, "The interface"): what the
@@ -17,6 +20,14 @@ export interface ViewportHandle {
 	readonly zoomOut: () => void;
 	/** Screen pixels per user unit. */
 	readonly scale: number;
+	/**
+	 * One of the selection's actions (`selectionActions.ts`), as the context
+	 * menu does it: for the frame's selection bar and its keys. Whether it did
+	 * anything.
+	 */
+	readonly perform: (action: SelectionActionId) => boolean;
+	/** Fill…'s Apply: the area filled as the dialog says (`fillAreaWith`). Whether it was the area's to do. */
+	readonly fillArea: (spec: FillSpec) => boolean;
 }
 
 export interface ViewportProps {
@@ -25,11 +36,39 @@ export interface ViewportProps {
 	readonly options: ToolOptions;
 	/** The active layer. */
 	readonly layerId: string | undefined;
-	/** The eyedropper set a colour. */
-	readonly onColour: (which: 'fill' | 'stroke', value: string) => void;
+	/**
+	 * The area and the element selection, held by the frame so that its
+	 * selection bar can show them; a viewport given none keeps its own.
+	 */
+	readonly selection?: ViewportSelection;
+	/** The eyedropper set a color. */
+	readonly onColor: (which: 'fill' | 'stroke', value: string) => void;
 	/** A line for the user, already in their words. */
 	readonly onNotify: (message: string) => void;
 	/** The zoom changed. */
 	readonly onScale?: (scale: number) => void;
+	/**
+	 * A layer the user now works on: one made by layer via copy or cut, or the
+	 * context menu's new or duplicated layer; or one the move tool's
+	 * Auto-Select picked under a press (`Tool.pick`), or gave back when that
+	 * press was canceled.
+	 */
+	readonly onActivateLayer?: (id: string) => void;
+	/** Feather… was asked for, by the context menu, the selection bar or Shift+F6: the frame opens its dialog. */
+	readonly onFeather?: () => void;
+	/**
+	 * Fill… was asked for, by the context menu, the selection bar, Shift+F5 or
+	 * Shift+Backspace, on a layer it may fill: the frame opens its dialog. A
+	 * viewport given none does nothing for Fill….
+	 */
+	readonly onFill?: () => void;
+	/**
+	 * A tool asked for another to be in hand (`ToolContext.useTool`): the
+	 * select tool's double press on a text or a path. The frame puts it in
+	 * hand, so the tool bar shows it; a viewport given none asks for nothing.
+	 */
+	readonly onTool?: (id: ToolId) => void;
+	/** A tool set options (`ToolContext.setOptions`): the text tool, an edited text's size and fill. */
+	readonly onOptions?: (change: Partial<ToolOptions>) => void;
 	readonly ref?: Ref<ViewportHandle>;
 }

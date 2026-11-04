@@ -82,7 +82,7 @@ export const elementsIn = (
  * presentation attribute, then the attribute, then up the tree as far as
  * `stopAt`, since `fill` and `stroke` inherit; `fallback` where nothing says.
  */
-export const paintedColour = (
+export const paintedColor = (
 	element: Element,
 	property: 'fill' | 'stroke',
 	stopAt: Element,
@@ -95,7 +95,7 @@ export const paintedColour = (
 	if (own !== undefined && own !== '') return own;
 	const parent = element.parentElement;
 	if (element === stopAt || parent === null) return fallback;
-	return paintedColour(parent, property, stopAt, fallback);
+	return paintedColor(parent, property, stopAt, fallback);
 };
 
 /** `style` without one property, so an attribute set beside it is what shows. */

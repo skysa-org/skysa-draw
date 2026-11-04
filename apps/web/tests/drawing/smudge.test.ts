@@ -2,12 +2,12 @@ import { DRAWING_NAMESPACE, emptyDrawing, SVG_NAMESPACE } from '@skysa/draw-core
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
-import { rasterBehaviours } from '../../src/drawing/tools/raster/index.js';
+import { rasterBehaviors } from '../../src/drawing/tools/raster/index.js';
 import { type RasterSurface, surfaceFor } from '../../src/drawing/tools/raster/surface.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolContext,
 	type ToolOptions,
 } from '../../src/drawing/tools/types.js';
@@ -16,7 +16,7 @@ import { t } from '../../src/i18n/t.js';
 /**
  * The smudge on a raster layer (docs/decisions/0004-the-interface.md: "Push
  * pixels") against a fake editor and a fake 2D context that keeps real
- * pixels, so a stroke can be seen to read the layer's pixels, push colour
+ * pixels, so a stroke can be seen to read the layer's pixels, push color
  * along and write them back, and the commit be seen to be one command. What
  * this cannot show is how a dab looks on a real canvas, the decoding of a
  * real picture, or the screen's mirror in place through a real view; jsdom
@@ -259,9 +259,17 @@ const createFake = (setup: Setup = {}): Fake => {
 		screen: { canvas: screen, toScreen: (x, y) => [x, y], pixelRatio: 1 },
 		viewport: { scale: 1, zoomBy: noop, panBy: noop, fit: noop, actualSize: noop },
 		selection: { elements: [], set: noop, clear: noop },
-		region: { path: setup.area, set: noop },
+		region: {
+			path: setup.area,
+			region:
+				setup.area === undefined
+					? undefined
+					: { path: setup.area, inverted: false, feather: 0 },
+			set: noop,
+			update: noop,
+		},
 		host: document.createElement('div'),
-		setColour: noop,
+		setColor: noop,
 		notify: (message) => notices.push(message),
 	};
 	return { context, layer, labels, notices, pending, screen };
@@ -280,10 +288,10 @@ const at = (x: number, y: number): PointerSample => ({
 	primaryKey: false,
 });
 
-const smudge = (): ToolBehaviour => {
-	const behaviour = rasterBehaviours.smudge;
-	if (behaviour === undefined) throw new Error('no raster smudge');
-	return behaviour;
+const smudge = (): ToolBehavior => {
+	const behavior = rasterBehaviors.smudge;
+	if (behavior === undefined) throw new Error('no raster smudge');
+	return behavior;
 };
 
 const surfaceOf = (fake: Fake): RasterSurface => {
@@ -321,7 +329,7 @@ const tick = (): Promise<void> =>
 	});
 
 describe('the smudge', () => {
-	it('pushes colour along the stroke, reading and writing the layer’s own pixels', async () => {
+	it('pushes color along the stroke, reading and writing the layer’s own pixels', async () => {
 		const fake = createFake();
 		const surface = surfaceOf(fake);
 		await surface.ready;
@@ -372,7 +380,7 @@ describe('the smudge', () => {
 		expect(screenCtx.named('clearRect').at(-1)?.args).toEqual([0, 0, 40, 20]);
 	});
 
-	it('writes nothing for a stroke that moved no colour', async () => {
+	it('writes nothing for a stroke that moved no color', async () => {
 		const fake = createFake({ options: { strength: 0 } });
 		const surface = surfaceOf(fake);
 		await surface.ready;

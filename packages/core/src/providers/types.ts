@@ -300,7 +300,7 @@ export class CursorResetError extends Error {
 		 * the scan that follows must not be trusted to say what was deleted.
 		 * Graph's `resyncChangesUploadDifferences`: "Upload any local items that
 		 * the service didn't return". Absent — the ordinary case, and the one an
-		 * unrecognised reset falls back to — the scan is the truth and a drawing it
+		 * unrecognized reset falls back to — the scan is the truth and a drawing it
 		 * does not return is gone.
 		 * https://learn.microsoft.com/en-us/graph/api/driveitem-delta
 		 */

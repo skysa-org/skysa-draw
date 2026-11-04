@@ -111,7 +111,7 @@ export const grantHolder = async (
 	const hash = await hashCredential(credential);
 
 	// Revocation and idle expiry are both part of the lookup rather than checks
-	// afterwards, so a revoked or expired grant is indistinguishable from an
+	// afterward, so a revoked or expired grant is indistinguishable from an
 	// unknown one — including in how long the answer takes.
 	//
 	// A row existing says nothing about whether it may still be used. Revoked,

@@ -3,7 +3,7 @@ import { type Cell, cell, SVG_NAMESPACE } from '@skysa/draw-core';
 import { type CanvasBox, canvasBoxOf, cropCanvas } from '../../document/crop.js';
 import type { EditorDocument } from '../../document/model.js';
 import { isTyping } from '../../keys.js';
-import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 
 /**
  * The crop, on any layer (docs/decisions/0004-the-interface.md: "Crop C: the
@@ -231,7 +231,7 @@ const aimedAtCanvas = (event: KeyboardEvent, host: HTMLElement): boolean => {
 const hasModifier = (event: KeyboardEvent): boolean =>
 	event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
 
-export const cropBehaviour = (): ToolBehaviour | undefined => {
+export const cropBehavior = (): ToolBehavior | undefined => {
 	const sessions = new WeakMap<SVGSVGElement, Session>();
 	const drags = new WeakMap<ToolContext, CropStroke>();
 

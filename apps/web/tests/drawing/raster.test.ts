@@ -8,12 +8,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
-import { clearArea, rasterBehaviours } from '../../src/drawing/tools/raster/index.js';
+import { clearArea, rasterBehaviors } from '../../src/drawing/tools/raster/index.js';
 import { type RasterSurface, surfaceFor } from '../../src/drawing/tools/raster/surface.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolContext,
 	type ToolId,
 	type ToolOptions,
@@ -100,7 +100,7 @@ class FakePath2D {
 	constructor(readonly d: string) {}
 }
 
-/** The box round a path's numbers, read in pairs: a rectangle's own, for the areas tested. */
+/** The box around a path's numbers, read in pairs: a rectangle's own, for the areas tested. */
 const pathBox = (d: string) => {
 	const numbers = (d.match(/-?[\d.]+/g) ?? []).map(Number);
 	const xs = numbers.filter((_, i) => i % 2 === 0);
@@ -342,7 +342,7 @@ type Fake = Readonly<{
 	/** The layer's `href` after each command executed. */
 	hrefs: (string | null)[];
 	notices: string[];
-	colours: [string, string][];
+	colors: [string, string][];
 	pending: Promise<unknown>[];
 	/** Called by `execute` before the command applies. */
 	onExecute: { current: (() => void) | undefined };
@@ -388,7 +388,7 @@ const createFake = (setup: Setup = {}): Fake => {
 	const labels: string[] = [];
 	const hrefs: (string | null)[] = [];
 	const notices: string[] = [];
-	const colours: [string, string][] = [];
+	const colors: [string, string][] = [];
 	const pending: Promise<unknown>[] = [];
 	const done: Command[] = [];
 	const onExecute: Fake['onExecute'] = { current: undefined };
@@ -439,9 +439,17 @@ const createFake = (setup: Setup = {}): Fake => {
 			actualSize: noop,
 		},
 		selection: { elements: [], set: noop, clear: noop },
-		region: { path: setup.area, set: noop },
+		region: {
+			path: setup.area,
+			region:
+				setup.area === undefined
+					? undefined
+					: { path: setup.area, inverted: false, feather: 0 },
+			set: noop,
+			update: noop,
+		},
 		host: document.createElement('div'),
-		setColour: (which, value) => colours.push([which, value]),
+		setColor: (which, value) => colors.push([which, value]),
 		notify: (message) => notices.push(message),
 	};
 	return {
@@ -451,7 +459,7 @@ const createFake = (setup: Setup = {}): Fake => {
 		labels,
 		hrefs,
 		notices,
-		colours,
+		colors,
 		pending,
 		onExecute,
 		undo: editor.undo,
@@ -477,23 +485,23 @@ type Point = Readonly<{ x: number; y: number }>;
 
 /** A whole stroke: begin at the first point, move through the rest, end at the last. */
 const stroke = (
-	behaviour: ToolBehaviour,
+	behavior: ToolBehavior,
 	context: ToolContext,
 	points: readonly Point[],
 	extra: Partial<PointerSample> = {}
 ): void => {
 	const [first, ...rest] = points;
 	if (first === undefined) return;
-	behaviour.begin(context, at(first.x, first.y, extra));
-	rest.forEach((p) => behaviour.move(context, at(p.x, p.y, extra)));
+	behavior.begin(context, at(first.x, first.y, extra));
+	rest.forEach((p) => behavior.move(context, at(p.x, p.y, extra)));
 	const last = rest.at(-1) ?? first;
-	behaviour.end(context, at(last.x, last.y, extra));
+	behavior.end(context, at(last.x, last.y, extra));
 };
 
-const tool = (name: ToolId): ToolBehaviour => {
-	const behaviour = rasterBehaviours[name];
-	if (behaviour === undefined) throw new Error(`no raster ${name}`);
-	return behaviour;
+const tool = (name: ToolId): ToolBehavior => {
+	const behavior = rasterBehaviors[name];
+	if (behavior === undefined) throw new Error(`no raster ${name}`);
+	return behavior;
 };
 
 /** The surface the tools paint on, as they find it. */
@@ -636,7 +644,7 @@ describe('the brush', () => {
 });
 
 describe('the pencil and the eraser', () => {
-	it('draws the pencil hard, in the stroke colour, at one width whatever the pressure', () => {
+	it('draws the pencil hard, in the stroke color, at one width whatever the pressure', () => {
 		const fake = createFake({
 			options: { hardness: 0.2, stroke: '#ff0000', fill: '#00ff00', size: 6 },
 		});
@@ -700,7 +708,7 @@ describe('the fill', () => {
 });
 
 describe('the eyedropper', () => {
-	it('takes a pixel’s colour as the fill, and as the stroke with Alt', async () => {
+	it('takes a pixel’s color as the fill, and as the stroke with Alt', async () => {
 		const fake = createFake();
 		const surface = surfaceOf(fake);
 		const pixels = fakeOf(surface.canvas).pixels();
@@ -708,7 +716,7 @@ describe('the eyedropper', () => {
 		tool('eyedropper').begin(fake.context, at(5.5, 6.5));
 		tool('eyedropper').begin(fake.context, at(5.2, 6.9, { altKey: true }));
 		await vi.waitFor(() =>
-			expect(fake.colours).toEqual([
+			expect(fake.colors).toEqual([
 				['fill', '#ff8000'],
 				['stroke', '#ff8000'],
 			])
@@ -721,7 +729,7 @@ describe('the eyedropper', () => {
 		tool('eyedropper').begin(fake.context, at(20, 20));
 		tool('eyedropper').begin(fake.context, at(-5, 20));
 		await tick();
-		expect(fake.colours).toEqual([]);
+		expect(fake.colors).toEqual([]);
 	});
 });
 
@@ -777,7 +785,7 @@ describe('the shapes', () => {
 		).toBe(0);
 	});
 
-	it('draws a line in the stroke colour, the fill where there is none', async () => {
+	it('draws a line in the stroke color, the fill where there is none', async () => {
 		const fake = createFake({ options: { stroke: 'none', fill: '#00ff00' } });
 		const surface = surfaceOf(fake);
 		stroke(tool('line'), fake.context, LINE);
@@ -1141,7 +1149,7 @@ describe('the area', () => {
 describe('Delete with an area', () => {
 	const AREA = 'M 0 0 L 20 0 L 20 20 L 0 20 Z';
 
-	it('clears the layer’s pixels inside it, by one command', async () => {
+	it('takes the layer’s pixels away by the area’s mask, by one command', async () => {
 		vi.stubGlobal('Path2D', FakePath2D);
 		const fake = createFake({ size: { width: 40, height: 30 }, area: AREA });
 		const surface = surfaceOf(fake);
@@ -1150,12 +1158,16 @@ describe('Delete with an area', () => {
 		expect(clearArea(fake.context)).toBe(true);
 		await Promise.all(fake.pending);
 		expect(fake.labels).toEqual(['regions.clear']);
-		const ctx = fakeOf(surface.canvas);
-		expect((ctx.named('clip')[0]?.args[0] as FakePath2D).d).toBe(AREA);
-		expect(ctx.named('clearRect').map((call) => call.args)).toEqual([[0, 0, 20, 20]]);
+		// What the pixels look like after is `areaStyle.test.ts`'s, whose canvas composites.
+		const erased = fakeOf(surface.canvas)
+			.named('drawImage')
+			.filter((call) => call.composite === 'destination-out');
+		expect(erased).toHaveLength(1);
+		const mask = fakeOf(erased[0]?.args[0] as HTMLCanvasElement);
+		expect((mask.named('fill')[0]?.args[0] as FakePath2D).d).toBe(AREA);
 	});
 
-	it('writes nothing where the area holds no colour', async () => {
+	it('writes nothing where the area holds no color', async () => {
 		vi.stubGlobal('Path2D', FakePath2D);
 		const fake = createFake({ size: { width: 40, height: 30 }, area: AREA });
 		expect(clearArea(fake.context)).toBe(true);

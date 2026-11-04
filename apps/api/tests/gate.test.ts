@@ -69,7 +69,7 @@ describe('the connect gate', () => {
 		});
 	});
 
-	it('serves the code field it asks for, labelled as the operator labels it', async () => {
+	it('serves the code field it asks for, labeled as the operator labels it', async () => {
 		const app = buildApp({
 			entitlements: gated({ ...GATE, connectCode: { label: ' Invite code ' } }),
 		});

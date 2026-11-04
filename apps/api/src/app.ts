@@ -169,7 +169,7 @@ export const createApp = (options: CreateAppOptions) => {
 	});
 
 	/**
-	 * Defence in depth, not the defence. Nothing is authorized by a cookie any
+	 * Defense in depth, not the defense. Nothing is authorized by a cookie any
 	 * more — a bearer is never sent ambiently, so cross-origin requests arrive
 	 * unauthenticated — which is most of why the credential redesign happened
 	 * (docs/ARCHITECTURE.md §6). What is left to protect is `POST /api/auth/connect/…/start`,

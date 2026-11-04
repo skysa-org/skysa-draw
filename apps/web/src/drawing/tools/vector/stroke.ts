@@ -1,7 +1,7 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
-import type { PointerSample, ToolBehaviour, ToolOptions } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolOptions } from '../types.js';
 import { apply, type Point } from './geometry.js';
 import { guardLayer, layerSpace, targetLayer } from './guard.js';
 import { type Attributes, createSvg, setAttributes } from './svg.js';
@@ -11,7 +11,7 @@ import { type Attributes, createSvg, setAttributes } from './svg.js';
  * samples collected from `begin` to `end`, a `<path>` previewed on the overlay
  * as they come, and at the end one command that adds the finished path to the
  * layer. The preview is on the overlay and never on the layer, so the layer is
- * exactly as it was when `editLayer` snapshots it; a cancelled stroke leaves
+ * exactly as it was when `editLayer` snapshots it; a canceled stroke leaves
  * nothing anywhere.
  */
 type StrokeSpec<P extends Point> = Readonly<{
@@ -27,7 +27,7 @@ type StrokeSpec<P extends Point> = Readonly<{
 
 type Stroke<P> = Readonly<{ points: readonly P[]; preview: SVGElement }>;
 
-export const createStrokeBehaviour = <P extends Point>(spec: StrokeSpec<P>): ToolBehaviour => {
+export const createStrokeBehavior = <P extends Point>(spec: StrokeSpec<P>): ToolBehavior => {
 	const stroke = cell<Stroke<P> | undefined>(undefined);
 
 	const forget = (): void => {

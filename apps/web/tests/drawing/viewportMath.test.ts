@@ -233,7 +233,7 @@ describe('the fingers', () => {
 		expect(effects).toEqual(['cancelStroke']);
 	});
 
-	it('pans by the centre of two fingers and zooms by their distance', () => {
+	it('pans by the center of two fingers and zooms by their distance', () => {
 		const { effects } = run([
 			finger('down', 1, 100, 100),
 			finger('down', 2, 200, 100),
@@ -283,7 +283,7 @@ describe('the fingers', () => {
 		expect(three.effects).toEqual(['cancelStroke', 'redo']);
 	});
 
-	it('does not take a slow or a moved pair of fingers, or a cancelled one, for a tap', () => {
+	it('does not take a slow or a moved pair of fingers, or a canceled one, for a tap', () => {
 		const slow = run([
 			finger('down', 1, 10, 10, 0),
 			finger('down', 2, 100, 10, 20),
@@ -299,13 +299,13 @@ describe('the fingers', () => {
 			finger('up', 2, 100, 10, 120),
 		]);
 		expect(moved.effects.filter((effect) => effect === 'undo')).toEqual([]);
-		const cancelled = run([
+		const canceled = run([
 			finger('down', 1, 10, 10, 0),
 			finger('down', 2, 100, 10, 20),
 			finger('cancel', 1, 10, 10, 100),
 			finger('up', 2, 100, 10, 120),
 		]);
-		expect(cancelled.effects).toEqual(['cancelStroke']);
+		expect(canceled.effects).toEqual(['cancelStroke']);
 	});
 
 	it('does not count one finger down and up as a tap', () => {

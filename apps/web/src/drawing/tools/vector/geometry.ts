@@ -55,7 +55,7 @@ const deviation = (p: Point, a: Point, b: Point): number => {
 
 /**
  * Ramer–Douglas–Peucker: the points that matter, keeping every one that
- * strays more than `epsilon` from the line between its neighbours that are
+ * strays more than `epsilon` from the line between its neighbors that are
  * kept. The ends always stay, so a stroke keeps its reach however hard it is
  * simplified.
  */
@@ -84,7 +84,7 @@ export const simplify = (points: readonly Point[], epsilon: number): readonly Po
  */
 const epsilonFor = (smoothing: number): number => 4 * Math.min(1, Math.max(0, smoothing)) ** 2;
 
-/** One cubic from `p1` to `p2`: a Catmull-Rom segment with its neighbours as the tangents. */
+/** One cubic from `p1` to `p2`: a Catmull-Rom segment with its neighbors as the tangents. */
 const cubic = (p0: Point, p1: Point, p2: Point, p3: Point): string => {
 	const c1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
 	const c2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
@@ -120,7 +120,7 @@ export const smoothPath = (points: readonly Point[], smoothing: number): string 
 	return `M ${coords(first)} ${curves.join(' ')}`;
 };
 
-/** The unit tangent at `index`, from its neighbours; at either end, from the one neighbour. */
+/** The unit tangent at `index`, from its neighbors; at either end, from the one neighbor. */
 const tangentAt = (points: readonly Point[], index: number): Point => {
 	const before = points[index - 1] ?? points[index];
 	const after = points[index + 1] ?? points[index];
@@ -134,18 +134,18 @@ const tangentAt = (points: readonly Point[], index: number): Point => {
 const CAP_STEPS = 8;
 
 /**
- * The points of a half circle of `radius` about `centre`, from `from` radians
+ * The points of a half circle of `radius` about `center`, from `from` radians
  * through increasing angles, which is clockwise on a screen whose y runs down.
  */
-const cap = (centre: Point, radius: number, from: number): readonly Point[] =>
+const cap = (center: Point, radius: number, from: number): readonly Point[] =>
 	Array.from({ length: CAP_STEPS - 1 }, (_, k) => {
 		const angle = from + ((k + 1) * Math.PI) / CAP_STEPS;
-		return { x: centre.x + radius * Math.cos(angle), y: centre.y + radius * Math.sin(angle) };
+		return { x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) };
 	});
 
-const circlePath = (centre: Point, radius: number): string => {
+const circlePath = (center: Point, radius: number): string => {
 	const r = fmt(radius);
-	return `M ${fmt(centre.x + radius)} ${fmt(centre.y)} A ${r} ${r} 0 1 1 ${fmt(centre.x - radius)} ${fmt(centre.y)} A ${r} ${r} 0 1 1 ${fmt(centre.x + radius)} ${fmt(centre.y)} Z`;
+	return `M ${fmt(center.x + radius)} ${fmt(center.y)} A ${r} ${r} 0 1 1 ${fmt(center.x - radius)} ${fmt(center.y)} A ${r} ${r} 0 1 1 ${fmt(center.x + radius)} ${fmt(center.y)} Z`;
 };
 
 /**
@@ -163,7 +163,7 @@ export const strokeOutline = (points: readonly WidePoint[]): string => {
 	if (kept.length === 1) return circlePath(first, first.w / 2);
 	const last = kept.at(-1) ?? first;
 	const tangents = kept.map((_, i) => tangentAt(kept, i));
-	// Left of the direction of travel, on a screen whose y runs down, is the tangent turned anticlockwise.
+	// Left of the direction of travel, on a screen whose y runs down, is the tangent turned counterclockwise.
 	const offset = (p: WidePoint, t: Point, side: 1 | -1): Point => ({
 		x: p.x + (side * t.y * p.w) / 2,
 		y: p.y - (side * t.x * p.w) / 2,
@@ -172,7 +172,7 @@ export const strokeOutline = (points: readonly WidePoint[]): string => {
 	const right = kept.map((p, i) => offset(p, tangents[i] ?? { x: 1, y: 0 }, -1)).reverse();
 	const endTangent = tangents.at(-1) ?? { x: 1, y: 0 };
 	const startTangent = tangents[0] ?? { x: 1, y: 0 };
-	// From the left side round the front to the right, then from the right round the back to the left.
+	// From the left side around the front to the right, then from the right around the back to the left.
 	const endCap = cap(last, last.w / 2, Math.atan2(endTangent.y, endTangent.x) - Math.PI / 2);
 	const startCap = cap(
 		first,
@@ -257,19 +257,19 @@ export const multiply = (m: Mat, n: Mat): Mat => {
 export const translate = (tx: number, ty: number): Mat => [1, 0, 0, 1, tx, ty];
 
 /** A matrix applied about a point: moved there, applied, moved back. */
-const about = (m: Mat, centre: Point | undefined): Mat =>
-	centre === undefined
+const about = (m: Mat, center: Point | undefined): Mat =>
+	center === undefined
 		? m
-		: multiply(translate(centre.x, centre.y), multiply(m, translate(-centre.x, -centre.y)));
+		: multiply(translate(center.x, center.y), multiply(m, translate(-center.x, -center.y)));
 
-export const scale = (sx: number, sy: number, centre?: Point): Mat =>
-	about([sx, 0, 0, sy, 0, 0], centre);
+export const scale = (sx: number, sy: number, center?: Point): Mat =>
+	about([sx, 0, 0, sy, 0, 0], center);
 
-export const rotate = (degrees: number, centre?: Point): Mat => {
+export const rotate = (degrees: number, center?: Point): Mat => {
 	const radians = (degrees * Math.PI) / 180;
 	const cos = Math.cos(radians);
 	const sin = Math.sin(radians);
-	return about([cos, sin, -sin, cos, 0, 0], centre);
+	return about([cos, sin, -sin, cos, 0, 0], center);
 };
 
 const skewX = (degrees: number): Mat => [1, 0, Math.tan((degrees * Math.PI) / 180), 1, 0, 0];

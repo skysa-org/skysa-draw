@@ -76,7 +76,7 @@ describe('findFreeName', () => {
 	});
 
 	it('stops when the same name keeps coming back', async () => {
-		// The drift the bound is for: a `candidate` that no longer recognises
+		// The drift the bound is for: a `candidate` that no longer recognizes
 		// its own names hands back the same one every time. The search stops.
 		const tried: string[] = [];
 		const search = findFreeName({

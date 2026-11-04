@@ -2,8 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { MenuItem } from '../../src/components/ui/Menu.js';
+import { PanelHost } from '../../src/components/ui/PanelHost.js';
 import { SIZE_MAX, SIZE_MIN } from '../../src/drawing/editorState.js';
+import { ColorPanel } from '../../src/drawing/panels/ColorPanel.js';
 import { OptionsStrip } from '../../src/drawing/panels/OptionsStrip.js';
+import { inToolOptions } from '../../src/drawing/tools/optionsRegion.js';
 import { DEFAULT_TOOL_OPTIONS, type Tool } from '../../src/drawing/tools/types.js';
 
 /**
@@ -16,10 +20,10 @@ import { DEFAULT_TOOL_OPTIONS, type Tool } from '../../src/drawing/tools/types.j
 const brushLike: Tool = {
 	id: 'brush',
 	options: ['size', 'opacity', 'pressure', 'fill'],
-	behaviours: {},
+	behaviors: {},
 };
 
-const rectangleLike: Tool = { id: 'rectangle', options: ['fill', 'stroke'], behaviours: {} };
+const rectangleLike: Tool = { id: 'rectangle', options: ['fill', 'stroke'], behaviors: {} };
 
 describe('the options strip', () => {
 	it('is a toolbar named for a screen reader, with a slider per numeric option under its catalog label', () => {
@@ -90,7 +94,18 @@ describe('the options strip', () => {
 		expect(onChange).toHaveBeenCalledWith('pressure', false);
 	});
 
-	it('shows a colour field per colour option, which emits the colour as #rrggbb', async () => {
+	it('shows the move tool’s Auto-select as a toggle, off until it is pressed', async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+		const moveLike: Tool = { id: 'select', options: ['autoSelect'], behaviors: {} };
+		render(<OptionsStrip tool={moveLike} options={DEFAULT_TOOL_OPTIONS} onChange={onChange} />);
+		const toggle = screen.getByRole('button', { name: 'Auto-select' });
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+		await user.click(toggle);
+		expect(onChange).toHaveBeenCalledWith('autoSelect', true);
+	});
+
+	it('shows a color field per color option, which emits the color as #rrggbb', async () => {
 		const user = userEvent.setup();
 		const onChange = vi.fn();
 		render(
@@ -123,12 +138,98 @@ describe('the options strip', () => {
 	it('is there, empty, for a tool with no options, so the layout does not jump', () => {
 		render(
 			<OptionsStrip
-				tool={{ id: 'hand', options: [], behaviours: {} }}
+				tool={{ id: 'hand', options: [], behaviors: {} }}
 				options={DEFAULT_TOOL_OPTIONS}
 				onChange={vi.fn()}
 			/>
 		);
 		const bar = screen.getByRole('toolbar', { name: 'Tool options' });
 		expect(bar.querySelectorAll('input, button')).toHaveLength(0);
+	});
+
+	it('shows the selection’s actions after the tool’s own, as buttons with their keys, a rule between groups', async () => {
+		const user = userEvent.setup();
+		const deselect = vi.fn();
+		const actions: readonly MenuItem[] = [
+			{ id: 'deselect', label: 'Deselect', shortcut: 'Ctrl+D', onSelect: deselect },
+			{
+				id: 'layerViaCopy',
+				label: 'Layer via copy',
+				onSelect: vi.fn(),
+				separatorBefore: true,
+			},
+			{ id: 'fill', label: 'Fill', onSelect: vi.fn(), disabled: true },
+		];
+		render(
+			<OptionsStrip
+				tool={{ id: 'marquee', options: ['constrain'], behaviors: {} }}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+				actions={actions}
+			/>
+		);
+		const bar = screen.getByRole('group', { name: 'Selection' });
+		const constrain = screen.getByRole('button', { name: 'Constrain' });
+		expect(constrain.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+			0
+		);
+		const buttons = [...bar.querySelectorAll('button')];
+		expect(buttons.map((button) => button.textContent)).toEqual([
+			'Deselect',
+			'Layer via copy',
+			'Fill',
+		]);
+		expect(buttons[0]?.getAttribute('title')).toBe('Deselect (Ctrl+D)');
+		expect(buttons[2]).toHaveProperty('disabled', true);
+		expect(bar.querySelectorAll('[role="separator"]')).toHaveLength(1);
+		await user.click(screen.getByRole('button', { name: 'Deselect' }));
+		expect(deselect).toHaveBeenCalledTimes(1);
+	});
+
+	it('shows no selection bar with no actions', () => {
+		render(<OptionsStrip tool={brushLike} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />);
+		expect(screen.queryByRole('group', { name: 'Selection' })).toBeNull();
+	});
+});
+
+describe('where the tool’s options are set', () => {
+	it('is the options strip, every control in it, and the color panel', () => {
+		const { unmount } = render(
+			<OptionsStrip tool={brushLike} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />
+		);
+		expect(inToolOptions(screen.getByRole('toolbar', { name: 'Tool options' }))).toBe(true);
+		expect(inToolOptions(screen.getByRole('slider', { name: 'Size' }))).toBe(true);
+		expect(inToolOptions(screen.getByRole('button', { name: 'Pressure' }))).toBe(true);
+		unmount();
+		render(
+			<ColorPanel
+				options={DEFAULT_TOOL_OPTIONS}
+				recent={['#ff0000']}
+				onColor={vi.fn()}
+				onSwap={vi.fn()}
+				onReset={vi.fn()}
+			/>
+		);
+		expect(inToolOptions(screen.getByRole('textbox', { name: 'Fill (hex)' }))).toBe(true);
+		expect(inToolOptions(screen.getByRole('button', { name: 'Swap colors' }))).toBe(true);
+	});
+
+	it('is a sheet or a drawer that holds them, which takes the focus as it opens, and nothing else', () => {
+		render(
+			<PanelHost placement="drawer" open onClose={vi.fn()} label="Color">
+				<ColorPanel
+					options={DEFAULT_TOOL_OPTIONS}
+					recent={[]}
+					onColor={vi.fn()}
+					onSwap={vi.fn()}
+					onReset={vi.fn()}
+				/>
+			</PanelHost>
+		);
+		const drawer = screen.getByRole('dialog', { name: 'Color' });
+		expect(document.activeElement).toBe(drawer);
+		expect(inToolOptions(drawer)).toBe(true);
+		expect(inToolOptions(document.body)).toBe(false);
+		expect(inToolOptions(null)).toBe(false);
 	});
 });

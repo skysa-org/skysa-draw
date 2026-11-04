@@ -2,21 +2,21 @@ import { type KeyboardEvent, useId, useState } from 'react';
 
 import { t } from '../../i18n/t.js';
 import { classes } from './classes.js';
-import { isNone, isValidHex, toHex } from './colour.js';
+import { isNone, isValidHex, toHex } from './color.js';
 
-/** What the picker shows before it has ever had a colour. */
+/** What the picker shows before it has ever had a color. */
 const DEFAULT_HEX = '#000000';
 
 /** What was typed, with the `#` a hex is so often typed without. */
 const withHash = (text: string): string => (text.startsWith('#') ? text : `#${text}`);
 
 /**
- * A colour (docs/ARCHITECTURE.md §7, "The interface"): a fill, a stroke. The
+ * A color (docs/ARCHITECTURE.md §7, "The interface"): a fill, a stroke. The
  * native picker as the swatch, named by the field's label; a field for the hex
- * beside it, which takes a typed colour on Enter or on leaving it and goes
- * back to the colour it had on Escape or on anything that is not one; `None`
- * where a fill or a stroke may be absent; and the colours used lately as a
- * row of swatches. `value` is a CSS colour as the drawing has it, or `none`;
+ * beside it, which takes a typed color on Enter or on leaving it and goes
+ * back to the color it had on Escape or on anything that is not one; `None`
+ * where a fill or a stroke may be absent; and the colors used lately as a
+ * row of swatches. `value` is a CSS color as the drawing has it, or `none`;
  * what goes back is always `#rrggbb` or `none`.
  */
 export const ColorField = ({
@@ -37,7 +37,7 @@ export const ColorField = ({
 	const pickerId = useId();
 	const none = isNone(value);
 	const hex = toHex(value);
-	// The colour the picker goes on showing while the value is `none`: the
+	// The color the picker goes on showing while the value is `none`: the
 	// last one it had, so that None and back is a round trip. Adjusted as the
 	// value changes, during the render that sees it change.
 	const [held, setHeld] = useState(hex ?? DEFAULT_HEX);
@@ -114,17 +114,17 @@ export const ColorField = ({
 				</button>
 			)}
 			{recent !== undefined && recent.length > 0 && (
-				<div className="color-recent" role="group" aria-label={t('ui.recentColours')}>
-					{recent.map((colour) => {
-						const swatch = toHex(colour) ?? colour;
+				<div className="color-recent" role="group" aria-label={t('ui.recentColors')}>
+					{recent.map((color) => {
+						const swatch = toHex(color) ?? color;
 						return (
 							<button
-								key={colour}
+								key={color}
 								type="button"
 								className="color-recent-swatch"
-								// The swatch is drawn in `currentColor`, so the colour is the one style set here.
+								// The swatch is drawn in `currentColor`, so the color is the one style set here.
 								style={{ color: swatch }}
-								aria-label={t('ui.recentColour', { hex: swatch })}
+								aria-label={t('ui.recentColor', { hex: swatch })}
 								aria-pressed={swatch === hex}
 								onClick={() => onChange(swatch)}
 							/>

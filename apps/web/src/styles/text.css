@@ -1,6 +1,6 @@
 /* The text tool's field over the canvas (docs/decisions/0004-the-interface.md;
    `drawing/tools/vector/textField.ts`): a textarea that is the live preview
-   of the `<text>` it will make. Where it is, its size, its colour and its
+   of the `<text>` it will make. Where it is, its size, its color and its
    line height are set on it from code, since they follow the view and the
    text; this is the rest. Nothing of a field's own look is left, so the words
    are seen as they will be drawn: no box, no padding, no wrapping, since an

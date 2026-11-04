@@ -65,7 +65,7 @@ afterEach(() => {
 
 const DRAWING = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="${SVG_NAMESPACE}" xmlns:draw="${DRAWING_NAMESPACE}" draw:id="d1" viewBox="0 0 100 80">
-  <title>Harbour</title>
+  <title>Harbor</title>
   <g id="layer-1" draw:kind="vector" draw:name="Sea" style="fill:red">
     <rect width="10" height="10"/>
   </g>
@@ -236,7 +236,7 @@ describe('the clip, as the file has it', () => {
 		const document = opened();
 		document.execute(clipToBelow(document.root, 'layer-2'));
 		expect(document.text()).toContain(
-			'<title>Harbour</title>\n  <defs><mask id="clip-layer-2" style="mask-type:alpha"><use href="#layer-1"/></mask></defs>'
+			'<title>Harbor</title>\n  <defs><mask id="clip-layer-2" style="mask-type:alpha"><use href="#layer-1"/></mask></defs>'
 		);
 		expect(document.text()).toContain(
 			'opacity="0.5" transform="translate(5 5)" mask="url(#clip-layer-2)"'

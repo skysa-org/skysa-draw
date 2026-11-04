@@ -35,7 +35,7 @@ describe('freeName', () => {
 
 	it('gives way whichever side the composed form is on', () => {
 		// The direction that was wrong. `slugify` always emits NFC, so a name
-		// arriving as NFD was recognised when the candidate was NFD too and
+		// arriving as NFD was recognized when the candidate was NFD too and
 		// missed when the candidate was the NFC a slug always produces — and
 		// missed, the function handed back the very name it was avoiding.
 		const composed = 'caf\u00e9.svg';
@@ -47,7 +47,7 @@ describe('freeName', () => {
 		expect(answer.normalize('NFC')).not.toBe(decomposed.normalize('NFC'));
 	});
 
-	it('does not take a capitalised extension for part of the name', () => {
+	it('does not take a capitalized extension for part of the name', () => {
 		// `.SVG` is ordinary from Windows tools. Matched exactly, the extension
 		// stays in the stem and is slugified into the name itself.
 		expect(freeName('Report.SVG', ['report.SVG'])).toBe('report-2.svg');

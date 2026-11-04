@@ -21,7 +21,7 @@ Please include, as far as you can:
 - which version or commit you tested
 - whether it needs a user to be signed in, and whose
 
-You will get an acknowledgement as soon as the maintainer sees it, usually
+You will get an acknowledgment as soon as the maintainer sees it, usually
 within a week. This is a small project with one maintainer and no paging, so
 that is an expectation rather than a promise, and it is about answering rather
 than fixing; the advisory thread is where a timeline gets agreed.

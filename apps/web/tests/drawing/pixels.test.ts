@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	colourDistance,
+	colorDistance,
 	dabStrength,
 	floodFill,
-	parseColour,
+	parseColor,
 	pixelGrid,
 	placePicture,
 	type Rgba,
@@ -17,7 +17,7 @@ import {
 /**
  * The arithmetic of a raster layer (docs/ARCHITECTURE.md §3, "Layers"), which
  * needs no canvas: the pixel grid, the brush's stamps, the flood fill, the
- * smudge's dab, the colours, and where a picture from elsewhere sits in its box.
+ * smudge's dab, the colors, and where a picture from elsewhere sits in its box.
  */
 
 describe('pixelGrid', () => {
@@ -89,15 +89,15 @@ describe('stampsAlong', () => {
 	});
 });
 
-describe('colourDistance', () => {
-	it('is 0 for the same colour and 1 for the furthest two', () => {
-		expect(colourDistance([10, 20, 30, 40], [10, 20, 30, 40])).toBe(0);
-		expect(colourDistance([0, 0, 0, 0], [255, 255, 255, 255])).toBe(1);
+describe('colorDistance', () => {
+	it('is 0 for the same color and 1 for the furthest two', () => {
+		expect(colorDistance([10, 20, 30, 40], [10, 20, 30, 40])).toBe(0);
+		expect(colorDistance([0, 0, 0, 0], [255, 255, 255, 255])).toBe(1);
 	});
 
 	it('counts every channel alike', () => {
-		expect(colourDistance([0, 0, 0, 255], [255, 255, 255, 255])).toBeCloseTo(Math.sqrt(3) / 2);
-		expect(colourDistance([0, 0, 0, 0], [0, 0, 0, 255])).toBeCloseTo(0.5);
+		expect(colorDistance([0, 0, 0, 255], [255, 255, 255, 255])).toBeCloseTo(Math.sqrt(3) / 2);
+		expect(colorDistance([0, 0, 0, 0], [0, 0, 0, 255])).toBeCloseTo(0.5);
 	});
 });
 
@@ -105,7 +105,7 @@ const RED: Rgba = [255, 0, 0, 255];
 const BLUE: Rgba = [0, 0, 255, 255];
 const CLEAR: Rgba = [0, 0, 0, 0];
 
-/** A 4×4 picture: `rows` of colours, left to right, top to bottom. */
+/** A 4×4 picture: `rows` of colors, left to right, top to bottom. */
 const picture = (rows: readonly (readonly Rgba[])[]): Uint8ClampedArray => {
 	const data = new Uint8ClampedArray(16 * 4);
 	rows.forEach((row, y) => row.forEach((rgba, x) => data.set(rgba, (y * 4 + x) * 4)));
@@ -128,7 +128,7 @@ describe('floodFill', () => {
 			[CLEAR, CLEAR, RED, CLEAR],
 		]);
 
-	it('fills the connected region of the seed’s colour, in place, and nothing beyond it', () => {
+	it('fills the connected region of the seed’s color, in place, and nothing beyond it', () => {
 		const data = walled();
 		expect(floodFill(data, 4, 4, 0, 0, BLUE, 0)).toBe(8);
 		for (let y = 0; y < 4; y += 1) {
@@ -152,7 +152,7 @@ describe('floodFill', () => {
 		expect(pixelAt(data, 2, 2)).toEqual(CLEAR);
 	});
 
-	it('takes colours within the tolerance with the seed, and leaves ones outside it', () => {
+	it('takes colors within the tolerance with the seed, and leaves ones outside it', () => {
 		const nearly: Rgba = [0, 0, 0, 10];
 		const build = () =>
 			picture([
@@ -177,14 +177,14 @@ describe('floodFill', () => {
 		expect(pixelAt(everything, 3, 3)).toEqual(BLUE);
 	});
 
-	it('changes nothing, and says so, where the region is the fill colour already', () => {
+	it('changes nothing, and says so, where the region is the fill color already', () => {
 		const data = walled();
 		const before = Array.from(data);
 		expect(floodFill(data, 4, 4, 3, 0, CLEAR, 0)).toBe(0);
 		expect(Array.from(data)).toEqual(before);
 	});
 
-	it('counts only the pixels whose colour changed, where some were the fill colour already', () => {
+	it('counts only the pixels whose color changed, where some were the fill color already', () => {
 		const data = walled();
 		expect(floodFill(data, 4, 4, 0, 0, RED, 1)).toBe(12);
 		expect(pixelAt(data, 3, 3)).toEqual(RED);
@@ -208,7 +208,7 @@ describe('floodFill', () => {
 
 	it('takes a pixel outside the area as a wall, and fills nothing from a seed outside it', () => {
 		// The area is the first column.
-		const inFirstColumn = (index: number) => index % 4 === 0;
+		const inFirstColumn = (index: number) => (index % 4 === 0 ? 1 : 0);
 		const data = walled();
 		expect(floodFill(data, 4, 4, 0, 0, BLUE, 0, inFirstColumn)).toBe(4);
 		expect(pixelAt(data, 0, 3)).toEqual(BLUE);
@@ -219,10 +219,24 @@ describe('floodFill', () => {
 		expect(floodFill(outside, 4, 4, 1, 0, BLUE, 1, inFirstColumn)).toBe(0);
 		expect(Array.from(outside)).toEqual(before);
 	});
+
+	it('lays its color down by how much the area covers each pixel, premultiplied', () => {
+		// The first column wholly covered, the second a quarter: a feathered edge.
+		const feathered = (index: number) => [1, 0.25, 0, 0][index % 4] ?? 0;
+		const data = walled();
+		expect(floodFill(data, 4, 4, 0, 0, BLUE, 0, feathered)).toBe(8);
+		expect(pixelAt(data, 0, 1)).toEqual(BLUE);
+		// A quarter of blue over transparency: blue, a quarter opaque, not darkened.
+		expect(pixelAt(data, 1, 1)).toEqual([0, 0, 255, 64]);
+
+		const opaque = picture([[[255, 255, 255, 255], CLEAR, CLEAR, CLEAR]]);
+		floodFill(opaque, 4, 1, 0, 0, BLUE, 0, () => 0.5);
+		expect(pixelAt(opaque, 0, 0)).toEqual([128, 128, 255, 255]);
+	});
 });
 
 describe('smudgeDab', () => {
-	/** A 3×3 region, every pixel one colour. */
+	/** A 3×3 region, every pixel one color. */
 	const filled = (rgba: Rgba): Uint8ClampedArray => {
 		const data = new Uint8ClampedArray(9 * 4);
 		for (let i = 0; i < 9; i += 1) data.set(rgba, i * 4);
@@ -232,7 +246,7 @@ describe('smudgeDab', () => {
 		const i = (y * 3 + x) * 4;
 		return [data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0, data[i + 3] ?? 0];
 	};
-	/** A hard dab of radius 1 about the middle pixel's centre: that pixel alone is inside it. */
+	/** A hard dab of radius 1 about the middle pixel's center: that pixel alone is inside it. */
 	const dab = { width: 3, height: 3, cx: 1.5, cy: 1.5, radius: 1, hardness: 1, strength: 0.5 };
 
 	it('lays what it picked up over what it lands on, by its strength, inside its radius only', () => {
@@ -243,7 +257,7 @@ describe('smudgeDab', () => {
 		expect(at3(under, 1, 0)).toEqual(BLUE);
 	});
 
-	it('thins a colour that transparency is pushed over, rather than darkening it', () => {
+	it('thins a color that transparency is pushed over, rather than darkening it', () => {
 		const half = filled(RED);
 		smudgeDab(filled(CLEAR), half, dab);
 		expect(at3(half, 1, 1)).toEqual([255, 0, 0, 128]);
@@ -273,7 +287,7 @@ describe('smudgeDab', () => {
 		expect(smudgeDab(filled(RED), under, dab, filled(RED))).toBe(true);
 	});
 
-	it('changes nothing at a strength of nothing, or where it carries the colour it lands on', () => {
+	it('changes nothing at a strength of nothing, or where it carries the color it lands on', () => {
 		const under = filled(BLUE);
 		expect(smudgeDab(filled(RED), under, { ...dab, strength: 0 })).toBe(false);
 		expect(smudgeDab(filled(BLUE), under, { ...dab, strength: 1 })).toBe(false);
@@ -297,40 +311,40 @@ describe('dabStrength', () => {
 	});
 });
 
-describe('parseColour', () => {
+describe('parseColor', () => {
 	it('reads the hex forms, short and long, with and without alpha', () => {
-		expect(parseColour('#f00')).toEqual([255, 0, 0, 255]);
-		expect(parseColour('#f008')).toEqual([255, 0, 0, 136]);
-		expect(parseColour('#1A2B3C')).toEqual([26, 43, 60, 255]);
-		expect(parseColour('#ff000080')).toEqual([255, 0, 0, 128]);
+		expect(parseColor('#f00')).toEqual([255, 0, 0, 255]);
+		expect(parseColor('#f008')).toEqual([255, 0, 0, 136]);
+		expect(parseColor('#1A2B3C')).toEqual([26, 43, 60, 255]);
+		expect(parseColor('#ff000080')).toEqual([255, 0, 0, 128]);
 	});
 
 	it('reads rgb() and rgba(), with commas or spaces, numbers or percentages', () => {
-		expect(parseColour('rgb(1, 2, 3)')).toEqual([1, 2, 3, 255]);
-		expect(parseColour('rgba(1, 2, 3, 0.5)')).toEqual([1, 2, 3, 128]);
-		expect(parseColour('rgb(100% 0% 50% / 50%)')).toEqual([255, 0, 128, 128]);
-		expect(parseColour(' rgb(300, -1, 2) ')).toEqual([255, 0, 2, 255]);
+		expect(parseColor('rgb(1, 2, 3)')).toEqual([1, 2, 3, 255]);
+		expect(parseColor('rgba(1, 2, 3, 0.5)')).toEqual([1, 2, 3, 128]);
+		expect(parseColor('rgb(100% 0% 50% / 50%)')).toEqual([255, 0, 128, 128]);
+		expect(parseColor(' rgb(300, -1, 2) ')).toEqual([255, 0, 2, 255]);
 	});
 
 	it('is undefined for none, a name, or nonsense', () => {
-		expect(parseColour('none')).toBeUndefined();
-		expect(parseColour('red')).toBeUndefined();
-		expect(parseColour('#12')).toBeUndefined();
-		expect(parseColour('')).toBeUndefined();
+		expect(parseColor('none')).toBeUndefined();
+		expect(parseColor('red')).toBeUndefined();
+		expect(parseColor('#12')).toBeUndefined();
+		expect(parseColor('')).toBeUndefined();
 	});
 });
 
 describe('toCss', () => {
-	it('writes #rrggbb and drops the alpha, since the colour field has none', () => {
+	it('writes #rrggbb and drops the alpha, since the color field has none', () => {
 		expect(toCss([255, 128, 0, 10])).toBe('#ff8000');
 		expect(toCss([0, 0, 0, 255])).toBe('#000000');
 	});
 
-	it('round-trips with parseColour', () => {
-		const parsed = parseColour('#1a2b3c');
+	it('round-trips with parseColor', () => {
+		const parsed = parseColor('#1a2b3c');
 		expect(parsed).toBeDefined();
 		expect(toCss(parsed ?? [0, 0, 0, 0])).toBe('#1a2b3c');
-		expect(parseColour(toCss([26, 43, 60, 255]))).toEqual([26, 43, 60, 255]);
+		expect(parseColor(toCss([26, 43, 60, 255]))).toEqual([26, 43, 60, 255]);
 	});
 });
 
@@ -342,11 +356,11 @@ describe('placePicture', () => {
 		expect(placePicture('none', box, square)).toEqual({ x: 0, y: 0, width: 200, height: 100 });
 	});
 
-	it('fits it inside, centred, where the attribute is absent, as SVG’s default does', () => {
-		const centred = { x: 50, y: 0, width: 100, height: 100 };
-		expect(placePicture(null, box, square)).toEqual(centred);
-		expect(placePicture('xMidYMid meet', box, square)).toEqual(centred);
-		expect(placePicture('nonsense slice', box, square)).toEqual(centred);
+	it('fits it inside, centered, where the attribute is absent, as SVG’s default does', () => {
+		const centered = { x: 50, y: 0, width: 100, height: 100 };
+		expect(placePicture(null, box, square)).toEqual(centered);
+		expect(placePicture('xMidYMid meet', box, square)).toEqual(centered);
+		expect(placePicture('nonsense slice', box, square)).toEqual(centered);
 	});
 
 	it('aligns it to the start or the end of the spare room', () => {

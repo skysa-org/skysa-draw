@@ -8,7 +8,7 @@ const LONG_PRESS_MS = 500;
 /**
  * A tool in the tool bar (docs/ARCHITECTURE.md §7, "The interface"): pressed
  * when it is the active tool, with the tool's key in its tooltip and, when a
- * `badge` is given, a corner mark such as the current colour.
+ * `badge` is given, a corner mark such as the current color.
  *
  * A long press — the pointer held `LONG_PRESS_MS` without leaving — calls
  * `onLongPress` instead of `onClick`, which a phone has no other way to ask

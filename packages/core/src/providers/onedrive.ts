@@ -58,10 +58,10 @@ import {
  * Not in the Graph reference pages, and so checked against a live account, with
  * the answers in docs/ARCHITECTURE.md §5.2: that an upload by path answers
  * `@microsoft.graph.conflictBehavior=fail` with `409 nameAlreadyExists`, that an
- * upload by id answers a stale `If-Match` with `412`, that a move honours the
+ * upload by id answers a stale `If-Match` with `412`, that a move honors the
  * same `conflictBehavior` (the move page documents only `if-match`), and that
  * `delta` is served on `special/approot` itself. The app-folder page lists the
- * last; the upload behaviour is what the OneDrive API docs' issue tracker and
+ * last; the upload behavior is what the OneDrive API docs' issue tracker and
  * Microsoft Q&A report. Also to watch on a live account: whether moving a drawing
  * out of the app folder, or a folder full of drawings into it, reads as `changes`
  * expects.
@@ -561,7 +561,7 @@ export const createOneDriveProvider = (options: OneDriveProviderOptions): Storag
 		const target = normalizePath(newPath);
 		if (target === ROOT) throw new NotFoundError(target);
 
-		// Asked first, rather than learnt from a refusal, because the queue replays
+		// Asked first, rather than learned from a refusal, because the queue replays
 		// moves that have already happened (see `StorageProvider`). Spelled
 		// exactly the same is a move already done; the same entry spelled in
 		// another case is a rename of the case alone, which Graph does perform.
@@ -644,7 +644,7 @@ export const createOneDriveProvider = (options: OneDriveProviderOptions): Storag
 			// The code is matched wherever it sits: the page says only "an error
 			// response containing one of the error codes below", and `codes`
 			// already carries Graph's nested `innerError` ones outermost-first.
-			// Anything unrecognised — including a plain `resyncRequired` — falls
+			// Anything unrecognized — including a plain `resyncRequired` — falls
 			// back to the reset we have always done, never to uploading.
 			// https://learn.microsoft.com/en-us/graph/api/driveitem-delta
 			throw new CursorResetError(

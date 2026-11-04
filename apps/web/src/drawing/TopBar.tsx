@@ -48,7 +48,8 @@ type Asking = 'nothing' | 'rename' | 'delete';
 const TitleField = ({
 	value,
 	onChange,
-}: Readonly<{ value: string; onChange: (value: string) => void }>) => {
+	onCancel,
+}: Readonly<{ value: string; onChange: (value: string) => void; onCancel: () => void }>) => {
 	const ref = useRef<HTMLInputElement>(null);
 	useEffect(() => {
 		ref.current?.focus();
@@ -57,7 +58,18 @@ const TitleField = ({
 	return (
 		<label className="top-bar-field">
 			<span className="visually-hidden">{t('drawings.title')}</span>
-			<input ref={ref} value={value} onChange={(event) => onChange(event.target.value)} />
+			<input
+				ref={ref}
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
+					// The field's, not the editor's: Escape here leaves the name as it was.
+					event.preventDefault();
+					event.stopPropagation();
+					onCancel();
+				}}
+			/>
 		</label>
 	);
 };
@@ -87,7 +99,7 @@ const RenameForm = ({
 	};
 	return (
 		<form className="inline-form" onSubmit={submit}>
-			<TitleField value={draft} onChange={setDraft} />
+			<TitleField value={draft} onChange={setDraft} onCancel={onDone} />
 			<div className="inline-actions">
 				<button type="submit" className="primary">
 					{t('drawings.save')}
@@ -185,7 +197,17 @@ export const TopBar = ({
 			{asking === 'delete' && (
 				<DeleteQuestion title={title} onDelete={onDelete} onDone={done} />
 			)}
-			{asking === 'nothing' && <h1 className="top-bar-title">{title}</h1>}
+			{asking === 'nothing' && (
+				// A double-click on the title renames it, as a file's name in a
+				// desktop editor's title bar does; More's Rename is the way from the keyboard.
+				<h1
+					className="top-bar-title"
+					title={t('drawings.renameHint')}
+					onDoubleClick={() => setAsking('rename')}
+				>
+					{title}
+				</h1>
+			)}
 			{/* Always there, so a screen reader hears it change; empty on compact,
 			    where the bar has no room for it. */}
 			<span role="status" className="top-bar-status">

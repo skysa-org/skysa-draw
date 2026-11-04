@@ -92,7 +92,7 @@ const tidy = (value: number): number => Math.round(value * 1000) / 1000;
 
 /**
  * A picture of `size` inside the canvas: made smaller to fit where it is
- * larger, never larger, and centred, one pixel a user unit where it fits.
+ * larger, never larger, and centered, one pixel a user unit where it fits.
  */
 const fitted = (size: DrawingSize, box: Box): Box => {
 	const scale = Math.min(1, box.width / size.width, box.height / size.height);

@@ -142,7 +142,7 @@ describe('callback', () => {
 		expect(mineBody.accountId).toBe('dbid:victim');
 	});
 
-	it('comes back from a cancelled consent screen as denied', async () => {
+	it('comes back from a canceled consent screen as denied', async () => {
 		const app = buildApp({ config: bothProvidersConfig() });
 		const jar = createJar();
 		jar.absorb(await app.startConnect('onedrive', { jar }));

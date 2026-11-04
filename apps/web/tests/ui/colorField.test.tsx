@@ -2,13 +2,13 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { isNone, isValidHex, toHex } from '../../src/components/ui/color.js';
 import { ColorField } from '../../src/components/ui/ColorField.js';
-import { isNone, isValidHex, toHex } from '../../src/components/ui/colour.js';
 
 /**
- * A colour (docs/ARCHITECTURE.md §7, "The interface"): the native picker
- * named by the field's label, the hex beside it, None where a colour may be
- * absent, and the colours used lately. What goes back is `#rrggbb` or `none`.
+ * A color (docs/ARCHITECTURE.md §7, "The interface"): the native picker
+ * named by the field's label, the hex beside it, None where a color may be
+ * absent, and the colors used lately. What goes back is `#rrggbb` or `none`.
  */
 
 describe('toHex', () => {
@@ -23,9 +23,10 @@ describe('toHex', () => {
 		['rgb(300, 0, 0)', '#ff0000'],
 		['RebeccaPurple', '#663399'],
 		['red', '#ff0000'],
+		// CSS's own second spelling of gray, which has to parse too.
 		['grey', '#808080'],
-	])('writes %s as %s', (colour, hex) => {
-		expect(toHex(colour)).toBe(hex);
+	])('writes %s as %s', (color, hex) => {
+		expect(toHex(color)).toBe(hex);
 	});
 
 	it.each([
@@ -40,8 +41,8 @@ describe('toHex', () => {
 		'url(#gradient)',
 		'hsl(0 100% 50%)',
 		'',
-	])('has no #rrggbb for %j', (colour) => {
-		expect(toHex(colour)).toBeUndefined();
+	])('has no #rrggbb for %j', (color) => {
+		expect(toHex(color)).toBeUndefined();
 	});
 });
 
@@ -105,7 +106,7 @@ describe('ColorField', () => {
 		expect(onChange).toHaveBeenCalledTimes(2);
 	});
 
-	it('goes back to the colour it had from anything that is not a hex, and gives nothing back', async () => {
+	it('goes back to the color it had from anything that is not a hex, and gives nothing back', async () => {
 		const user = userEvent.setup();
 		const { hex, onChange } = renderField();
 		await user.clear(hex);
@@ -114,7 +115,7 @@ describe('ColorField', () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it('gives nothing back for the colour it already has', async () => {
+	it('gives nothing back for the color it already has', async () => {
 		const user = userEvent.setup();
 		const { hex, onChange } = renderField();
 		await user.clear(hex);
@@ -141,12 +142,12 @@ describe('ColorField', () => {
 		expect(picker.value).toBe('#000000');
 	});
 
-	it('offers None only where a colour may be absent', () => {
+	it('offers None only where a color may be absent', () => {
 		renderField();
 		expect(screen.queryByRole('button', { name: 'None' })).toBeNull();
 	});
 
-	it('turns to none and back to the colour it had, through the None toggle', async () => {
+	it('turns to none and back to the color it had, through the None toggle', async () => {
 		const user = userEvent.setup();
 		const { rerender, onChange, picker, hex } = renderField({ allowNone: true });
 		const toggle = screen.getByRole('button', { name: 'None' });
@@ -166,17 +167,17 @@ describe('ColorField', () => {
 		expect(onChange).toHaveBeenLastCalledWith('#ff0000');
 	});
 
-	it('picks a colour out of none from the picker', () => {
+	it('picks a color out of none from the picker', () => {
 		const { picker, onChange } = renderField({ value: 'none', allowNone: true });
 		expect(picker.value).toBe('#000000');
 		fireEvent.change(picker, { target: { value: '#336699' } });
 		expect(onChange).toHaveBeenCalledWith('#336699');
 	});
 
-	it('shows the colours used lately, the current one pressed, each choosing itself', async () => {
+	it('shows the colors used lately, the current one pressed, each choosing itself', async () => {
 		const user = userEvent.setup();
 		const { onChange } = renderField({ recent: ['#ff0000', 'blue', '#0f0'] });
-		const row = screen.getByRole('group', { name: 'Recent colours' });
+		const row = screen.getByRole('group', { name: 'Recent colors' });
 		const swatches = within(row).getAllByRole('button');
 		expect(swatches.map((swatch) => swatch.getAttribute('aria-label'))).toEqual([
 			'Use #ff0000',
@@ -194,8 +195,8 @@ describe('ColorField', () => {
 		expect(onChange).toHaveBeenCalledWith('#0000ff');
 	});
 
-	it('has no row of recent colours when there are none', () => {
+	it('has no row of recent colors when there are none', () => {
 		renderField({ recent: [] });
-		expect(screen.queryByRole('group', { name: 'Recent colours' })).toBeNull();
+		expect(screen.queryByRole('group', { name: 'Recent colors' })).toBeNull();
 	});
 });

@@ -64,7 +64,7 @@ const rowsUnder = (layers: readonly LayerInfo[], parentId: string | undefined): 
 		.reverse()
 		.flatMap((row) => [row, ...rowsUnder(layers, row.layer.id)]);
 
-/** A row's button id, for moving the focus to a neighbour. */
+/** A row's button id, for moving the focus to a neighbor. */
 const pickId = (layerId: string): string => `layer-pick-${layerId}`;
 
 const focusPick = (layerId: string) => {
@@ -266,11 +266,11 @@ export const LayersPanel = ({
 		const row = rows[at];
 		if (row === undefined) return;
 		const step = ROW_STEPS[event.key];
-		const neighbour = step === undefined ? undefined : rows[at + step];
-		if (neighbour !== undefined) {
+		const neighbor = step === undefined ? undefined : rows[at + step];
+		if (neighbor !== undefined) {
 			event.preventDefault();
-			onActivate(neighbour.layer.id);
-			focusPick(neighbour.layer.id);
+			onActivate(neighbor.layer.id);
+			focusPick(neighbor.layer.id);
 			return;
 		}
 		if (event.key === 'F2') {

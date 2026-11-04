@@ -10,7 +10,7 @@
 //     its HTML preloads
 //   - all the CSS together
 //
-// Set (2026-11-03) at that day's build plus about five per cent. Raising one
+// Set (2026-11-03) at that day's build plus about five percent. Raising one
 // is fine when the growth is wanted; say so in the pull request. Plain Node,
 // no dependencies.
 

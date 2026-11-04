@@ -11,7 +11,7 @@ import { LOCAL_CONNECTION_ID } from '../../store/db.js';
  * device's drawings, and a cloud for an account at a provider, whichever it
  * is. The provider's name is always beside the mark, or in the control that
  * holds it, and says which; no vendor's logo is copied in (skysa-notes ships
- * the vendors' own, which are their trademarks and outside its licence).
+ * the vendors' own, which are their trademarks and outside its license).
  *
  * Decorative everywhere: the name is beside it, or the button it is in says it.
  */

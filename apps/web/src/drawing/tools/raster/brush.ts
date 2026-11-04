@@ -1,6 +1,6 @@
 import { cell } from '@skysa/draw-core';
 
-import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, distance, pressureWidth } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
 import { type Area, areaOf, reachesArea } from './area.js';
@@ -13,8 +13,8 @@ import { clearCanvas, type CompositeMode, type RasterSurface } from './surface.j
  * The brush, the pencil and the eraser on a raster layer
  * (docs/decisions/0004-the-interface.md): one engine, three settings, each
  * reading the options its strip shows. The brush is soft, follows pressure
- * and paints in the fill colour; the pencil is hard, does not follow pressure
- * and draws in the stroke colour, as both do on a vector layer; the eraser is
+ * and paints in the fill color; the pencil is hard, does not follow pressure
+ * and draws in the stroke color, as both do on a vector layer; the eraser is
  * the brush committed as `destination-out`, so what it stamps is taken away
  * instead of put down. Where an area is selected (`ToolContext.region`) all
  * three paint inside it, and a stroke that never reaches it writes nothing.
@@ -44,7 +44,7 @@ const BLACK = '#000000';
 /** How far behind the pointer a stroke at full smoothing is drawn, in screen pixels. */
 const SLACK_PX = 24;
 
-/** What a segment's stamps cover, in user units: the box round its two ends, grown by the radius. */
+/** What a segment's stamps cover, in user units: the box around its two ends, grown by the radius. */
 const segmentBox = (from: Point, to: Point, radius: number): Box => ({
 	x: Math.min(from.x, to.x) - radius,
 	y: Math.min(from.y, to.y) - radius,
@@ -63,13 +63,12 @@ const brushOf = (kind: BrushKind, options: ToolOptions, sample: PointerSample): 
 		kind === 'brush'
 			? pressureWidth(options.size, sample.pressure, options.pressure)
 			: options.size;
-	const colour =
-		kind === 'eraser' ? BLACK : inkOf(options, kind === 'pencil' ? 'stroke' : 'fill');
+	const color = kind === 'eraser' ? BLACK : inkOf(options, kind === 'pencil' ? 'stroke' : 'fill');
 	return {
 		radius: width / 2,
 		hardness: kind === 'pencil' ? 1 : options.hardness,
-		colour,
-		mirror: kind === 'eraser' ? ERASER_MIRROR : colour,
+		color,
+		mirror: kind === 'eraser' ? ERASER_MIRROR : color,
 	};
 };
 
@@ -96,7 +95,7 @@ const pulled = (from: Point, to: PointerSample, slack: number): Point => {
 	return { x: from.x + (to.x - from.x) * along, y: from.y + (to.y - from.y) * along };
 };
 
-export const brushBehaviour = (kind: BrushKind): ToolBehaviour => {
+export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 	const active = cell<Stroke | undefined>(undefined);
 	const label = `tools.${kind}`;
 	const mode: CompositeMode = kind === 'eraser' ? 'destination-out' : 'source-over';

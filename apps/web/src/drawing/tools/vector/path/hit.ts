@@ -68,8 +68,8 @@ const sameHandle = (a: HandleRef, b: HandleRef): boolean =>
 	a.subpath === b.subpath && a.index === b.index && a.side === b.side;
 
 /**
- * The handles shown round the chosen anchors, as Illustrator shows them: both
- * of each chosen anchor's, and the near handle of each neighbour, so every
+ * The handles shown around the chosen anchors, as Illustrator shows them: both
+ * of each chosen anchor's, and the near handle of each neighbor, so every
  * segment that touches a chosen anchor can be reshaped from either end. A
  * handle on its anchor pulls nothing and is not shown, nor is one on the far
  * side of an open end, which no segment uses.
@@ -140,7 +140,7 @@ export const nearestOnPath = (data: PathData, p: Point, reach: number): OnPath |
 const side = (a: Point, b: Point, p: Point): number =>
 	(b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
 
-/** How many times a closed polygon winds round `p`, anticlockwise counted up. */
+/** How many times a closed polygon winds around `p`, counterclockwise counted up. */
 const windingOf = (polygon: readonly Point[], p: Point): number =>
 	polygon.reduce((winding, a, i) => {
 		const b = polygon[(i + 1) % polygon.length] ?? a;

@@ -43,7 +43,7 @@ export const sourceLabel = (source: ConnectedSource, name: string, reconnect = f
 /**
  * A source's name on screen, and a disconnected one's with the words that say
  * so — not an icon alone: a source that syncs nowhere is the one thing about
- * the list a user must not have to infer from a colour.
+ * the list a user must not have to infer from a color.
  */
 export const ShownSourceName = ({
 	source,

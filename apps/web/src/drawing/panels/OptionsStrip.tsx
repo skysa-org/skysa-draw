@@ -1,5 +1,8 @@
+import { Fragment } from 'react';
+
 import { ColorField } from '../../components/ui/ColorField.js';
 import { CheckIcon } from '../../components/ui/icons.js';
+import type { MenuItem } from '../../components/ui/Menu.js';
 import { Slider } from '../../components/ui/Slider.js';
 import { ToolBar } from '../../components/ui/ToolBar.js';
 import { ToolButton } from '../../components/ui/ToolButton.js';
@@ -12,6 +15,19 @@ import type { Tool, ToolOptionKey, ToolOptions } from '../tools/types.js';
  * interface"): the keys the tool names, in its order, each as the control its
  * kind takes. The bar is there even for a tool with no options, so the canvas
  * does not jump when the tool changes.
+ *
+ * After them, while something is selected and the tool is one that selects,
+ * the selection bar (docs/decisions/0004-the-interface.md, "The context
+ * menu"): the context menu's actions as buttons, which a touch screen has no
+ * other way to, as Procreate's selection bar is. They follow the tool's own
+ * options rather than take their place, since the marquee's are still wanted
+ * for the next area, and the row scrolls sideways where it is too narrow for
+ * both, as the tool bar does.
+ *
+ * It is where the tool's options are set (`data-tool-options`,
+ * `tools/optionsRegion.ts`): the focus coming here leaves open what the tool
+ * has open, the text tool's field, so that a size or a color chosen while
+ * typing is the text's.
  */
 
 type OnOptionChange = <K extends ToolOptionKey>(key: K, value: ToolOptions[K]) => void;
@@ -29,7 +45,7 @@ const LENGTHS = {
 
 type LengthKey = keyof typeof LENGTHS;
 type FractionKey = 'opacity' | 'hardness' | 'smoothing' | 'tolerance' | 'strength';
-type ToggleKey = 'pressure' | 'constrain';
+type ToggleKey = 'pressure' | 'constrain' | 'contiguous' | 'autoSelect';
 
 const isLength = (key: ToolOptionKey): key is LengthKey => key in LENGTHS;
 const isFraction = (key: ToolOptionKey): key is FractionKey =>
@@ -39,7 +55,7 @@ const isFraction = (key: ToolOptionKey): key is FractionKey =>
 	key === 'tolerance' ||
 	key === 'strength';
 const isToggle = (key: ToolOptionKey): key is ToggleKey =>
-	key === 'pressure' || key === 'constrain';
+	key === 'pressure' || key === 'constrain' || key === 'contiguous' || key === 'autoSelect';
 
 /** A shape's fill may be none, as its stroke may; a brush's fill is the paint itself. */
 const fillMayBeNone = (tool: Tool): boolean =>
@@ -104,24 +120,65 @@ const Option = ({
 	);
 };
 
+/** One of the selection's actions as a button: its name, and its key in the tooltip. */
+const ActionButton = ({ item }: Readonly<{ item: MenuItem }>) => (
+	<button
+		type="button"
+		className="options-action"
+		disabled={item.disabled}
+		title={
+			item.shortcut === undefined
+				? item.label
+				: t('ui.labelWithShortcut', { label: item.label, shortcut: item.shortcut })
+		}
+		onClick={item.onSelect}
+	>
+		{item.label}
+	</button>
+);
+
+/** The selection's actions, in their groups, a rule between each. */
+const SelectionBar = ({ actions }: Readonly<{ actions: readonly MenuItem[] }>) => (
+	<div role="group" aria-label={t('selection.bar')} className="options-selection">
+		{actions.map((item) => (
+			<Fragment key={item.id}>
+				{item.separatorBefore === true && (
+					<span role="separator" aria-orientation="vertical" className="options-rule" />
+				)}
+				<ActionButton item={item} />
+			</Fragment>
+		))}
+	</div>
+);
+
 export const OptionsStrip = ({
 	tool,
 	options,
 	onChange,
+	actions = [],
 }: Readonly<{
 	tool: Tool;
 	options: ToolOptions;
 	onChange: OnOptionChange;
+	/** The selection's actions, while something is selected; none otherwise. */
+	actions?: readonly MenuItem[];
 }>) => (
-	<ToolBar orientation="horizontal" label={t('editor.panes.options')} className="options-strip">
-		{tool.options.map((option) => (
-			<Option
-				key={option}
-				tool={tool}
-				option={option}
-				options={options}
-				onChange={onChange}
-			/>
-		))}
-	</ToolBar>
+	<div className="tool-options" data-tool-options="">
+		<ToolBar
+			orientation="horizontal"
+			label={t('editor.panes.options')}
+			className="options-strip"
+		>
+			{tool.options.map((option) => (
+				<Option
+					key={option}
+					tool={tool}
+					option={option}
+					options={options}
+					onChange={onChange}
+				/>
+			))}
+			{actions.length > 0 && <SelectionBar actions={actions} />}
+		</ToolBar>
+	</div>
 );

@@ -1,7 +1,7 @@
 // The default brand's icons, drawn in plain Node with no dependencies: a tile
-// of the brand colour with a pen stroke across it, at the six names and sizes
+// of the brand color with a pen stroke across it, at the six names and sizes
 // in `BRAND_ICONS` (`brand.ts`). How `icons/` was made, and how to make a set
-// on another colour:
+// on another color:
 //
 //   node apps/web/brand/icons.mjs apps/web/brand/icons '#4B5563'
 //
@@ -45,7 +45,7 @@ const chunk = (type, data) => {
 	return Buffer.concat([uint32(data.length), typed, uint32(crc32(typed))]);
 };
 
-/** An RGBA PNG of `size` square, each pixel from `pixel(x, y)` at its centre. */
+/** An RGBA PNG of `size` square, each pixel from `pixel(x, y)` at its center. */
 const png = (size, pixel) => {
 	const rows = Array.from({ length: size }, (_, y) =>
 		Buffer.from([0, ...Array.from({ length: size }, (_, x) => pixel(x + 0.5, y + 0.5)).flat()])

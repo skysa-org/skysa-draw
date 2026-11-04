@@ -50,7 +50,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 
 const drawing = (prefix = 'draw'): string => `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="${SVG_NAMESPACE}" xmlns:${prefix}="${DRAWING_NAMESPACE}" xmlns:xlink="${XLINK_NAMESPACE}" ${prefix}:id="d1" viewBox="0 0 100 100">
-  <title>Harbour</title>
+  <title>Harbor</title>
   <defs>
     <linearGradient id="outside"><stop offset="0"/></linearGradient>
   </defs>

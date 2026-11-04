@@ -123,11 +123,11 @@ const circleText = (read: Read): string | undefined => {
 };
 
 const ellipseOf = (read: Read): string | undefined => {
-	const centre = lengths(read, ['cx', 'cy']);
+	const center = lengths(read, ['cx', 'cy']);
 	const rxGiven = lengthOf(read('rx'));
 	const ryGiven = lengthOf(read('ry'));
-	if (centre === undefined || rxGiven === undefined || ryGiven === undefined) return undefined;
-	const [cx = 0, cy = 0] = centre;
+	if (center === undefined || rxGiven === undefined || ryGiven === undefined) return undefined;
+	const [cx = 0, cy = 0] = center;
 	return ellipseText(cx, cy, radius(rxGiven, ryGiven), radius(ryGiven, rxGiven));
 };
 

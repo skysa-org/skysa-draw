@@ -440,7 +440,7 @@ describe('an entry the provider sent twice', () => {
 		// Two entries at one path, in the order that hurts: the drawing is pointed
 		// at the new file by the first, and the second is about the file it used
 		// to be. Folding the two together drops the new file; acting on the
-		// deletion afterwards deletes the drawing that was just imported.
+		// deletion afterward deletes the drawing that was just imported.
 		const first = await remoteFile('a.svg', svg('one\n'));
 		await world.engine.pull();
 		const before = drawingAt('a.svg');
@@ -872,12 +872,12 @@ describe('a dead cursor', () => {
 			await world.provider.createFolder('Work');
 			await world.provider.createFolder('Work/Sub');
 			await remoteFile('Work/Sub/a.svg', svg('one\n'));
-			const backwards = {
+			const backward = {
 				...world.store,
 				foldersWithRemote: async () =>
 					[...(await world.store.foldersWithRemote())].reverse(),
 			};
-			const engineOver = engineWith({ store: backwards });
+			const engineOver = engineWith({ store: backward });
 			await engineOver.pull();
 			killTheCursor(true);
 			const folder = remoteAt(world.provider, 'Work');
@@ -992,7 +992,7 @@ describe('a dead cursor', () => {
 		});
 
 		it('deletes as usual when the reset does not ask for it', async () => {
-			// The other half of the rule, and the one an unrecognised reset code
+			// The other half of the rule, and the one an unrecognized reset code
 			// falls back to: without the flag a scan is still the truth.
 			await remoteFile('a.svg', svg('one\n'));
 			await world.engine.pull();

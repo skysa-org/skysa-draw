@@ -1218,7 +1218,7 @@ describe('one row per account, many devices per row', () => {
 
 	it('connects an account someone else already connected, on its own credential', async () => {
 		// Inverted from what this used to assert. There is no user to cross
-		// -authorise any more: two people sharing one Dropbox login get one
+		// -authorize any more: two people sharing one Dropbox login get one
 		// connection row and one grant each, and neither grant reaches anything
 		// else. Refusing it would have been refusing a shared family account.
 		const app = buildApp();

@@ -26,7 +26,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Files from elsewhere | Shown as the browser renders them; given an id on the way in, otherwise untouched (§3) | What the editor does not know is kept, never dropped |
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
-| Licence | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
+| License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
 | Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`) | Each product exports its own API and core to the parent project; a shared package comes when the first fix has to be made twice |
 
 ## 2. Architecture overview
@@ -166,7 +166,7 @@ changes(cursor?)                  what changed since the cursor; none means a fu
 
 ## 5. Provider specifics
 
-Carried over whole; each adapter's file says what it learnt of its provider, with the vendor's URL beside each claim.
+Carried over whole; each adapter's file says what it learned of its provider, with the vendor's URL beside each claim.
 The short version:
 
 ### 5.1 Google Drive
@@ -320,7 +320,7 @@ Decided 2026-11-04 with the layers (`decisions/0003-layers.md`) and the interfac
 **The document in the DOM.**
 The text is parsed as XML (`DOMParser`, `image/svg+xml`) and sanitized in place by DOMPurify (`document/sanitize.ts`) before any of it is rendered: script, event handlers, `javascript:` URLs, a `data:` URL that is not `data:image/`, `<foreignObject>`, and a `<use>` that reaches outside the document are taken out.
 An element or an attribute in a namespace that is not SVG's, XHTML's or MathML's is inert and is kept, so Inkscape's vocabulary and the app's own survive (§9).
-DOMPurify removes every element outside those three namespaces whatever it is told, so a foreign element is lifted out before it runs, stripped of anything in those three namespaces, and put back where it was afterwards; a foreign element is never allowed by its bare name, which would let a real `<script>` through under the same name.
+DOMPurify removes every element outside those three namespaces whatever it is told, so a foreign element is lifted out before it runs, stripped of anything in those three namespaces, and put back where it was afterward; a foreign element is never allowed by its bare name, which would let a real `<script>` through under the same name.
 The sanitized root is mounted in a shadow root inside the viewport, so a `<style>` the drawing carries styles the drawing and not the app.
 The editor's commands change elements in place.
 The text is serialized back (`XMLSerializer`, behind the file's own prolog, `readDrawingProlog`) only after a command ran: a drawing opened and closed is the same bytes, and `saveDrawing` ignores a save of the same text.
@@ -353,9 +353,66 @@ The pen draws a `<path>` of cubic segments, a click a corner and a drag a smooth
 The node tool moves a path's anchors and handles and inserts a point where a segment is pressed, and turns a shape (`rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`) into a path on its first edit, keeping its id and its other attributes.
 Path data is read as a browser reads it, every command, with arcs as cubics, and written back as `M`, `L`, `C` and `Z` to two decimals (`tools/vector/path/`).
 The text tool types into a field over the canvas, opened as the pointer lifts so a pinch opens none, and writes one `<text>`, a `<tspan>` to a line, in one command; its face is named (`sans-serif`), so it is the same in the editor, in a thumbnail and in another tool.
-The marquee and the lasso make the area selection, a closed path in user units that outlives the tool: on a raster layer every painting tool paints inside it, the fill floods only inside it and Delete clears it; on a vector layer it selects the elements it touches and is dropped.
-Shift adds a subpath, a union under `nonzero`; subtracting is not built.
+A tool may ask for another (`ToolContext.useTool`): the viewport asks the frame, which holds the tool in hand, and once the new tool is in hand and the last put down, hands it the element to edit (`ToolBehavior.edit`, `viewport/toolHandover.ts`).
+The tool in hand is told when the options change (`ToolBehavior.optionsChanged`), with a context that has them, so what it holds open follows; a tool may set them too (`ToolContext.setOptions`), as the text tool does with an edited text's own size and fill.
+The text tool's field stays open while the focus is where the options are set (`data-tool-options`, `tools/optionsRegion.ts`), and shows a new size or fill at once.
+While the field is open on a text, the text is hidden by a rule beside the root in the viewport's shadow root, never by a change to the drawing, and the field follows it through an undo or a redo, to the copy an undo puts in its place, writing nothing once it is gone (`tools/vector/textHide.ts`).
+An edited text's `font-size` and `fill` are written in the same one command as its words, only those changed while the field was open and different from the text's own, as attributes, and taken out of its `style` and its `<tspan>`s.
+A double press with the select tool opens a text in the text tool with the caret at the press, and a path, a shape, or the path under the press in a group, in the node tool (`tools/vector/doublePress.ts`).
+The marquee, the lasso and the magic wand make the area selection, a closed path in user units that outlives the tool: on a raster layer every painting tool paints inside it, the fill floods only inside it and Delete clears it; on a vector layer it selects the elements it touches and is dropped.
+Shift adds a subpath, a union under `nonzero`, and keeps the area's feather; subtracting is not built, and Shift over an inverted area starts a new one, since adding to an inverse is a difference of outlines, which no fill rule gives.
+The magic wand makes the area from a color, as Photoshop's does (`tools/raster/wand.ts`).
+A click on a raster layer selects the pixels within the tolerance of the one clicked, by the fill's distance over all four channels, so a click on a clear pixel selects the clear ones.
+With Contiguous on, the default, those are the pixels joined to it by their sides, as the fill floods; with it off, every such pixel of the layer.
+The mask is traced along the pixels' edges into loops, each straight run one segment, outer boundaries clockwise and holes the other way, so under `nonzero` a ring keeps its hole and a subpath Shift adds is a union with it (`tools/raster/trace.ts`).
+The corners come into user units through the inverse of the layer's pixel map, its `transform` included, and are written to two decimals as the marquee writes its own.
+Tracing is linear in the mask and never recurses; an outline past a million corners is refused with a notice, since every stroke inside the area reads it again.
+Shift adds as the marquee adds, a click outside the layer's pixels deselects, a locked layer may be selected from and a hidden one may not, and nothing enters the history.
+Since a wand's outline has holes, an inverted area asks the winding, not whether a subpath holds a box, to tell what is in its hole (`reachesArea`).
+On a vector layer the wand selects every element of the active layer painted within the tolerance of the one clicked, by its fill where that is a color and its stroke where it is not, a filled element matching only filled ones, as Illustrator's wand does by default; Contiguous does not apply there.
+Select inverse makes the area the canvas outside the outline, and feather fades its edge over a distance in user units either side of the outline.
+Neither is a clip, since a clip cannot take a complement where subpaths overlap: every write through an inverted or feathered area composites by its mask, the outline filled through the canvas's `filter: blur()` at a deviation of half the feather and, for an inverse, taken out of the canvas (`areaMask`).
+So a brush stroke, a fill, Delete and the smudge change each pixel by as much as the area covers it, and a feathered edge keeps its partial alpha; where the canvas has no `filter` (Safari before 18) the edge is hard.
+The live stroke is exact for a plain or an inverted area, and shows a feather's edge hard, on the outline, until the stroke lands.
+The marching ants trace the outline, and for an inverse the canvas's edge too.
+Fill… fills the area as its dialog says (`tools/raster/areaFill.ts`, `fillAreaWith`), in one command (`regions.fill`), with the fill color, the stroke color, a color of the user's own, or the picture around the area made again (Content-Aware), then a blend mode, an opacity and Preserve transparency, as Photoshop's Edit > Fill asks them.
+The mode is the canvas's `globalCompositeOperation`, `normal` as `source-over`, and Preserve transparency draws the layer's own pixels back `source-atop` over the fill, so their alpha is kept in every mode.
+A stroke of none fills with the fill color, as the fill tool pours it, and Alt or Option Backspace and Ctrl or ⌘ Backspace are Fill… with the fill or the stroke color in normal at full opacity.
+Content-Aware remakes every pixel the area covers at all, then lays the result over the layer by coverage and opacity, replacing the pixels in normal mode, so a hole over transparency can fill transparent.
+It is asynchronous and is a pending write the save waits for; a status over the canvas shows it working, and Escape or its Stop aborts the engine.
+An undo, a redo or any write to the layer while it works makes its result stale, and the fill is dropped with a notice rather than written over pixels it was not made from.
+Layer via copy or cut makes the area's pixels a new raster layer directly above, in the same place, in one command with the cut.
+Content-aware fill (`drawing/inpaint/`) makes the pixels under a mask again from the rest of the layer, as Photoshop's Edit > Fill > Content-Aware does.
+It is the inpainting of Wexler, Shechtman and Irani ("Space-Time Completion of Video", IEEE PAMI 2007), coarse to fine, with the nearest patches found by PatchMatch (Barnes, Shechtman, Finkelstein and Goldman, "PatchMatch: A Randomized Correspondence Algorithm for Structural Image Editing", SIGGRAPH 2009), the method Content-Aware Fill itself was built on.
+Patches are 7 × 7 pixels, compared by the sum of squared differences over the four channels premultiplied by alpha, so alpha is filled like a color and a hole on transparent pixels fills transparent.
+Only patches of known pixels are sources, drawn from a band around the hole: its box grown on every side by its longer side, at least 32 pixels, inside the picture, so a small hole in a large picture costs what the hole costs.
+The band is halved into a pyramid, a coarse pixel a hole if any of its four is, until the hole is 24 pixels across or less.
+The coarsest hole is filled from its edge inward, ring by ring, each pixel copied from the source that best matches what is known or already filled of its patch: the "onion peel" of Newson, Almansa, Gousseau and Pérez ("Non-Local Patch-Based Image Inpainting", IPOL 2017), so a line that meets the hole is carried in from either side.
+Each finer level starts from the matches of the one below at twice the offset, and each level between the coarsest and the finest is peeled again from its edge with the guess from below counting a twentieth as much as a known pixel, which keeps the layout found where the picture was small and still carries in a line too thin to be seen there.
+At every level, rounds of two PatchMatch passes (propagation, then random search in a window halved from the band's size to one pixel) and a vote make the hole again: 8 rounds at the coarsest level, 4 between, 2 at the finest.
+The vote is Wexler's: each pixel is the mean of what the patches over it say, each patch counted by exp(−d / 2σ²), σ² the 75th percentile of the distances, and by 1.3 for each ring nearer the known pixels it is.
+The random numbers come from a seeded xorshift generator, so the same layer and mask give the same bytes, in a worker or not.
+It runs in a module worker of its own (`inpaint.worker.ts`, a file of the app's own origin, so `worker-src 'self'` allows it and nothing is added to the policy), given copies of the pixels and the mask with their buffers transferred, and terminated once it answers or the fill is canceled; where there is no `Worker`, the same engine runs on the page, yielding between its steps.
+A 400 × 400 hole in a 2000 × 1500 picture takes about a second on an Apple M4.
+The move tool over an area on a raster layer moves the area's pixels wherever the drag begins, as Photoshop's does: each pixel by as much as the area covers it, in whole pixels of the layer, leaving transparency where they were, with the marching ants moved by as much (`tools/raster/move.ts`).
+Alt held as the drag begins moves a copy; Shift holds the move across, down or at 45°; the arrows nudge by a pixel, or ten with Shift; an inverse moves everything outside its outline and stays an inverse.
+With no area, or one that covers none of the layer's pixels, the layer moves whole by its `transform`, as before.
+Each drag or nudge is one command (`regions.move`), refused where the file's picture moved while it was encoded.
+The pixels float, as in GIMP: the tool keeps in memory what lay beneath them and the pixels themselves, so a later drag gives back what they covered.
+The file holds the result after every drag, and the float ends when the area is replaced, the layer is written by anything else or its picture moved, its `transform` changes, or another layer is moved.
+While the drag lasts, the screen canvas shows the pixels where they are going, and the hole they leave is a mask in an `<svg>` beside the drawing's root in the viewport's shadow root, so nothing in the drawing changes until the command runs.
+A marquee or lasso drag that begins inside the area, without Shift or Alt, moves its outline alone.
+The move tool's Auto-select (`tools/common/autoSelect.ts`) picks the layer a press acts on (`Tool.pick`): the topmost, walking the paint order down and into groups past hidden ones, that is more than half opaque under the press as seen.
+A vector layer is read by the select tool's own hit (`elementAt`), a raster layer by one pixel (`tools/raster/probe.ts`): from its surface where one is decoded, otherwise from its `<image>` drawn onto a canvas of one pixel, so no surface is made of a layer only looked at.
+On a 4096 × 3072 PNG the first read took 66 to 120 ms in Chromium, Firefox and WebKit, the browser's own decode, and every read after it under a tenth of a millisecond, against 89 to 183 ms and 48 MB for a surface.
+The viewport asks the tool before the press begins, has the frame make the layer active (`onActivateLayer`), and begins the press with a context of that layer and the behavior for its kind, so the whole press is that layer's before the frame shows it.
+Activating a layer is not a command, and a canceled press gives the layer back.
+A selection is dropped when another layer is made active unless it is that layer's own, so the element the press selected stays selected.
 Ctrl or ⌘ A selects all, the elements on a vector layer and the canvas elsewhere, and D drops both.
+The selection's actions are one list (`drawing/selectionActions.ts`) built from the area, the selected elements, the active layer and the history; the canvas's context menu and the options strip's selection bar both show it (`decisions/0004-the-interface.md`, "The context menu").
+What each action does is the viewport's (`viewport/selectionCommands.ts`), reached through `ViewportHandle.perform`, so a key, a menu item and a bar button do the same thing.
+The frame holds the selection (`viewport/selectionState.ts`) and passes it to the viewport, so the bar and the feather dialog can see it.
+Layer via copy and cut on a vector layer is one command (`document/layerVia.ts`) that keeps only the selected elements in a copy of the layer, and for a cut takes them from the source, and undoes to the file's exact bytes; on a raster layer it is the raster tools' `layerViaArea`.
 Smudge pushes the layer's own pixels, each dab picking up what lies under the one before, in one command when the stroke ends.
 
 **Export** (`drawing/export/`) is a render of the SVG onto a canvas (`<img>` of a `blob:` URL drawn with `drawImage`, the root given the export's pixels as its size) for PNG, JPEG and WebP from 0.5× to 4×, the longer side kept to 16,384 px (`EXPORT_MAX_SIDE`), a JPEG on white unless another background is chosen; and the file itself for SVG.
@@ -371,7 +428,7 @@ Decided 2026-11-04; see [`decisions/0004-the-interface.md`](decisions/0004-the-i
 **Size classes.**
 The window is `compact` under 600 px wide, `medium` from 600 to 839 and `expanded` from 840, Material's window size classes, read from `matchMedia` by `useSizeClass` (`components/ui/sizeClass.ts`) and nowhere else: a component never asks how wide the window is; the frame places it, and the component fits its container (`@container`).
 
-**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `Select`, `Menu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
+**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke at the foot of the tool bar), `Select`, `Menu`, `ContextMenu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
 Every control is at least 44 CSS px in either direction, whatever the size class and whatever the pointer; keyboard focus shows a ring; words come from the catalog.
 
 **The frame** (`drawing/Editor.tsx`) places them:
@@ -380,7 +437,7 @@ Every control is at least 44 CSS px in either direction, whatever the size class
 compact    ┌ top bar: back · title · undo · redo · more ─┐
            │ canvas                                      │
            │ options, one row, for the active tool       │
-           └ tool bar: the tools · colour · layers ──────┘   layers and colour open as sheets
+           └ tool bar: the tools · colors · layers ──────┘   layers and colors open as sheets
 medium     ┌ top bar ────────────────────────────────────┐
            │ rail │ options                              │
            │ rail │ canvas                               │   layers and properties in a drawer over the canvas
@@ -393,18 +450,21 @@ expanded   ┌ top bar ───────────────────
 
 An open drawing fills the window on every size; the library (folders and drawings) is the screen before it on compact and a drawer from the top bar elsewhere, as a gallery is to a canvas.
 On compact the zoom and the saving status are under More, to keep the bar to one row; the options row comes after the canvas in the page there and before it elsewhere, so reading order is the order seen.
-The colour panel is a drawer on medium and expanded alike; the dock holds layers and properties, follows the 1200 px rule until the layers button is pressed, and then stays as the user left it.
+The color panel is a drawer on medium and expanded alike; the dock holds layers and properties, follows the 1200 px rule until the layers button is pressed, and then stays as the user left it.
+The two colors sit at the foot of the tool bar (`ColorPair`; `decisions/0004-the-interface.md`, "The two colors"): on the rail the fill, the stroke and the swap, a 44 px target each; on compact both colors as one control and the swap; on every window the reset is the color panel's, and D's.
+A press on a color opens the color panel on it (`editColor`, `colorSlot` in `editorState.ts`).
 
 **Input.**
 Pointer Events only, `touch-action: none` on the canvas; a pen draws, a finger draws unless a pen is down (palm rejection), two fingers pan and pinch to zoom, a two-finger tap undoes and a three-finger tap redoes; a wheel scrolls, with Ctrl or ⌘ zooms, and Space held pans.
 Keys on every size, since a tablet may have a keyboard: a letter per tool and the editing keys users know, in one map (`drawing/keys.ts`).
-`prefers-color-scheme` and `prefers-reduced-motion` are honoured through the tokens (`styles/tokens.css`); safe areas through `env(safe-area-inset-*)`; the canvas draws at `devicePixelRatio`.
+`prefers-color-scheme` and `prefers-reduced-motion` are honored through the tokens (`styles/tokens.css`); safe areas through `env(safe-area-inset-*)`; the canvas draws at `devicePixelRatio`.
 
 ### The app's words
 
 Carried over from skysa-notes.
 Every word the user reads is in the English catalog, `apps/web/src/i18n/en/`, as whole sentences with `{placeholders}` and `{ one, other }` for a count, looked up by `t('…')`; `rich()` renders a message with `<tags>` around words.
 `tests/i18n.test.tsx` holds every message to what a translation has to keep.
+The catalog, the code and the docs are US English; British English, if it is wanted, is a catalog of its own (`en-GB`), not a change to this one.
 
 ## 8. PWA specifics
 
@@ -418,7 +478,7 @@ Carried over.
 
 **Brand.**
 What the app is called and how it looks come from a `brand.json` at build time (`apps/web/brand.ts`): the default brand in `apps/web/brand/` ("Draw", in gray, the pen-stroke icons drawn by `brand/icons.mjs`), or a deployment's own, pointed at with `DRAW_BRAND`.
-Name, short name, description, colours for both themes, six icons, optional fonts; the schema is `brand.schema.json`, and `tests/brand.test.ts` stops a build with a brand that would install without its icon.
+Name, short name, description, colors for both themes, six icons, optional fonts; the schema is `brand.schema.json`, and `tests/brand.test.ts` stops a build with a brand that would install without its icon.
 The brand is never data identity: the app folder, the marker, the database and the cookie names stay whatever it says.
 
 ## 9. Security checklist

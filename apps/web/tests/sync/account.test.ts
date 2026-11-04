@@ -979,11 +979,11 @@ describe('disconnecting', () => {
 });
 
 /**
- * A first import, cancelled (`cancelImport`): the sync held, the server asked
+ * A first import, canceled (`cancelImport`): the sync held, the server asked
  * to let go, and the source thrown away here — in that order, and none of it
  * for an import that has finished.
  */
-describe('cancelling an import', () => {
+describe('canceling an import', () => {
 	const disconnecting = (answer: () => Promise<Result<{ disconnected: boolean }>>) => {
 		const signOut = vi.fn<ApiClient['signOut']>(answer);
 		const withCredential = vi.fn(
@@ -1027,7 +1027,7 @@ describe('cancelling an import', () => {
 			await cancelImport(db, client, sync, { connectionId: 'c1', onServer: true })
 		).toEqual({
 			ok: true,
-			outcome: 'cancelled',
+			outcome: 'canceled',
 		});
 
 		expect(sync.log).toEqual(['halt c1', 'server', 'release c1']);
@@ -1073,7 +1073,7 @@ describe('cancelling an import', () => {
 
 		expect(
 			await cancelImport(db, client, holdable(), { connectionId: 'c1', onServer: false })
-		).toEqual({ ok: true, outcome: 'cancelled' });
+		).toEqual({ ok: true, outcome: 'canceled' });
 
 		expect(client.signOut).not.toHaveBeenCalled();
 		expect(await db.syncState.get('c1')).toBeUndefined();

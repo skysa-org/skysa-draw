@@ -80,7 +80,7 @@ jobs:
                   branch: cla-signatures
                   # `custom-pr-sign-comment` is deliberately not set. Setting
                   # it swaps the action's forgiving substring match for exact
-                  # equality on the whole comment, so a trailing full stop or a
+                  # equality on the whole comment, so a trailing period or a
                   # "thanks!" would leave someone unsigned with no new feedback.
                   # The sentence the action looks for by default is the one
                   # quoted below and in CLA-individual.md.
@@ -96,7 +96,7 @@ jobs:
                   custom-notsigned-prcomment: |-
                       Thanks for the pull request. Before it can be merged, this project asks every contributor to sign its [Contributor License Agreement](https://github.com/skysa-org/skysa-draw/blob/main/CLA-individual.md) once — not once per pull request.
 
-                      **It is a licence grant, not an assignment.** You keep ownership of everything you write and every right to use it elsewhere; in exchange the project is bound to keep your contribution available under AGPL-3.0 or a licence one-way compatible with it. [CONTRIBUTING.md](https://github.com/skysa-org/skysa-draw/blob/main/CONTRIBUTING.md#the-cla) explains why.
+                      **It is a license grant, not an assignment.** You keep ownership of everything you write and every right to use it elsewhere; in exchange the project is bound to keep your contribution available under AGPL-3.0 or a license one-way compatible with it. [CONTRIBUTING.md](https://github.com/skysa-org/skysa-draw/blob/main/CONTRIBUTING.md#the-cla) explains why.
 
                       To sign, post exactly this as a new comment:
                   custom-allsigned-prcomment: |-

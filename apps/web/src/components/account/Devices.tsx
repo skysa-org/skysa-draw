@@ -84,7 +84,7 @@ const useRevoke = (client: Client, connectionId: string, onChanged: () => void) 
 	const revoke = (grantId: string) => {
 		setBusy(grantId);
 		setProblem(null);
-		// Each half labelled as it is called: the credential is read from this
+		// Each half labeled as it is called: the credential is read from this
 		// device and the grant is revoked on the server, and a failure of the
 		// first has nothing to do with a connection. The device half runs
 		// strictly before the server is asked, which is what lets its wording say

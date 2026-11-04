@@ -15,7 +15,7 @@ import { failureMessage, refusalMessage } from './statusWords.js';
  * How long the last push before a disconnect is given, before the user is asked
  * anyway.
  *
- * A push still going is not cancelled — whatever it lands is one less thing on
+ * A push still going is not canceled — whatever it lands is one less thing on
  * the list — but nobody is kept waiting on a provider that is not answering,
  * and the question is the same either way: what is left when it stops.
  */
@@ -40,7 +40,7 @@ const after = (ms: number): Promise<void> =>
  * The folders the source has are part of that record even where they are not
  * listed as unsent. Letting the source go removes the sent drawings that are the
  * proof a folder was made, so a folder that had nothing done to it reads as
- * unsent afterwards, and would otherwise look like something written since.
+ * unsent afterward, and would otherwise look like something written since.
  */
 export const prepare = async (
 	database: DrawDatabase,
@@ -67,7 +67,7 @@ export interface Disconnecting {
 	 * Any failure counts: a refusal and an unreachable server strand the user the
 	 * same way, and the old rule — only where the credential had stopped working
 	 * — now names a case that cannot happen, because a credential the server no
-	 * longer honours *is* the disconnect and `disconnectAccount` finishes the job.
+	 * longer honors *is* the disconnect and `disconnectAccount` finishes the job.
 	 */
 	readonly stranded: boolean;
 }

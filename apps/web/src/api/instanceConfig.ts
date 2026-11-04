@@ -39,7 +39,7 @@ const configFor = (client: Asking): Promise<InstanceConfig> => {
 	const asking = client.config();
 	asked.set(client, asking);
 	// A failure is not worth remembering: left in the map, one flight of
-	// aeroplane mode would answer `unreachable` for the life of the tab.
+	// airplane mode would answer `unreachable` for the life of the tab.
 	void asking.catch(() => {
 		asked.delete(client);
 	});

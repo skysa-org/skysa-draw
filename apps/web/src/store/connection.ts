@@ -299,7 +299,7 @@ const placeFiles = async (
  * one that stands. A kept drawing with text of its own becomes a conflict copy
  * beside it — fresh id, no file, a free name, owed a write — so nothing written
  * is lost and nothing is written over the file. A kept rename or delete, which
- * holds no text, is dropped in its favour. Either way an editor open on the
+ * holds no text, is dropped in its favor. Either way an editor open on the
  * kept row is pointed at the row that stands for it (`movedRows`).
  */
 const moveRowsTo = async (
@@ -688,7 +688,7 @@ const owedInPlace = async (db: Scope, connectionId: string): Promise<Moved> => {
 
 /**
  * A live source whose first import is holding the device's pile: copied into
- * it, and kept here as well until the import is done or cancelled.
+ * it, and kept here as well until the import is done or canceled.
  */
 const holdsPile = (state: SyncStateRecord): boolean =>
 	state.importing !== undefined && isLiveSource(state);
@@ -1109,7 +1109,7 @@ const withBytes = async (db: Scope, files: readonly FileRecord[]): Promise<FileR
 };
 
 /**
- * A first import cancelled: the source and everything it brought are thrown
+ * A first import canceled: the source and everything it brought are thrown
  * away here, and the device is as it was before the user pressed Connect. The
  * pile was never touched (`bindConnection` kept it), so there is nothing to put
  * back but the source that was in front. Nothing on the remote is touched —
@@ -1428,7 +1428,7 @@ export type MoveOutcome = ReleaseOutcome | 'no-target' | 'unverified' | 'nothing
  * and at a free name — because the target's storage has never heard of it. Its
  * id comes with it unless the target already holds that id, which is the one
  * thing two accounts can collide over; `createdAt` comes too, since that is
- * what an editor open on the drawing recognises it by.
+ * what an editor open on the drawing recognizes it by.
  *
  * What does *not* move is everything that is about the account being left. A
  * rename the remote never heard of leaves the file where it is, under its old
@@ -1638,7 +1638,7 @@ export interface ConnectedSource {
 /**
  * What the device's own pile holds, which is what connecting any account moves
  * into it (`bindConnection`) — and so what the user is told before they do.
- * Live drawings only: one deleted here is not something they would recognise as
+ * Live drawings only: one deleted here is not something they would recognize as
  * theirs to keep.
  */
 export const pileContents = async (

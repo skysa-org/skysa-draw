@@ -59,7 +59,7 @@ describe('a new drawing, opened', () => {
 	});
 
 	it('is written out after a command, prolog first, and dirty', () => {
-		const text = emptyDrawing({ id: ID, title: 'Harbour' });
+		const text = emptyDrawing({ id: ID, title: 'Harbor' });
 		const document = opened(text);
 		const command = addLayer(document.root, 'vector');
 		document.execute(command);
@@ -68,7 +68,7 @@ describe('a new drawing, opened', () => {
 		expect(written).not.toBe(text);
 		expect(written.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n<svg ')).toBe(true);
 		expect(written.endsWith('</svg>\n')).toBe(true);
-		expect(written).toContain('<title>Harbour</title>');
+		expect(written).toContain('<title>Harbor</title>');
 		expect(written).toContain('<g id="layer-2" draw:kind="vector"/>');
 		expect(document.snapshot()).toMatchObject({ dirty: true, canUndo: true, version: 1 });
 		expect(document.snapshot().layers.map((layer) => layer.id)).toEqual(['layer-1', 'layer-2']);

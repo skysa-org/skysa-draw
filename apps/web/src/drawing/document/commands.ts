@@ -264,19 +264,19 @@ const swap = (one: Element, other: Element): void => {
 };
 
 /**
- * Up is towards the top of the drawing, later in document order: the layer
+ * Up is toward the top of the drawing, later in document order: the layer
  * trades places with the next layer among its siblings, so it never leaves its
  * group. At the end there is nothing to trade with, and nothing is done.
  */
 export const moveLayer = (id: string, direction: 'up' | 'down'): Command => {
 	const moved = cell(false);
-	const neighbour = (layer: Element, way: 'up' | 'down'): Element | undefined =>
+	const neighbor = (layer: Element, way: 'up' | 'down'): Element | undefined =>
 		way === 'up' ? nextLayerSibling(layer) : previousLayerSibling(layer);
 	return {
 		label: direction === 'up' ? 'layers.moveUp' : 'layers.moveDown',
 		apply: (root) => {
 			const layer = layerById(root, id);
-			const other = layer === undefined ? undefined : neighbour(layer, direction);
+			const other = layer === undefined ? undefined : neighbor(layer, direction);
 			moved.current = layer !== undefined && other !== undefined;
 			if (layer !== undefined && other !== undefined) swap(layer, other);
 		},
@@ -286,7 +286,7 @@ export const moveLayer = (id: string, direction: 'up' | 'down'): Command => {
 			const other =
 				layer === undefined
 					? undefined
-					: neighbour(layer, direction === 'up' ? 'down' : 'up');
+					: neighbor(layer, direction === 'up' ? 'down' : 'up');
 			if (layer !== undefined && other !== undefined) swap(layer, other);
 		},
 		get bytes() {
@@ -381,9 +381,16 @@ const rewriteReferences = (attribute: Attr, renamed: ReadonlyMap<string, string>
  * next free `layer-n` for each layer inside a copied group, and `old-copy`
  * for anything else inside that has an id. Every reference inside the copy to
  * something copied with it, a gradient's `url(#…)` or a `<use>`'s `#…`, is
- * pointed at the copy; references to things outside stay as they were.
+ * pointed at the copy; references to things outside stay as they were. An
+ * element `kept` says of keeps its id, and what refers to it still does: for
+ * what is moved rather than copied, which leaves the original behind.
  */
-const copyOf = (root: Element, original: Element, id: string): Element => {
+export const copyOf = (
+	root: Element,
+	original: Element,
+	id: string,
+	kept: (element: Element, copy: Element) => boolean = () => false
+): Element => {
 	const copy = original.cloneNode(true) as Element;
 	const taken = new Set([...idsIn(root), id]);
 	const renamed = new Map<string, string>();
@@ -393,7 +400,7 @@ const copyOf = (root: Element, original: Element, id: string): Element => {
 	const layers = new Set<Element>(layersWithin(copy));
 	[...copy.querySelectorAll('[id]')].forEach((element) => {
 		const old = element.getAttribute('id') ?? '';
-		if (old === '') return;
+		if (old === '' || kept(element, copy)) return;
 		const next = layers.has(element) ? freeLayerIdAmong(taken) : copyId(old, taken);
 		taken.add(next);
 		renamed.set(old, next);
@@ -409,22 +416,24 @@ const copyOf = (root: Element, original: Element, id: string): Element => {
 	return copy;
 };
 
-/** A copy of the layer just above it, in the same parent, under the next free `layer-n`. */
-export const duplicateLayer = (
-	root: SVGSVGElement,
-	id: string
-): Command & Readonly<{ id: string }> => {
-	const copyIdentifier = freeLayerId(root);
+/**
+ * A copy of the layer `id` just above it, in the same parent: `make` builds
+ * it from the live original the first time, and redo puts the same copy back.
+ */
+export const placeCopy = (
+	id: string,
+	label: string,
+	make: (root: SVGSVGElement, original: Element) => Element
+): Command => {
 	const made = cell<
 		Readonly<{ copy: Element; space: Text | undefined; bytes: number }> | undefined
 	>(undefined);
 	return {
-		id: copyIdentifier,
-		label: 'layers.duplicate',
+		label,
 		apply: (live) => {
 			const original = layerById(live, id);
 			if (original === undefined) return;
-			const copy = made.current?.copy ?? copyOf(live, original, copyIdentifier);
+			const copy = made.current?.copy ?? make(live, original);
 			const space = placeAfter(original, copy);
 			made.current = { copy, space, bytes: made.current?.bytes ?? markupSize(copy) };
 		},
@@ -438,6 +447,35 @@ export const duplicateLayer = (
 			return made.current?.bytes ?? 0;
 		},
 	};
+};
+
+/**
+ * A command that says the id of the layer it makes, for the caller to make
+ * active. Its cost is read through, never copied, since it is known only once
+ * the command has run.
+ */
+export const withLayerId = (id: string, command: Command): Command & Readonly<{ id: string }> => ({
+	id,
+	label: command.label,
+	apply: command.apply,
+	revert: command.revert,
+	get bytes() {
+		return command.bytes;
+	},
+});
+
+/** A copy of the layer just above it, in the same parent, under the next free `layer-n`. */
+export const duplicateLayer = (
+	root: SVGSVGElement,
+	id: string
+): Command & Readonly<{ id: string }> => {
+	const copyIdentifier = freeLayerId(root);
+	return withLayerId(
+		copyIdentifier,
+		placeCopy(id, 'layers.duplicate', (live, original) =>
+			copyOf(live, original, copyIdentifier)
+		)
+	);
 };
 
 /**

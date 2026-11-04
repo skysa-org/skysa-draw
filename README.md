@@ -10,12 +10,12 @@ Bug reports and small focused pull requests are both welcome; see
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to get it running and what a change
 is expected to carry, and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for how
 people are expected to treat each other. Contributors sign a
-[CLA](CLA-individual.md) once — a licence grant, not an assignment: you keep
+[CLA](CLA-individual.md) once — a license grant, not an assignment: you keep
 ownership of your work and every right to use it elsewhere, and in exchange the
 project is bound to keep every contribution available under AGPL-3.0.
 
 Security problems go through [private reporting](SECURITY.md), never a public
-issue. The project name and logo are not covered by the code licence
+issue. The project name and logo are not covered by the code license
 ([`TRADEMARK.md`](TRADEMARK.md)); forks rebrand. The copyright notice is in
 [`NOTICE`](NOTICE) — `LICENSE` is a verbatim copy of the AGPL and stays one.
 

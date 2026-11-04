@@ -24,13 +24,12 @@ import { ToolBar } from '../components/ui/ToolBar.js';
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
 import { renameDrawing } from '../store/drawings.js';
-import { addLayer, duplicateLayer } from './document/commands.js';
 import type { DocumentSnapshot, EditorDocument } from './document/model.js';
 import { useDocumentSnapshot } from './document/useDocument.js';
 import { type Placing, usePlacePicture } from './document/usePlacePicture.js';
 import {
 	activeLayerIn,
-	type ColourSlot,
+	type ColorSlot,
 	type EditorAction,
 	editorReducer,
 	type EditorState,
@@ -39,26 +38,31 @@ import {
 	setOption,
 } from './editorState.js';
 import { ExportDialog } from './export/ExportDialog.js';
-import { type EditAction, editActionFor, isTyping, primaryKeyLabel, toolFor } from './keys.js';
-import { ColourPanel } from './panels/ColourPanel.js';
+import { type EditAction, editActionFor, isTyping, shortcutFor, toolFor } from './keys.js';
+import { ColorPanel } from './panels/ColorPanel.js';
+import { FeatherDialog } from './panels/FeatherDialog.js';
+import { FillDialog } from './panels/FillDialog.js';
 import { LayersPanel } from './panels/LayersPanel.js';
 import { OptionsStrip } from './panels/OptionsStrip.js';
 import { PropertiesPanel } from './panels/PropertiesPanel.js';
 import { ToolButtons } from './panels/ToolButtons.js';
+import { SELECTION_TOOLS, selectionModeOf, useSelectionActions } from './selectionActions.js';
 import { toolById } from './tools/index.js';
-import type { Tool } from './tools/types.js';
+import type { Region, Tool } from './tools/types.js';
 import { TopBar } from './TopBar.js';
 import type { ViewportHandle } from './types.js';
 import { useOpenDrawing } from './useOpenDrawing.js';
 import { Viewport } from './Viewport.js';
+import { regionControl } from './viewport/context.js';
 import { isMac } from './viewport/pointer.js';
+import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 
 /**
  * The frame (docs/ARCHITECTURE.md §7, "The interface"; docs/decisions/0004-the-interface.md):
  * the one place that reads the window's size class, and places the same
  * pieces — top bar, tools, options, canvas, panels — where each size has room
  * for them. Compact: the tools along the bottom under one row of options, the
- * layers and the colour as sheets. Medium: a rail down the start side, the
+ * layers and the color as sheets. Medium: a rail down the start side, the
  * options over the canvas, the panels a drawer from the end. Expanded: the
  * rail, and a dock the canvas sits beside, layers over properties, open by
  * default from `LARGE_MIN_WIDTH`. The library is the screen before the drawing
@@ -69,16 +73,11 @@ import { isMac } from './viewport/pointer.js';
 const NOTICE_MS = 3_000;
 
 const MAC = isMac();
-const PRIMARY = primaryKeyLabel(MAC);
-
-/** A key with the primary key held, as each platform writes one: `⌘0`, `Ctrl+0`. */
-const chord = (key: string): string => (MAC ? `${PRIMARY}${key}` : `${PRIMARY}+${key}`);
 
 /** What a key reaches of the frame: the document, the viewport and the state. */
 type KeyContext = Readonly<{
 	document: EditorDocument | undefined;
 	viewport: ViewportHandle | null;
-	activeLayerId: string | undefined;
 	dispatch: Dispatch<EditorAction>;
 }>;
 
@@ -109,8 +108,10 @@ const always = (act: () => void): boolean => {
  * The editing keys (`keys.ts`), each saying whether it did anything, so only a
  * handled key is kept from the browser. Escape is not the frame's: what a tool
  * has begun is the viewport's to cancel, and a sheet or a drawer closes itself
- * (`PanelHost`). Delete, select-all and deselect are the viewport's, as the
- * selection and the area are.
+ * (`PanelHost`). Delete and the selection's keys are the viewport's, as the
+ * selection and the area are, and J with them, which is layer via copy while
+ * something is selected; a new layer is asked of it too, as its context menu
+ * asks, so the two are one.
  */
 const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean>> = {
 	undo: ({ document }) => withDocument(document, (open) => open.undo()),
@@ -121,25 +122,21 @@ const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean
 	zoomOut: ({ viewport }) => withViewport(viewport, (view) => view.zoomOut()),
 	delete: () => false,
 	escape: () => false,
-	// The area selection is the viewport's, as the element selection is.
+	// The selection's, which the viewport works.
 	selectAll: () => false,
 	deselect: () => false,
+	selectInverse: () => false,
+	feather: () => false,
+	layerViaCut: () => false,
+	fillArea: () => false,
+	fillAreaStroke: () => false,
+	fillDialog: () => false,
+	duplicate: () => false,
 	sizeUp: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: 1 })),
 	sizeDown: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: -1 })),
-	swapColours: ({ dispatch }) => always(() => dispatch({ type: 'swapColours' })),
-	newLayer: ({ document, activeLayerId, dispatch }) =>
-		withDocument(document, (open) => {
-			const made = addLayer(open.root, 'vector', { above: activeLayerId });
-			open.execute(made);
-			dispatch({ type: 'setActiveLayer', id: made.id });
-		}),
-	duplicate: ({ document, activeLayerId, dispatch }) => {
-		if (document === undefined || activeLayerId === undefined) return false;
-		const made = duplicateLayer(document.root, activeLayerId);
-		document.execute(made);
-		dispatch({ type: 'setActiveLayer', id: made.id });
-		return true;
-	},
+	swapColors: ({ dispatch }) => always(() => dispatch({ type: 'swapColors' })),
+	resetColors: ({ dispatch }) => always(() => dispatch({ type: 'resetColors' })),
+	newLayer: ({ viewport }) => viewport?.perform('newLayer') ?? false,
 };
 
 /**
@@ -151,7 +148,6 @@ const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean
 const useEditorKeys = (
 	document: EditorDocument | undefined,
 	viewport: RefObject<ViewportHandle | null>,
-	activeLayerId: string | undefined,
 	dispatch: Dispatch<EditorAction>
 ) => {
 	useEffect(() => {
@@ -160,7 +156,7 @@ const useEditorKeys = (
 			const nextTool = toolFor(event, MAC);
 			if (nextTool !== undefined) {
 				// A key for a tool not built yet does nothing, rather than leaving
-				// the frame holding a tool the viewport has no behaviour for.
+				// the frame holding a tool the viewport has no behavior for.
 				if (toolById(nextTool) === undefined) return;
 				event.preventDefault();
 				dispatch({ type: 'setTool', toolId: nextTool });
@@ -168,12 +164,12 @@ const useEditorKeys = (
 			}
 			const action = editActionFor(event, MAC);
 			if (action === undefined) return;
-			const context = { document, viewport: viewport.current, activeLayerId, dispatch };
+			const context = { document, viewport: viewport.current, dispatch };
 			if (EDIT_ACTIONS[action](context)) event.preventDefault();
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [document, viewport, activeLayerId, dispatch]);
+	}, [document, viewport, dispatch]);
 };
 
 /** A notice stays `NOTICE_MS` from the last time it was said. */
@@ -193,13 +189,13 @@ type FramePanelsProps = Readonly<{
 	onClosePanel: () => void;
 	/** The layers panel, with the close of whatever holds it. */
 	layers: (onClose: () => void) => ReactNode;
-	colour: ReactNode;
+	color: ReactNode;
 	properties: ReactNode;
 }>;
 
 /**
  * Where the panels go. Expanded: the layers over the properties in the dock,
- * and the colour, which is picked and put away rather than kept beside the
+ * and the color, which is picked and put away rather than kept beside the
  * canvas, in a drawer. Compact and medium: one panel at a time, in a sheet or
  * a drawer, with the layer's properties inside the layers panel.
  */
@@ -210,7 +206,7 @@ const FramePanels = ({
 	onCloseDock,
 	onClosePanel,
 	layers,
-	colour,
+	color,
 	properties,
 }: FramePanelsProps) => {
 	if (sizeClass === 'expanded') {
@@ -230,11 +226,11 @@ const FramePanels = ({
 				<PanelHost
 					placement="drawer"
 					side="end"
-					open={panel === 'colour'}
+					open={panel === 'color'}
 					onClose={onClosePanel}
-					label={t('editor.colour.title')}
+					label={t('editor.color.title')}
 				>
-					{colour}
+					{color}
 				</PanelHost>
 			</>
 		);
@@ -245,9 +241,9 @@ const FramePanels = ({
 			side="end"
 			open={panel !== undefined}
 			onClose={onClosePanel}
-			label={panel === 'colour' ? t('editor.colour.title') : t('layers.title')}
+			label={panel === 'color' ? t('editor.color.title') : t('layers.title')}
 		>
-			{panel === 'colour' ? colour : layers(onClosePanel)}
+			{panel === 'color' ? color : layers(onClosePanel)}
 		</PanelHost>
 	);
 };
@@ -268,7 +264,15 @@ type FrameProps = Readonly<{
 	placing: Placing;
 }>;
 
-/** The frame with a drawing open in it. */
+/**
+ * The frame with a drawing open in it. It holds the selection the viewport
+ * works (`viewport/selectionState.ts`), so that while something is selected
+ * under a tool that selects, the options strip shows the actions the
+ * viewport's context menu shows: one list (`selectionActions.ts`), done by the
+ * viewport through its handle. Feather… and Fill… each open a dialog of the
+ * frame's, kept open only while the area it was opened for is the one there;
+ * Fill…'s Apply is the viewport's, through its handle.
+ */
 const Frame = ({
 	sizeClass,
 	document,
@@ -287,11 +291,18 @@ const Frame = ({
 	const compact = sizeClass === 'compact';
 	const expanded = sizeClass === 'expanded';
 	const dockShown = expanded && (state.dockOpen ?? wide);
-	const setColour = (which: ColourSlot, value: string) =>
-		dispatch({ type: 'setColour', which, value });
+	const setColor = (which: ColorSlot, value: string) =>
+		dispatch({ type: 'setColor', which, value });
 	const closePanel = () => dispatch({ type: 'closePanel' });
 	const notify = (message: string) => dispatch({ type: 'notify', message });
 	const closeDock = () => dispatch({ type: 'setDockOpen', open: false });
+	const [selection] = useState(createViewportSelection);
+	const facts = useSelectionFacts(selection, snapshot, activeLayerId);
+	const [feathering, setFeathering] = useState<Region | undefined>(undefined);
+	const [filling, setFilling] = useState<Region | undefined>(undefined);
+	// Through the handle, when an item is chosen: the viewport does it.
+	const items = useSelectionActions(facts, (action) => viewport.current?.perform(action), MAC);
+	const selecting = SELECTION_TOOLS.has(tool.id) && selectionModeOf(facts) !== 'nothing';
 	const toggleLayers = () =>
 		dispatch(
 			expanded
@@ -303,7 +314,9 @@ const Frame = ({
 		<ToolButtons
 			tool={tool}
 			fill={state.options.fill}
-			colourOpen={state.panel === 'colour'}
+			stroke={state.options.stroke}
+			editing={state.panel === 'color' ? state.colorSlot : undefined}
+			compact={compact}
 			layersOpen={expanded ? dockShown : state.panel === 'layers'}
 			dispatch={dispatch}
 			onLayers={toggleLayers}
@@ -314,6 +327,7 @@ const Frame = ({
 			tool={tool}
 			options={state.options}
 			onChange={(key, value) => dispatch(setOption(key, value))}
+			actions={selecting ? items : []}
 		/>
 	);
 	const layers = (onClose: () => void) => (
@@ -350,9 +364,15 @@ const Frame = ({
 					tool={tool}
 					options={state.options}
 					layerId={activeLayerId}
-					onColour={setColour}
+					selection={selection}
+					onColor={setColor}
 					onNotify={notify}
 					onScale={onScale}
+					onActivateLayer={(id) => dispatch({ type: 'setActiveLayer', id })}
+					onFeather={() => setFeathering(selection.region.get())}
+					onFill={() => setFilling(selection.region.get())}
+					onTool={(toolId) => dispatch({ type: 'setTool', toolId })}
+					onOptions={(change) => dispatch({ type: 'setOptions', change })}
 				/>
 				<Notice message={notice} />
 			</div>
@@ -373,12 +393,14 @@ const Frame = ({
 				onCloseDock={closeDock}
 				onClosePanel={closePanel}
 				layers={layers}
-				colour={
-					<ColourPanel
+				color={
+					<ColorPanel
 						options={state.options}
-						recent={state.recentColours}
-						onColour={setColour}
-						onSwap={() => dispatch({ type: 'swapColours' })}
+						recent={state.recentColors}
+						onColor={setColor}
+						editing={state.colorSlot}
+						onSwap={() => dispatch({ type: 'swapColors' })}
+						onReset={() => dispatch({ type: 'resetColors' })}
 						onClose={closePanel}
 					/>
 				}
@@ -389,6 +411,21 @@ const Frame = ({
 						activeLayerId={activeLayerId}
 					/>
 				}
+			/>
+			<FeatherDialog
+				placement={compact ? 'sheet' : 'drawer'}
+				open={feathering !== undefined && feathering === facts.region}
+				feather={facts.region?.feather ?? 0}
+				onApply={(feather) => regionControl(selection.region).update({ feather })}
+				onClose={() => setFeathering(undefined)}
+			/>
+			<FillDialog
+				placement={compact ? 'sheet' : 'drawer'}
+				open={filling !== undefined && filling === facts.region}
+				options={state.options}
+				recent={state.recentColors}
+				onApply={(spec) => viewport.current?.fillArea(spec)}
+				onClose={() => setFilling(undefined)}
 			/>
 		</main>
 	);
@@ -468,7 +505,7 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 		(message) => dispatch({ type: 'notify', message })
 	);
 
-	useEditorKeys(document, viewport, activeLayerId, dispatch);
+	useEditorKeys(document, viewport, dispatch);
 	useNoticeTimeout(state.notice, dispatch);
 
 	// Another drawing opened from the library: the drawer has done its job.
@@ -510,25 +547,25 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 		{
 			id: 'fit',
 			label: t('editor.zoom.fit'),
-			shortcut: chord('0'),
+			shortcut: shortcutFor('fit', MAC),
 			onSelect: () => viewport.current?.fit(),
 		},
 		{
 			id: 'actual',
 			label: t('editor.zoom.actual'),
-			shortcut: chord('1'),
+			shortcut: shortcutFor('actualSize', MAC),
 			onSelect: () => viewport.current?.actualSize(),
 		},
 		{
 			id: 'in',
 			label: t('editor.zoom.in'),
-			shortcut: chord('+'),
+			shortcut: shortcutFor('zoomIn', MAC),
 			onSelect: () => viewport.current?.zoomIn(),
 		},
 		{
 			id: 'out',
 			label: t('editor.zoom.out'),
-			shortcut: chord('-'),
+			shortcut: shortcutFor('zoomOut', MAC),
 			onSelect: () => viewport.current?.zoomOut(),
 		},
 	];

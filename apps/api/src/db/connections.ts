@@ -209,7 +209,7 @@ const store = async (db: Database, input: CommitInput): Promise<Attempt> => {
  * credential.
  *
  * And the delete asks and deletes in one statement. Asked first and deleted
- * afterwards, another device's callback can commit its grant to this row in
+ * afterward, another device's callback can commit its grant to this row in
  * the gap — which a caller that talks to the provider in between, as
  * revoking a device does, makes up to twenty seconds long — and then watch
  * the row deleted from under it: told `ok`, holding a credential that

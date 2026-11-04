@@ -1,6 +1,6 @@
 /**
  * The editor's frame (docs/ARCHITECTURE.md §7, "The interface"): the top bar,
- * the panes named for a screen reader, zoom and colour. `{title}` is the
+ * the panes named for a screen reader, zoom and color. `{title}` is the
  * drawing's title, `{percent}` a zoom level, `{n}` an option's value.
  */
 export const editor = {
@@ -41,11 +41,11 @@ export const editor = {
 	/** The hidden file field "Place picture…" opens. */
 	pictureFile: 'Picture to place',
 
-	colour: {
-		title: 'Colour',
+	color: {
+		title: 'Color',
 		fill: 'Fill',
 		stroke: 'Stroke',
-		swap: 'Swap colours',
+		swap: 'Swap colors',
 	},
 	/** A file the sanitizer could not parse: shown as an image, not edited. */
 	unreadable: 'This file cannot be edited here. It is shown as the browser draws it.',

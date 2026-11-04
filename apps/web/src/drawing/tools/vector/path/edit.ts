@@ -141,7 +141,7 @@ export const insertPoint = (
 };
 
 /**
- * An anchor taken out, its neighbours joined by the handles they had. A
+ * An anchor taken out, its neighbors joined by the handles they had. A
  * subpath left with fewer than two anchors draws nothing and goes too.
  */
 export const removeAnchor = (data: PathData, ref: AnchorRef): PathData =>

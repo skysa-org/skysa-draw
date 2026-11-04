@@ -1,0 +1,93 @@
+/**
+ * The area and the element selection, and what the canvas's context menu and
+ * the options strip's selection bar do with them
+ * (docs/decisions/0004-the-interface.md, "The context menu"). `{action}` is
+ * one of the actions' names as the menu shows it, `{name}` a layer's name.
+ */
+export const selection = {
+	/** The context menu over the canvas, named for a screen reader. */
+	menu: 'Canvas actions',
+	/** The same actions as buttons in the options strip, while something is selected. */
+	bar: 'Selection',
+	/** The actions, as the menu and the bar name them. */
+	actions: {
+		deselect: 'Deselect',
+		selectInverse: 'Select inverse',
+		feather: 'Feather…',
+		layerViaCopy: 'Layer via copy',
+		layerViaCut: 'Layer via cut',
+		/** Fill…: the dialog that asks what the area is filled with, and how, as Photoshop's Edit > Fill. */
+		fillDialog: 'Fill…',
+		/** The area filled with the fill color at once, as Photoshop's fill with the foreground color: a key's alone. */
+		fill: 'Fill with the fill color',
+		/** The area filled with the stroke color at once, as Photoshop's fill with the background color: a key's alone. */
+		fillWithStroke: 'Fill with the stroke color',
+		/** The area's pixels made transparent. */
+		clear: 'Clear',
+		/** The canvas cut down to the box around the area. */
+		crop: 'Crop to selection',
+		/** The selected shapes taken out of the layer. */
+		delete: 'Delete',
+		selectAll: 'Select all',
+		undo: 'Undo',
+		redo: 'Redo',
+		newLayer: 'New layer',
+		duplicateLayer: 'Duplicate layer',
+	},
+	/** Feather…: how far the area's edge fades. */
+	feather: {
+		title: 'Feather selection',
+		/** The slider's label. */
+		radius: 'Feather radius',
+		/** The number field beside the slider, for a screen reader. */
+		radiusValue: 'Feather radius in pixels',
+		hint: 'How far the edge of the selection fades, on either side of it. 0 is a hard edge.',
+		apply: 'Apply',
+	},
+	/**
+	 * Fill…: what the area is filled with, and how it is laid over the
+	 * layer's pixels. The two colors are the app's fill and stroke, which
+	 * Photoshop calls the foreground and the background.
+	 */
+	fill: {
+		title: 'Fill',
+		contents: 'Contents',
+		/** The fill color, with its swatch beside it. */
+		fillColor: 'Fill color',
+		/** The stroke color, with its swatch beside it. */
+		strokeColor: 'Stroke color',
+		/** A color of the user's own, picked in the field that opens under it. */
+		color: 'Color…',
+		/** The field under Color…, named for a screen reader. */
+		colorValue: 'Fill with this color',
+		/** The pixels made again from the rest of the picture. */
+		contentAware: 'Content-Aware',
+		blending: 'Blending',
+		mode: 'Mode',
+		opacity: 'Opacity',
+		/** The number field beside the slider, for a screen reader. */
+		opacityValue: 'Opacity in percent',
+		/** Photoshop's checkbox: a transparent pixel stays transparent, a part-transparent one keeps its alpha. */
+		preserveTransparency: 'Preserve transparency',
+		apply: 'Apply',
+		/** Over the canvas while a content-aware fill is under way. */
+		working: 'Filling from the picture around the selection…',
+		/** The button beside it, which Escape does too. */
+		stop: 'Stop',
+		/** A content-aware fill stopped by the user. */
+		stopped: 'The fill was stopped, and the layer is as it was.',
+		/** A content-aware fill stopped by a change to the layer while it ran: an undo, a stroke. */
+		changed: 'The layer changed while it was being filled, so the fill was not applied.',
+		/** A content-aware fill that could not be made. */
+		failed: 'The selection could not be filled from the picture around it, so the layer is as it was.',
+	},
+	/** What undo calls the steps the selection makes on a vector layer. */
+	history: {
+		layerViaCopy: 'Layer via copy',
+		layerViaCut: 'Layer via cut',
+	},
+	/** An action that changes pixels, asked of a layer that has none. */
+	rasterOnly: '“{action}” works on a raster layer. Choose one in the layers panel first.',
+	/** Crop to selection of an area that lies outside the canvas. */
+	cropOutside: 'The selection is outside the canvas, so there is nothing to crop to.',
+} as const;

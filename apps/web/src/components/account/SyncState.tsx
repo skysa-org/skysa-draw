@@ -141,7 +141,7 @@ export const SyncState = ({
 		<>
 			{/*
 			 * Said even where there is no button to offer: sync has stopped. In
-			 * the colour of an error, as the mark on the source's row is.
+			 * the color of an error, as the mark on the source's row is.
 			 */}
 			{reconnect && (
 				<p className="account-problem">

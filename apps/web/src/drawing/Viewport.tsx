@@ -11,17 +11,24 @@ import {
 	useSyncExternalStore,
 } from 'react';
 
+import { ContextMenu } from '../components/ui/ContextMenu.js';
 import { t } from '../i18n/t.js';
-import type { EditorDocument } from './document/model.js';
-import { editActionFor, isHandKey, isTyping } from './keys.js';
-import { handBehaviour } from './tools/common/hand.js';
-import { behaviourFor, notAvailableMessage } from './tools/index.js';
-import { rectPath } from './tools/raster/area.js';
-import { clearArea } from './tools/raster/index.js';
-import type { ToolBehaviour, ToolContext, ToolId } from './tools/types.js';
-import { deleteSelection } from './tools/vector/index.js';
-import { hideSelection, selectEveryElement } from './tools/vector/region.js';
+import type { EditorDocument, LayerInfo } from './document/model.js';
+import { type EditAction, editActionFor, isHandKey, isTyping, nudgeFor } from './keys.js';
+import {
+	SELECTION_TOOLS,
+	type SelectionActionId,
+	selectionActions,
+	selectionModeOf,
+} from './selectionActions.js';
+import { handBehavior } from './tools/common/hand.js';
+import { behaviorFor, notAvailableMessage } from './tools/index.js';
+import { antsPath } from './tools/raster/area.js';
+import { nudgeArea } from './tools/raster/index.js';
+import type { PointerSample, ToolBehavior, ToolContext } from './tools/types.js';
+import { elementsOf } from './tools/vector/hit.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
+import { isLongPress, keyboardPoint, useCanvasMenu } from './viewport/canvasMenu.js';
 import { createToolContext, NO_SELECTION } from './viewport/context.js';
 import {
 	type GestureEffect,
@@ -32,6 +39,10 @@ import {
 } from './viewport/gestures.js';
 import { observable } from './viewport/observable.js';
 import { isMac, pointerTypeOf, sampleFrom } from './viewport/pointer.js';
+import { useSelectionCommands } from './viewport/selectionCommands.js';
+import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
+import { shadowOf } from './viewport/shadow.js';
+import { useToolHandover } from './viewport/toolHandover.js';
 import {
 	actualSizeView,
 	fitView,
@@ -50,7 +61,7 @@ import {
  * drawing's live root on a stage the view moves and scales, an overlay over it
  * in the same user units for a tool's previews, and a canvas over the whole in
  * device pixels for a live raster stroke. Pointer Events alone come in; they
- * go out as samples in user units to the active tool's behaviour for the
+ * go out as samples in user units to the active tool's behavior for the
  * active layer's kind, or to the gesture reducer when they are fingers
  * navigating. The document is mounted, never copied and never changed by
  * being shown. The selection is the viewport's, and so are the keys that
@@ -62,6 +73,18 @@ import {
  * shown as marching ants in a layer of its own that a change of tool or of
  * layer leaves alone, since the area outlives the tool that made it and
  * every layer is painted inside it, as in Photoshop. A new document drops it.
+ * The frame holds both selections (`viewport/selectionState.ts`), so that its
+ * selection bar shows the actions the viewport's context menu shows
+ * (`selectionActions.ts`); what they do is done here, where the tools'
+ * context is (`viewport/selectionCommands.ts`), and the frame asks for it
+ * through the handle.
+ *
+ * A tool may pick the layer a press acts on (`Tool.pick`): the move tool's
+ * Auto-Select. The viewport asks it before the press begins, has the frame
+ * make that layer the active one, and begins the press with a context of
+ * that layer and the behavior for its kind, so the whole press, begin to
+ * end, is that layer's, while the frame is still to show it. A press that is
+ * canceled gives the layer back, as it leaves nothing else.
  */
 
 /** How many screen pixels of wheel multiply the scale by e, with Ctrl or ⌘ held. */
@@ -71,10 +94,26 @@ const LINE_PX = 16;
 
 const MAC = isMac();
 
-/** The tools that work on the element selection, so picking one keeps it. */
-const SELECTING: ReadonlySet<ToolId> = new Set(['select', 'marquee', 'lasso']);
+/** The keys whose action is the selection's: the same as its item in the menu does. */
+const SELECTION_KEYS: Readonly<Partial<Record<EditAction, SelectionActionId>>> = {
+	delete: 'delete',
+	selectAll: 'selectAll',
+	deselect: 'deselect',
+	selectInverse: 'selectInverse',
+	feather: 'feather',
+	layerViaCut: 'layerViaCut',
+	fillArea: 'fill',
+	fillAreaStroke: 'fillWithStroke',
+	fillDialog: 'fillDialog',
+};
 
-type Stroke = Readonly<{ pointerId: number; behaviour: ToolBehaviour; context: ToolContext }>;
+type Stroke = Readonly<{
+	pointerId: number;
+	behavior: ToolBehavior;
+	context: ToolContext;
+	/** Where the press made another layer active (`Tool.pick`): the active one before it, made so again. */
+	giveBack?: () => void;
+}>;
 
 /** The document and the user units the view was last fitted to, at a size it could measure. */
 type Fitted = Readonly<{ document: EditorDocument; box: ViewBox }>;
@@ -118,64 +157,29 @@ const capture = (element: Element, pointerId: number): void => {
 };
 
 /**
- * The shadow root's own rules: the host fills the stage, and the drawing's
- * root fills the host, its own `width` and `height` attributes being
- * presentation, which these win over. The root alone, `:host > svg`: an `<svg>`
- * nested in the drawing keeps the size it gives itself. Never set on the root
- * itself: the document is not changed by being looked at (CLAUDE.md).
+ * Whether this pointer going down starts a stroke, rather than a gesture or
+ * nothing. Only the main button draws: the right one, a pen's barrel button
+ * and, on a Mac, a click with Control held are the context menu's.
  */
-const SHADOW_RULES =
-	':host { display: block; width: 100%; height: 100%; } :host > svg { display: block; width: 100%; height: 100%; }';
-
-/**
- * The rules, as one sheet every viewport's shadow adopts where the browser
- * has constructed stylesheets, and as a `<style>` of its own where it has not
- * (jsdom, which has no `adoptedStyleSheets`).
- */
-const shadowSheet = (): CSSStyleSheet | undefined => {
-	if (typeof CSSStyleSheet !== 'function' || !('replaceSync' in CSSStyleSheet.prototype)) {
-		return undefined;
-	}
-	const sheet = new CSSStyleSheet();
-	sheet.replaceSync(SHADOW_RULES);
-	return sheet;
-};
-
-const SHEET = shadowSheet();
-
-/**
- * Where the drawing's root goes: a shadow root on the mount, made once, so the
- * drawing's own `<style>`, which the sanitizer keeps (docs/ARCHITECTURE.md
- * §9), applies to the drawing and to nothing of the app's — an inline SVG's
- * stylesheet is otherwise the whole page's, and could restyle the app or lay
- * a `position: fixed` element over it. Pointer events still reach the
- * viewport's handlers: they bubble out of the shadow, retargeted to the host.
- */
-const shadowOf = (host: HTMLElement): ShadowRoot => {
-	if (host.shadowRoot !== null) return host.shadowRoot;
-	const shadow = host.attachShadow({ mode: 'open' });
-	if (SHEET !== undefined && 'adoptedStyleSheets' in shadow) {
-		shadow.adoptedStyleSheets = [SHEET];
-		return shadow;
-	}
-	const style = host.ownerDocument.createElement('style');
-	style.textContent = SHADOW_RULES;
-	shadow.appendChild(style);
-	return shadow;
-};
-
-/** Whether this pointer going down starts a stroke, rather than a gesture or nothing. */
 const startsStroke = (event: PointerEvent, gesture: GestureState): boolean =>
-	event.button === 0 && (event.pointerType !== 'touch' || gesture.mode === 'stroke');
+	event.button === 0 &&
+	!(MAC && event.ctrlKey && event.pointerType === 'mouse') &&
+	(event.pointerType !== 'touch' || gesture.mode === 'stroke');
 
 export const Viewport = ({
 	document,
 	tool,
 	options,
 	layerId,
-	onColour,
+	selection,
+	onColor,
 	onNotify,
 	onScale,
+	onActivateLayer,
+	onFeather,
+	onFill,
+	onTool,
+	onOptions,
 	ref,
 }: ViewportProps) => {
 	const region = useRef<HTMLDivElement>(null);
@@ -183,19 +187,21 @@ export const Viewport = ({
 	const overlay = useRef<SVGSVGElement>(null);
 	const screen = useRef<HTMLCanvasElement>(null);
 	const stroke = useRef<Stroke | undefined>(undefined);
-	// The last stroke begun, ended or not: its tool is told when it is put
-	// down, so what it left open after its stroke (the text tool's field)
-	// closes with it.
-	const lastStroke = useRef<Stroke | undefined>(undefined);
+	// The last stroke begun, ended or not, or the tool last given a context
+	// outside one (`viewport/toolHandover.ts`): its tool is told when it is
+	// put down, so what it left open (the text tool's field) closes with it.
+	const lastStroke = useRef<Omit<Stroke, 'pointerId'> | undefined>(undefined);
 	const gesture = useRef<GestureState>(INITIAL_GESTURE);
 	const fitted = useRef<Fitted | undefined>(undefined);
 	const [views] = useState(() => observable(IDENTITY_VIEW));
-	const [selections] = useState(() => observable(NO_SELECTION));
-	const [regions] = useState(() => observable<string | undefined>(undefined));
+	const [ownSelection] = useState(createViewportSelection);
+	const held = selection ?? ownSelection;
+	const { region: regions, elements: selections } = held;
 	const [spaceHeld, setSpaceHeld] = useState(false);
 	const view = useSyncExternalStore(views.subscribe, views.get);
-	const area = useSyncExternalStore(regions.subscribe, regions.get);
 	const snapshot = useSyncExternalStore(document.subscribe, document.snapshot);
+	const facts = useSelectionFacts(held, snapshot, layerId);
+	const area = facts.region;
 
 	// The drawing's user units: the root's `viewBox`, whose origin need not be
 	// 0, or the size the document read where there is none.
@@ -233,18 +239,13 @@ export const Viewport = ({
 	const zoomIn = useCallback(() => zoomStep(ZOOM_STEP), [zoomStep]);
 	const zoomOut = useCallback(() => zoomStep(1 / ZOOM_STEP), [zoomStep]);
 
-	useImperativeHandle(
-		ref,
-		(): ViewportHandle => ({ fit, actualSize, zoomIn, zoomOut, scale: view.scale }),
-		[fit, actualSize, zoomIn, zoomOut, view.scale]
-	);
-
 	const cancelStroke = useCallback(() => {
 		const current = stroke.current;
 		if (current === undefined) return;
 		stroke.current = undefined;
-		current.behaviour.cancel(current.context);
+		current.behavior.cancel(current.context);
 		overlay.current?.replaceChildren();
+		current.giveBack?.();
 	}, []);
 
 	/** The overlay emptied of a tool's handles, unless a stroke is drawing its preview there. */
@@ -292,21 +293,49 @@ export const Viewport = ({
 	// stroke is under way or one has ended. The area stays: it is in a layer
 	// of its own.
 	const toolId = tool.id;
+	// Then a tool another one asked for is given what it is to edit; and the
+	// tool in hand is told of new options (`viewport/toolHandover.ts`).
+	const handover = useToolHandover({
+		toolId,
+		options,
+		onTool,
+		inHand: () => {
+			const behavior = behaviorFor(tool, activeLayer()?.kind);
+			const context = toolContext();
+			return behavior === undefined || context === undefined
+				? undefined
+				: { behavior, context };
+		},
+		keep: ({ behavior, context }) => {
+			lastStroke.current = { behavior, context };
+		},
+	});
+	const arrive = useEffectEvent(() => {
+		handover.arrived();
+	});
 	useEffect(() => {
 		const last = lastStroke.current;
 		lastStroke.current = undefined;
-		if (stroke.current === undefined) last?.behaviour.cancel(last.context);
+		if (stroke.current === undefined) last?.behavior.cancel(last.context);
 		cancelStroke();
 		overlay.current?.replaceChildren();
-		if (!SELECTING.has(toolId)) selections.set(NO_SELECTION);
+		if (!SELECTION_TOOLS.has(toolId)) selections.set(NO_SELECTION);
+		arrive();
 	}, [toolId, cancelStroke, selections]);
 
 	// What is selected is on the active layer, and a key that deletes it acts
-	// on that layer: another layer made active lets go of it.
+	// on that layer: another layer made active lets go of it, unless it is that
+	// layer's own, as it is when Auto-Select made the layer active under a
+	// press that selected an element of it.
 	useEffect(() => {
-		selections.set(NO_SELECTION);
+		const active = layerId === undefined ? undefined : document.layer(layerId);
+		const own = active === undefined ? [] : elementsOf(active);
+		const selected = selections.get();
+		const kept = selected.filter((element) => own.includes(element));
+		if (kept.length > 0 && kept.length === selected.length) return;
+		selections.set(kept.length === 0 ? NO_SELECTION : kept);
 		clearOverlay();
-	}, [layerId, selections, clearOverlay]);
+	}, [document, layerId, selections, clearOverlay]);
 
 	// An undo puts a layer's markup back, which replaces its elements: one that
 	// left the drawing is no longer selected, and its box goes with it.
@@ -375,13 +404,14 @@ export const Viewport = ({
 
 	const activeLayer = () => snapshot.layers.find((layer) => layer.id === layerId);
 
-	const toolContext = (): ToolContext | undefined => {
+	/** What a tool is given, for the active layer or, for a press that picked one, that layer. */
+	const toolContext = (layer: LayerInfo | undefined = activeLayer()): ToolContext | undefined => {
 		if (overlay.current === null || screen.current === null || region.current === null) {
 			return undefined;
 		}
 		return createToolContext({
 			document,
-			layer: activeLayer(),
+			layer,
 			options,
 			overlay: overlay.current,
 			canvas: screen.current,
@@ -392,56 +422,74 @@ export const Viewport = ({
 			host: region.current,
 			fit,
 			actualSize,
-			setColour: onColour,
+			setColor: onColor,
 			notify: onNotify,
+			useTool: handover.useTool,
+			setOptions: onOptions,
 		});
 	};
 
-	/** Delete, with something selected on a vector layer and no stroke under way: whether it did. */
-	const deleteSelected = (): boolean => {
-		if (selections.get().length === 0 || stroke.current !== undefined) return false;
-		if (activeLayer()?.kind !== 'vector') return false;
-		const context = toolContext();
-		if (context === undefined) return false;
-		deleteSelection(context);
-		hideSelection(context.overlay);
-		return true;
-	};
+	// The selection's actions, for the context menu, the frame's selection
+	// bar and the keys alike.
+	const commands = useSelectionCommands({
+		document,
+		layer: activeLayer(),
+		canvas: box,
+		toolId,
+		selection: held,
+		busy: () => stroke.current !== undefined,
+		context: toolContext,
+		overlay: () => overlay.current,
+		notify: onNotify,
+		activate: (id) => onActivateLayer?.(id),
+		feather: () => onFeather?.(),
+		fill: onFill,
+	});
+	const perform = (action: SelectionActionId): boolean => commands.run(action);
 
-	/** Delete, with an area selected on a raster layer and no stroke under way: its pixels cleared. */
-	const clearSelectedArea = (): boolean => {
-		if (regions.get() === undefined || stroke.current !== undefined) return false;
-		if (activeLayer()?.kind !== 'raster') return false;
-		const context = toolContext();
-		return context !== undefined && clearArea(context);
-	};
+	useImperativeHandle(ref, (): ViewportHandle => ({
+		fit,
+		actualSize,
+		zoomIn,
+		zoomOut,
+		scale: view.scale,
+		perform,
+		fillArea: commands.fillWith,
+	}));
 
 	/**
-	 * Ctrl or ⌘ A: everything there is to select. On a vector layer, its
-	 * elements, as in Illustrator and Figma, since nothing paints inside an
-	 * area there; on any other, the whole canvas as the area, as in Photoshop.
+	 * The key's action, where it is the selection's: J is layer via copy
+	 * while something is selected and the layer duplicated while nothing is,
+	 * as in Photoshop. Whether it did anything.
 	 */
-	const selectAll = (): void => {
-		const context = toolContext();
-		if (activeLayer()?.kind === 'vector' && context !== undefined) {
-			selectEveryElement(context, toolId === 'select');
-			return;
+	const selectionKey = (action: EditAction | undefined): boolean | undefined => {
+		if (action === 'duplicate') {
+			return perform(
+				selectionModeOf(facts) === 'nothing' ? 'duplicateLayer' : 'layerViaCopy'
+			);
 		}
-		regions.set(rectPath(box));
-	};
-
-	/** Ctrl or ⌘ D: the area and the element selection both dropped, and what showed them. */
-	const deselect = (): void => {
-		regions.set(undefined);
-		selections.set(NO_SELECTION);
-		if (overlay.current !== null) hideSelection(overlay.current);
+		const mapped = action === undefined ? undefined : SELECTION_KEYS[action];
+		return mapped === undefined ? undefined : perform(mapped);
 	};
 
 	// Escape abandons the stroke under way, and with none drops the area; the
 	// frame has Escape too, for what it has open, and a field keeps its own.
 	// Delete removes what is selected, which the frame cannot see, and so do
-	// select-all and deselect. Space held makes the next stroke the hand's.
+	// the selection's other keys; select-all and deselect are always taken
+	// from the browser, whose own would select the page. Space held makes the
+	// next stroke the hand's.
 	const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+		// The arrows nudge the selected pixels with the move tool, before anything else reads them.
+		const nudge = event.defaultPrevented || toolId !== 'select' ? undefined : nudgeFor(event);
+		const nudging = nudge === undefined ? undefined : toolContext();
+		if (
+			nudge !== undefined &&
+			nudging !== undefined &&
+			nudgeArea(nudging, nudge[0], nudge[1])
+		) {
+			event.preventDefault();
+			return;
+		}
 		const action = editActionFor(event, MAC);
 		if (action === 'escape') {
 			if (stroke.current !== undefined) {
@@ -451,15 +499,10 @@ export const Viewport = ({
 			if (!event.defaultPrevented && !isTyping(event.target)) regions.set(undefined);
 			return;
 		}
-		if (action === 'delete') {
-			if (deleteSelected() || clearSelectedArea()) event.preventDefault();
-			return;
-		}
-		if (action === 'selectAll' || action === 'deselect') {
-			if (event.defaultPrevented) return;
-			event.preventDefault();
-			if (action === 'selectAll') selectAll();
-			else deselect();
+		if (event.defaultPrevented) return;
+		const done = selectionKey(action);
+		if (done !== undefined) {
+			if (done || action === 'selectAll' || action === 'deselect') event.preventDefault();
 			return;
 		}
 		if (!isHandKey(event)) return;
@@ -519,24 +562,77 @@ export const Viewport = ({
 		return state;
 	};
 
+	// The menu, opened over the canvas and never while a stroke is under way,
+	// but for a finger the browser took for a long press, which was none.
+	const menu = useCanvasMenu({
+		element: region,
+		keyboardAt: () => {
+			// A DOMRect's sides are its prototype's getters, which a spread would not copy.
+			const rect = region.current?.getBoundingClientRect();
+			const canvas = {
+				left: rect?.left ?? 0,
+				top: rect?.top ?? 0,
+				width: rect?.width ?? 0,
+				height: rect?.height ?? 0,
+			};
+			return keyboardPoint(canvas, views.get(), commands.center());
+		},
+		mayOpen: (event) => {
+			const current = stroke.current;
+			if (current === undefined) return true;
+			if (!isLongPress(event, current.pointerId, gesture.current.still)) return false;
+			cancelStroke();
+			return true;
+		},
+	});
+	const menuItems = selectionActions(facts, perform, MAC);
+
+	/**
+	 * The layer the tool picks for this press, other than the active one
+	 * (`Tool.pick`); none where it picks none, or there is no frame to make it
+	 * the active one.
+	 */
+	const pickFor = (pressed: PointerSample): LayerInfo | undefined => {
+		if (spaceHeld || onActivateLayer === undefined || tool.pick === undefined) return undefined;
+		const context = toolContext();
+		const picked = context === undefined ? undefined : tool.pick(context, pressed);
+		return picked?.id === layerId ? undefined : picked;
+	};
+
 	const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
 		const native = event.nativeEvent;
+		// A press that closes the menu draws nothing.
+		if (menu.dismissing()) return;
+		handover.forget();
 		// The same pointer down again never lifted, as far as this element
 		// heard: that stroke is over, so a lost `pointerup` cannot stop drawing.
 		if (stroke.current?.pointerId === native.pointerId) cancelStroke();
 		const state = track('down', native);
 		if (stroke.current !== undefined || !startsStroke(native, state)) return;
-		const layer = activeLayer();
-		const behaviour = spaceHeld ? handBehaviour : behaviourFor(tool, layer?.kind);
-		if (behaviour === undefined) {
+		const pressed = sample(native);
+		const picked = pickFor(pressed);
+		const layer = picked ?? activeLayer();
+		const behavior = spaceHeld ? handBehavior : behaviorFor(tool, layer?.kind);
+		if (behavior === undefined) {
 			onNotify(notAvailableMessage(tool, layer?.kind) ?? t('layers.noneActive'));
 			return;
 		}
-		const context = toolContext();
+		const context = toolContext(layer);
 		if (context === undefined) return;
+		// Made active before the press begins, and the frame shows it once the
+		// press has; the press has the layer's context already.
+		const before = layerId;
+		if (picked !== undefined) onActivateLayer?.(picked.id);
 		capture(event.currentTarget, native.pointerId);
-		behaviour.begin(context, sample(native));
-		stroke.current = { pointerId: native.pointerId, behaviour, context };
+		behavior.begin(context, pressed);
+		stroke.current = {
+			pointerId: native.pointerId,
+			behavior,
+			context,
+			...(picked === undefined || before === undefined
+				? {}
+				: { giveBack: () => onActivateLayer?.(before) }),
+		};
 		lastStroke.current = stroke.current;
 	};
 
@@ -544,10 +640,10 @@ export const Viewport = ({
 	// finger has none, and the hand held has nothing to preview.
 	const hover = (native: PointerEvent) => {
 		if (spaceHeld || native.pointerType === 'touch' || native.buttons !== 0) return;
-		const behaviour = behaviourFor(tool, activeLayer()?.kind);
-		if (behaviour?.hover === undefined) return;
+		const behavior = behaviorFor(tool, activeLayer()?.kind);
+		if (behavior?.hover === undefined) return;
 		const context = toolContext();
-		if (context !== undefined) behaviour.hover(context, sample(native));
+		if (context !== undefined) behavior.hover(context, sample(native));
 	};
 
 	const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -560,7 +656,7 @@ export const Viewport = ({
 		}
 		if (current.pointerId !== native.pointerId) return;
 		samplesOf(native).forEach((each) => {
-			current.behaviour.move(current.context, sample(each));
+			current.behavior.move(current.context, sample(each));
 		});
 	};
 
@@ -570,7 +666,7 @@ export const Viewport = ({
 		const current = stroke.current;
 		if (current === undefined || current.pointerId !== native.pointerId) return;
 		stroke.current = undefined;
-		current.behaviour.end(current.context, sample(native));
+		current.behavior.end(current.context, sample(native));
 	};
 
 	const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -586,73 +682,90 @@ export const Viewport = ({
 	};
 
 	// A tool that does nothing on the active layer says so on a click, and
-	// shows it before one.
-	const available = behaviourFor(tool, activeLayer()?.kind) !== undefined;
-	const toolCursor = available ? (tool.cursor ?? 'default') : 'not-allowed';
+	// shows it before one; a tool that picks the layer a press acts on, with
+	// Auto-Select on, may act on a group's layers while the group is active.
+	const picks = tool.pick !== undefined && onActivateLayer !== undefined && options.autoSelect;
+	const available = picks || behaviorFor(tool, activeLayer()?.kind) !== undefined;
+	// The move tool over an area moves its pixels, and says so.
+	const movesArea = toolId === 'select' && facts.layer?.kind === 'raster' && area !== undefined;
+	const toolCursor = available
+		? movesArea
+			? 'move'
+			: (tool.cursor ?? 'default')
+		: 'not-allowed';
 	const cursor = spaceHeld ? 'grab' : toolCursor;
 
 	return (
-		<div
-			ref={region}
-			className="viewport"
-			role="region"
-			aria-label={t('editor.panes.canvas')}
-			style={{ cursor }}
-			// Focusable, so the keys act where the drawing is and a keyboard
-			// user can reach it: to the rule a landmark is nothing the keyboard
-			// stops at, and this one is where it works.
-			// eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-			tabIndex={0}
-			onPointerDown={onPointerDown}
-			onPointerMove={onPointerMove}
-			onPointerUp={onPointerUp}
-			onPointerCancel={onPointerCancel}
-			onLostPointerCapture={onLostPointerCapture}
-		>
+		<>
 			<div
-				className="viewport-stage"
-				style={{
-					transform: stageTransform(view, box),
-					width: box.width,
-					height: box.height,
-				}}
+				ref={region}
+				className="viewport"
+				role="region"
+				aria-label={t('editor.panes.canvas')}
+				style={{ cursor }}
+				// Focusable, so the keys act where the drawing is and a keyboard
+				// user can reach it: to the rule a landmark is nothing the keyboard
+				// stops at, and this one is where it works.
+				// eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+				tabIndex={0}
+				onPointerDown={onPointerDown}
+				onPointerMove={onPointerMove}
+				onPointerUp={onPointerUp}
+				onPointerCancel={onPointerCancel}
+				onLostPointerCapture={onLostPointerCapture}
 			>
-				<div className="viewport-paper" />
-				<div className="viewport-mount" ref={mount} />
-				<svg
-					className="viewport-area"
-					viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-					width={box.width}
-					height={box.height}
-					aria-hidden="true"
+				<div
+					className="viewport-stage"
+					style={{
+						transform: stageTransform(view, box),
+						width: box.width,
+						height: box.height,
+					}}
 				>
-					{area === undefined ? null : (
-						<>
-							<path
-								className="viewport-ants viewport-ants-under"
-								d={area}
-								fillRule="nonzero"
-								vectorEffect="non-scaling-stroke"
-							/>
-							<path
-								className="viewport-ants viewport-ants-over"
-								d={area}
-								fillRule="nonzero"
-								vectorEffect="non-scaling-stroke"
-							/>
-						</>
-					)}
-				</svg>
-				<svg
-					className="viewport-overlay"
-					ref={overlay}
-					viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-					width={box.width}
-					height={box.height}
-					aria-hidden="true"
-				/>
+					<div className="viewport-paper" />
+					<div className="viewport-mount" ref={mount} />
+					<svg
+						className="viewport-area"
+						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
+						width={box.width}
+						height={box.height}
+						aria-hidden="true"
+					>
+						{area === undefined ? null : (
+							<>
+								<path
+									className="viewport-ants viewport-ants-under"
+									d={antsPath(area, box)}
+									fillRule="nonzero"
+									vectorEffect="non-scaling-stroke"
+								/>
+								<path
+									className="viewport-ants viewport-ants-over"
+									d={antsPath(area, box)}
+									fillRule="nonzero"
+									vectorEffect="non-scaling-stroke"
+								/>
+							</>
+						)}
+					</svg>
+					<svg
+						className="viewport-overlay"
+						ref={overlay}
+						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
+						width={box.width}
+						height={box.height}
+						aria-hidden="true"
+					/>
+				</div>
+				<canvas className="viewport-screen" ref={screen} aria-hidden="true" />
 			</div>
-			<canvas className="viewport-screen" ref={screen} aria-hidden="true" />
-		</div>
+			{/* Beside the canvas, not in it, so a press on the menu is never the canvas's. */}
+			<ContextMenu
+				label={t('selection.menu')}
+				items={menuItems}
+				at={menu.at}
+				onClose={menu.close}
+			/>
+		</>
 	);
 };

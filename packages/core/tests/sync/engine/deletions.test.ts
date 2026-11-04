@@ -148,7 +148,7 @@ describe('a deletion by id alone', () => {
 });
 
 describe('a deletion the same batch also describes as present', () => {
-	it('honours the deletion when the entry before it is the state it deleted', async () => {
+	it('honors the deletion when the entry before it is the state it deleted', async () => {
 		// Our own write coming back, and then the other device's deletion of
 		// that same file. "Alive anywhere in the batch" reads the first entry as
 		// evidence the file survived and drops the deletion — and a deletion
@@ -598,7 +598,7 @@ describe('an id-less deletion of a folder renamed away and back', () => {
 		// Dropbox's shape of `C` renamed to `D` and back: each old name deleted
 		// by path before the folder is listed at the new one. Nothing was at
 		// `D` before the round, so the second deletion has to be asked of the
-		// folder the round put there, which is alive at `C` afterwards.
+		// folder the round put there, which is alive at `C` afterward.
 		const folder = await world.provider.createFolder('C');
 		await remoteFile('C/x.svg', svg('x\n'));
 		await world.engine.pull();

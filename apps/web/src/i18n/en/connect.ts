@@ -52,9 +52,9 @@ export const connect = {
 		/** The user said no at the provider's consent screen. */
 		denied: 'Connecting storage was canceled.',
 		failed: 'The storage account could not be connected. Try again.',
-		/** The user unticked the permission to their files on the provider's consent screen. */
+		/** The user unchecked the permission to their files on the provider's consent screen. */
 		partial:
-			'Access to your files was not granted, so storage was not connected. Connect again and leave that permission ticked.',
+			'Access to your files was not granted, so storage was not connected. Connect again and leave that permission checked.',
 		/** This server's operator will not take the account, for the reason each says. */
 		refused: {
 			/** A code typed into the operator's field before connecting. */

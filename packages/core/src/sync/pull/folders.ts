@@ -249,7 +249,7 @@ export const createPullFolders = (
 	 *
 	 * The store keeps one row per path, so the move overwrites that row and
 	 * strands its drawings under a folder that now belongs to somebody else. The
-	 * deletion, decided afterwards against a path that has changed hands, then
+	 * deletion, decided afterward against a path that has changed hands, then
 	 * takes the newcomer's drawings instead of theirs — both folders' drawings gone,
 	 * `ok` reported, cursor stored. Deleting it first is the order the remote
 	 * did it in, and the store's cascade takes its subfolders with it.
@@ -265,7 +265,7 @@ export const createPullFolders = (
 	 */
 	const freeFolderPath = (path: string, taken: readonly string[]): Promise<string> =>
 		// Bounded, because the loop's termination rests on `conflictFolderName`
-		// recognising the name it just produced when that name is handed back in
+		// recognizing the name it just produced when that name is handed back in
 		// `taken`. Those are two folds — the one that writes the name and the one
 		// that reads it — and if they ever disagree, `n` stops advancing and this
 		// recurses for ever. That is not a wrong name: it is `pull()` never
@@ -326,7 +326,7 @@ export const createPullFolders = (
 		// Made inside this cursor window, so there is no row to find it by: a
 		// folder created and removed between two cursors is reported as both,
 		// and asking the store alone leaves a folder in the sidebar with
-		// nothing behind it until the next cursor reset. Tracked forwards from
+		// nothing behind it until the next cursor reset. Tracked forward from
 		// the point it was made, so one a later change has moved or taken away
 		// answers with where it ended up. With no id, the path is where the
 		// deletion found it — made at `A` and renamed to `B` before `B` was
@@ -392,8 +392,8 @@ export const createPullFolders = (
 		const occupant = await folderAt(to, decided);
 		// Belt and braces on the second half: our own folder cannot be the thing
 		// in our way, because we only got here with `folderNow` saying it is
-		// somewhere else. `folderNow` walks the batch forwards and `folderAt`
-		// walks it backwards, though, and a disagreement between them would
+		// somewhere else. `folderNow` walks the batch forward and `folderAt`
+		// walks it backward, though, and a disagreement between them would
 		// otherwise have this folder displace itself and then move from a path
 		// it has just left.
 		if (occupant === undefined || occupant.remoteId === remoteId) return [];
@@ -428,7 +428,7 @@ export const createPullFolders = (
 	 * behind at their paths — that is what the cascade does, because an unsaved
 	 * edit outranks a remote deletion — so there is no folder in the way and
 	 * still something at the path. Moving onto them puts two rows at one path.
-	 * The store has no way to tell them apart afterwards, and a push then sends
+	 * The store has no way to tell them apart afterward, and a push then sends
 	 * both to the same remote file, each overwriting the other for ever.
 	 *
 	 * The local drawing moves aside rather than the arriving one, for the same

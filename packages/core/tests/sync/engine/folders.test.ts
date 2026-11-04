@@ -252,7 +252,7 @@ describe('a provider that reports a folder recursively', () => {
 		expect(drawingAt('Work/a.svg')).toBeUndefined();
 		// The same folder, moved — not deleted and conjured back into existence
 		// by a drawing's parent path, which leaves it with no `remoteId` and so no
-		// way to be recognised the next time it moves.
+		// way to be recognized the next time it moves.
 		expect(world.store.folders()).toEqual([{ path: 'Archive', remoteId: folder.remoteId }]);
 		// The same drawing, not a replacement that happens to hold the same text.
 		// Deleting and re-importing it reads the same from here and is not: it
@@ -282,7 +282,7 @@ describe('a provider that reports a folder recursively', () => {
 		expect(world.store.drawings()).toHaveLength(1);
 		// Moved, not deleted and re-made: a folder that arrives as the side
 		// effect of a drawing's path has no `remoteId`, and a folder with no
-		// `remoteId` cannot be recognised the next time it moves, or reconciled
+		// `remoteId` cannot be recognized the next time it moves, or reconciled
 		// after a cursor reset.
 		expect(world.store.folders()).toEqual([{ path: 'Archive', remoteId: folder.remoteId }]);
 	});
@@ -522,7 +522,7 @@ describe('a folder whose ancestor moved in the same batch', () => {
 		// and both halves arrive together. The store keeps one row per path, so
 		// the move overwrites `Archive`'s row and strands its drawings under a
 		// folder that is now somebody else's — and the deletion, decided
-		// afterwards against a path that has changed hands, then takes the
+		// afterward against a path that has changed hands, then takes the
 		// newcomer's drawings instead. Both folders' drawings gone, `ok` reported,
 		// cursor stored, and only a cursor reset would ever bring them back.
 		const doomed = await world.provider.createFolder('Archive');
@@ -544,7 +544,7 @@ describe('a folder whose ancestor moved in the same batch', () => {
 		expect(world.store.folders().map((folder) => folder.path)).toEqual(['Archive']);
 	});
 
-	it('recognises a deletion that carries no id at all', async () => {
+	it('recognizes a deletion that carries no id at all', async () => {
 		// Dropbox's `DeletedMetadata` is a path and nothing else, so the folder
 		// being replaced can only be matched by where it was.
 		const doomed = await world.provider.createFolder('Archive');
@@ -561,7 +561,7 @@ describe('a folder whose ancestor moved in the same batch', () => {
 		expect(world.store.drawings().map((drawing) => drawing.path)).toEqual(['Archive/new.svg']);
 	});
 
-	it('recognises a deletion whose path is not where we think the folder is', async () => {
+	it('recognizes a deletion whose path is not where we think the folder is', async () => {
 		// The folder was moved remotely in a window we never saw, so the
 		// deletion names a path our row has never held. The id is the only
 		// thing tying the two together, and without it the folder is read as
@@ -725,7 +725,7 @@ describe('a folder whose ancestor moved in the same batch', () => {
 	it('keeps a displaced folder and its drawings together when nothing claims it', async () => {
 		// The batch never says where `Archive` went — the entry is in the next
 		// window, or the provider never sends one. It stays where it was put,
-		// under a name the user can recognise, with its drawings still inside it.
+		// under a name the user can recognize, with its drawings still inside it.
 		// The alternative is the merge: two folders' drawings in one, and a row
 		// gone for good.
 		const other = await world.provider.createFolder('Archive');
@@ -1659,7 +1659,7 @@ describe('a folder moved into what it was', () => {
 	it('swaps a folder with its own child without a conflict copy', async () => {
 		// `B` moved into `C` and `C` renamed to `B`, reported as `B` at `B/B`
 		// and `C` at `B`. The first move leaves `B` empty and `B/B` full; asked
-		// backwards, a path inside the old one read as still holding the folder
+		// backward, a path inside the old one read as still holding the folder
 		// that left it, and the arriving `C` was displaced to a conflict name.
 		await world.provider.createFolder('B');
 		await remoteFile('B/a.svg', svg('a\n'));

@@ -29,7 +29,7 @@ import { XLINK_NAMESPACE, XMLNS_NAMESPACE } from './namespaces.js';
  * Vector onto vector stays vector: the upper layer's content goes into the
  * lower layer, each side in a `<g>` that carries what its layer said of
  * itself (its transform, opacity, blend mode, filter, style), so nothing
- * moves or changes colour, and the merged layer, which keeps the lower one's
+ * moves or changes color, and the merged layer, which keeps the lower one's
  * id, name and lock, is at full opacity and normal blend. Anything with a
  * raster or a group on either side is rendered (`layerPixels.ts`) and becomes
  * one raster layer the same way. A rasterized layer keeps its id, name,

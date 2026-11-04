@@ -282,12 +282,12 @@ export const createDropboxStub = (options: FakeProviderOptions = {}): DropboxStu
 	 * Dropbox refuses a move whose source and destination are one path; the
 	 * fake underneath treats it as the no-op it is. Delegating straight to the
 	 * fake meant the contract's "accepts a move to where the entry already is"
-	 * never reached the adapter code that has to recognise it — the test passed
+	 * never reached the adapter code that has to recognize it — the test passed
 	 * because the stub was kinder than the thing it stands in for.
 	 *
 	 * `to/conflict` is what the stub sends: with `autorename: false` the
 	 * destination is occupied — by the entry itself — so it is the mechanically
-	 * obvious answer. That is a judgement rather than an observation, and it is
+	 * obvious answer. That is a judgment rather than an observation, and it is
 	 * not the only tag Dropbox can send here; `dropbox.test.ts` covers the other
 	 * two at the wire. Which is the reason the adapter settles this by asking
 	 * what is at the path rather than by reading the tag at all.

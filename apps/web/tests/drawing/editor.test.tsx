@@ -40,6 +40,8 @@ const fake = vi.hoisted(() => {
 	const undo = vi.fn();
 	const redo = vi.fn();
 	const opened: Fake[] = [];
+	/** The kind of the one layer the next document opened has. */
+	const settings = { kind: 'vector' as 'vector' | 'raster' };
 	const open = vi.fn((text: string): EditorDocument | undefined => {
 		if (text.includes(`<title>Broken</title>`)) return undefined;
 		const listeners = new Set<() => void>();
@@ -48,7 +50,7 @@ const fake = vi.hoisted(() => {
 			layers: [
 				{
 					id: 'layer-1',
-					kind: 'vector',
+					kind: settings.kind,
 					name: undefined,
 					hidden: false,
 					locked: false,
@@ -97,7 +99,7 @@ const fake = vi.hoisted(() => {
 		opened.push(document);
 		return document;
 	});
-	return { undo, redo, opened, open };
+	return { undo, redo, opened, open, settings };
 });
 
 vi.mock('../../src/drawing/document/openDocument.js', () => ({ openDocument: fake.open }));
@@ -150,7 +152,7 @@ const Routed = ({
 	);
 };
 
-const renderEditor = async (width: Width, title = 'Harbour', folderPath = ROOT) => {
+const renderEditor = async (width: Width, title = 'Harbor', folderPath = ROOT) => {
 	stubWindowWidth(width);
 	const db = freshDatabase();
 	const made = await createDrawing(db, {
@@ -282,8 +284,8 @@ describe('the editor frame', () => {
 	});
 
 	it("shows the drawing's title in the top bar", async () => {
-		await renderEditor('compact', 'Harbour at dusk');
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Harbour at dusk');
+		await renderEditor('compact', 'Harbor at dusk');
+		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Harbor at dusk');
 	});
 
 	it('presses a tool with its key', async () => {
@@ -339,21 +341,83 @@ describe('the editor frame', () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
-	it('swaps the colours with X, as the swatch on the colour button shows', async () => {
-		await renderEditor('compact');
-		const swatch = () =>
-			screen.getByRole('button', { name: 'Colour' }).querySelector('.swatch');
-		expect(swatch()?.classList.contains('swatch-none')).toBe(false);
+	it('swaps the colors with X and puts them back with the color panel’s reset, as the pair in the tool bar shows', async () => {
+		const user = userEvent.setup();
+		await renderEditor('expanded');
+		const fill = () => screen.getByRole('button', { name: /^Fill color: / });
+		expect(fill().getAttribute('aria-label')).toBe('Fill color: #111827');
 		// The default stroke is none, so after the swap the fill is.
 		fireEvent.keyDown(window, { key: 'x' });
-		await waitFor(() => expect(swatch()?.classList.contains('swatch-none')).toBe(true));
+		await waitFor(() => expect(fill().getAttribute('aria-label')).toBe('Fill color: none'));
+		expect(screen.getByRole('button', { name: 'Stroke color: #111827' })).toBeDefined();
+		// The bar has no reset of its own: it is the color panel's, which a color opens.
+		expect(screen.queryByRole('button', { name: 'Reset colors' })).toBeNull();
+		await user.click(fill());
+		await user.click(await screen.findByRole('button', { name: 'Reset colors' }));
+		expect(fill().getAttribute('aria-label')).toBe('Fill color: #111827');
+		expect(screen.getByRole('button', { name: 'Stroke color: none' })).toBeDefined();
+	});
+
+	it('opens the color panel on the color pressed in the tool bar, and goes back to it on closing', async () => {
+		const user = userEvent.setup();
+		await renderEditor('medium');
+		const stroke = screen.getByRole('button', { name: 'Stroke color: none' });
+		await user.click(stroke);
+		const dialog = await screen.findByRole('dialog', { name: 'Color' });
+		expect(stroke.getAttribute('aria-pressed')).toBe('true');
+		await waitFor(() =>
+			expect(document.activeElement).toBe(within(dialog).getByLabelText('Stroke'))
+		);
+		expect(within(dialog).getByRole('button', { name: 'Reset colors' }).title).toBe(
+			'Reset colors (D)'
+		);
+
+		await user.keyboard('{Escape}');
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(document.activeElement).toBe(stroke);
+		expect(stroke.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('shows both colors as one control on a compact window, with the swap, and opens the color sheet', async () => {
+		const user = userEvent.setup();
+		await renderEditor('compact');
+		const both = screen.getByRole('button', { name: 'Colors' });
+		expect(screen.queryByRole('button', { name: /^Fill color: / })).toBeNull();
+		fireEvent.keyDown(window, { key: 'x' });
+		await waitFor(() =>
+			expect(both.querySelector('.color-pair-mark-fill')?.classList.contains('is-none')).toBe(
+				true
+			)
+		);
+		await user.click(screen.getByRole('button', { name: 'Swap colors' }));
+		expect(both.querySelector('.color-pair-mark-fill')?.classList.contains('is-none')).toBe(
+			false
+		);
+		await user.click(both);
+		expect(await screen.findByRole('dialog', { name: 'Color' })).toBeDefined();
+		expect(both.getAttribute('aria-pressed')).toBe('true');
+	});
+
+	it('puts the colors back with D, and leaves D with the primary key to the selection', async () => {
+		await renderEditor('expanded');
+		fireEvent.keyDown(window, { key: 'x' });
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Fill color: none' })).toBeDefined()
+		);
+		fireEvent.keyDown(window, { key: 'd', ctrlKey: true, metaKey: true });
+		expect(screen.getByRole('button', { name: 'Fill color: none' })).toBeDefined();
+		fireEvent.keyDown(window, { key: 'd' });
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Fill color: #111827' })).toBeDefined()
+		);
+		expect(screen.getByRole('button', { name: 'Stroke color: none' })).toBeDefined();
 	});
 
 	it('closes a sheet with Escape, and it stays closed', async () => {
 		const user = userEvent.setup();
 		await renderEditor('compact');
-		await user.click(screen.getByRole('button', { name: 'Colour' }));
-		expect(await screen.findByRole('dialog', { name: 'Colour' })).toBeDefined();
+		await user.click(screen.getByRole('button', { name: 'Colors' }));
+		expect(await screen.findByRole('dialog', { name: 'Color' })).toBeDefined();
 
 		await user.keyboard('{Escape}');
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -369,11 +433,227 @@ describe('the editor frame', () => {
 	});
 });
 
+describe('the selection bar', () => {
+	beforeEach(() => {
+		fake.settings.kind = 'vector';
+	});
+
+	const selectAll = () => {
+		fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
+	};
+
+	const bar = () => screen.queryByRole('group', { name: 'Selection' });
+
+	const barButtons = () =>
+		[...(bar()?.querySelectorAll('button') ?? [])].map((button) => button.textContent);
+
+	it.each(['compact', 'medium', 'expanded'] as const)(
+		'shows the area’s actions in the options while a tool that selects is in hand (%s)',
+		async (width) => {
+			fake.settings.kind = 'raster';
+			await renderEditor(width);
+			expect(bar()).toBeNull();
+			selectAll();
+			await waitFor(() => expect(bar()).not.toBeNull());
+			const options = screen.getByRole('toolbar', { name: 'Tool options' });
+			expect(options.contains(bar())).toBe(true);
+			expect(barButtons()).toEqual([
+				'Deselect',
+				'Select inverse',
+				'Feather…',
+				'Layer via copy',
+				'Layer via cut',
+				'Fill…',
+				'Clear',
+				'Crop to selection',
+			]);
+			fireEvent.keyDown(window, { key: 'b' });
+			await waitFor(() => expect(bar()).toBeNull());
+			fireEvent.keyDown(window, { key: 'm' });
+			await waitFor(() => expect(bar()).not.toBeNull());
+			fireEvent.click(screen.getByRole('button', { name: 'Deselect' }));
+			await waitFor(() => expect(bar()).toBeNull());
+		}
+	);
+
+	it('feathers the area from the bar, starting the dialog at its feather', async () => {
+		const user = userEvent.setup();
+		fake.settings.kind = 'raster';
+		await renderEditor('expanded');
+		selectAll();
+		await user.click(await screen.findByRole('button', { name: 'Feather…' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Feather selection' });
+		expect(dialog.classList.contains('panel-drawer')).toBe(true);
+		const field = within(dialog).getByRole('spinbutton', { name: 'Feather radius in pixels' });
+		expect(field).toHaveProperty('value', '0');
+		fireEvent.change(field, { target: { value: '12' } });
+		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+		await user.click(screen.getByRole('button', { name: 'Feather…' }));
+		const again = await screen.findByRole('dialog', { name: 'Feather selection' });
+		expect(
+			within(again).getByRole('spinbutton', { name: 'Feather radius in pixels' })
+		).toHaveProperty('value', '12');
+		// The area dropped under it takes the dialog with it, for good.
+		fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		selectAll();
+		await screen.findByRole('button', { name: 'Feather…' });
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('shows the elements’ actions for shapes selected on a vector layer, and makes the layer via copy', async () => {
+		await renderEditor('expanded');
+		const document = lastOpened();
+		const layer = window.document.createElementNS('http://www.w3.org/2000/svg', 'g');
+		layer.setAttribute('id', 'layer-1');
+		layer.appendChild(window.document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
+		document.root.appendChild(layer);
+		vi.spyOn(document, 'layer').mockImplementation(
+			(id) => document.root.querySelector<SVGGraphicsElement>(`[id="${id}"]`) ?? undefined
+		);
+		const execute = vi.spyOn(document, 'execute');
+		selectAll();
+		await waitFor(() =>
+			expect(barButtons()).toEqual([
+				'Deselect',
+				'Select inverse',
+				'Layer via copy',
+				'Layer via cut',
+				'Delete',
+			])
+		);
+		fireEvent.click(screen.getByRole('button', { name: 'Layer via copy' }));
+		expect(execute).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(bar()).toBeNull());
+	});
+});
+
+describe('editing a text from the select tool', () => {
+	/** A text of the drawing's one layer, at 50, 50, with `attributes`, and the document finding its layer. */
+	const withText = (attributes: Readonly<Record<string, string>>) => {
+		const document = lastOpened();
+		const svg = 'http://www.w3.org/2000/svg';
+		const layer = window.document.createElementNS(svg, 'g');
+		layer.setAttribute('id', 'layer-1');
+		const text = window.document.createElementNS(svg, 'text');
+		Object.entries({ x: '50', y: '50', ...attributes }).forEach(([name, value]) =>
+			text.setAttribute(name, value)
+		);
+		text.append('Hello');
+		layer.appendChild(text);
+		document.root.appendChild(layer);
+		vi.spyOn(document, 'layer').mockImplementation(
+			(id) => document.root.querySelector<SVGGraphicsElement>(`[id="${id}"]`) ?? undefined
+		);
+		return document;
+	};
+
+	/** A mouse's double press on the canvas at 50, 50. */
+	const doublePress = () => {
+		const canvas = screen.getByRole('region', { name: 'Canvas' });
+		const press = (type: 'pointerdown' | 'pointerup') =>
+			fireEvent(
+				canvas,
+				new PointerEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					pointerId: 1,
+					pointerType: 'mouse',
+					isPrimary: true,
+					button: 0,
+					buttons: type === 'pointerdown' ? 1 : 0,
+					clientX: 50,
+					clientY: 50,
+				})
+			);
+		['pointerdown', 'pointerup', 'pointerdown', 'pointerup'].forEach((type) =>
+			press(type as 'pointerdown' | 'pointerup')
+		);
+	};
+
+	it('shows the text’s own size and fill in the options as its field opens, writes nothing for them, and keeps them after', async () => {
+		await renderEditor('expanded');
+		const document = withText({ 'font-size': '20', fill: '#00ff00' });
+		const execute = vi.spyOn(document, 'execute');
+		doublePress();
+		const field = await screen.findByRole<HTMLTextAreaElement>('textbox', { name: 'Text' });
+		const size = screen.getByRole('slider', { name: 'Font size' });
+		await waitFor(() => expect(size.getAttribute('aria-valuetext')).toBe('20 px'));
+		expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Fill (hex)' }).value).toBe(
+			'#00ff00'
+		);
+		expect(field.style.fontSize).toBe('20px');
+		fireEvent.keyDown(field, { key: 'Escape' });
+		expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull();
+		expect(execute).not.toHaveBeenCalled();
+		// Kept for the next new text, as Photoshop keeps them.
+		expect(size.getAttribute('aria-valuetext')).toBe('20 px');
+	});
+
+	it('switches to the text tool on a double press, opens the field on its words, and keeps it open through the font size', async () => {
+		await renderEditor('expanded');
+		const document = lastOpened();
+		const svg = 'http://www.w3.org/2000/svg';
+		const layer = window.document.createElementNS(svg, 'g');
+		layer.setAttribute('id', 'layer-1');
+		const text = window.document.createElementNS(svg, 'text');
+		text.setAttribute('x', '50');
+		text.setAttribute('y', '50');
+		text.setAttribute('font-size', '20');
+		text.append('Hello');
+		layer.appendChild(text);
+		document.root.appendChild(layer);
+		vi.spyOn(document, 'layer').mockImplementation(
+			(id) => document.root.querySelector<SVGGraphicsElement>(`[id="${id}"]`) ?? undefined
+		);
+		const canvas = screen.getByRole('region', { name: 'Canvas' });
+		const press = (type: 'pointerdown' | 'pointerup') =>
+			fireEvent(
+				canvas,
+				new PointerEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					pointerId: 1,
+					pointerType: 'mouse',
+					isPrimary: true,
+					button: 0,
+					buttons: type === 'pointerdown' ? 1 : 0,
+					clientX: 50,
+					clientY: 50,
+				})
+			);
+		press('pointerdown');
+		press('pointerup');
+		expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull();
+		press('pointerdown');
+		press('pointerup');
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Text' }).getAttribute('aria-pressed')).toBe(
+				'true'
+			)
+		);
+		const field = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Text' });
+		expect(field.value).toBe('Hello');
+		expect(window.document.activeElement).toBe(field);
+		expect(field.style.fontSize).toBe('20px');
+
+		const size = screen.getByRole('slider', { name: 'Font size' });
+		expect(size.closest('[data-tool-options]')).not.toBeNull();
+		size.focus();
+		fireEvent.change(size, { target: { value: '64' } });
+		expect(screen.getByRole('textbox', { name: 'Text' })).toBe(field);
+		expect(field.style.fontSize).toBe('64px');
+		expect(window.document.activeElement).toBe(field);
+	});
+});
+
 describe('the editor saving', () => {
 	it('saves an edit into the row after a pause, and says so', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const edited = withDrawingId(
-			emptyDrawing({ id: made.id, title: 'Harbour' }),
+			emptyDrawing({ id: made.id, title: 'Harbor' }),
 			made.id
 		).replace('</svg>', '<g id="layer-2"/></svg>');
 		act(() => lastOpened().edit(edited));
@@ -427,8 +707,8 @@ describe('the editor saving', () => {
 		// The edits are a drawing of their own: a new id, a conflict name and a
 		// title that says what it is, the editor's text otherwise.
 		expect(readDrawingId(copy.text)).toBe(copy.id);
-		expect(copy.title).toMatch(/^Harbour \(conflict \d{4}-\d\d-\d\dT\d\d-\d\d\)$/);
-		expect(copy.path).toMatch(/^harbour \(conflict \d{4}-\d\d-\d\dT\d\d-\d\d\)\.svg$/);
+		expect(copy.title).toMatch(/^Harbor \(conflict \d{4}-\d\d-\d\dT\d\d-\d\d\)$/);
+		expect(copy.path).toMatch(/^harbor \(conflict \d{4}-\d\d-\d\dT\d\d-\d\d\)\.svg$/);
 		expect(readDrawingTitle(copy.text)).toBe(copy.title);
 		expect(copy.text).toBe(withDrawingId(withDrawingTitle(mine, copy.title), copy.id));
 		expect(notice.textContent).toContain(`“${copy.title}”`);
@@ -494,7 +774,7 @@ describe('a link to a drawing that is not here', () => {
 	it('is not said while the store is still being asked', async () => {
 		stubWindowWidth('expanded');
 		const db = freshDatabase();
-		const made = await createDrawing(db, { title: 'Harbour' });
+		const made = await createDrawing(db, { title: 'Harbor' });
 		render(
 			<DatabaseProvider database={db}>
 				<Editor
@@ -536,7 +816,7 @@ describe('a link to a drawing that is not here', () => {
 
 describe('the drawing open deleted under unsaved edits', () => {
 	it('elsewhere: keeps the edits as a new drawing in its place, and moves to it', async () => {
-		const { db, made, onReplaced } = await renderEditor('expanded', 'Harbour', 'Work');
+		const { db, made, onReplaced } = await renderEditor('expanded', 'Harbor', 'Work');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
 		// Edited, and not yet saved: the save would come after the pause.
 		act(() => lastOpened().edit(mine, true));
@@ -557,13 +837,13 @@ describe('the drawing open deleted under unsaved edits', () => {
 		expect((await getDrawing(db, made.id))?.deletedLocally).toBe(1);
 		expect(readDrawingId(kept.text)).toBe(kept.id);
 		expect(kept.text).toBe(withDrawingId(mine, kept.id));
-		expect(kept.title).toBe('Harbour');
-		expect(kept.path).toBe('Work/harbour.svg');
+		expect(kept.title).toBe('Harbor');
+		expect(kept.path).toBe('Work/harbor.svg');
 		expect(kept.connectionId).toBe(made.connectionId);
 		expect(await db.opQueue.where('drawingId').equals(kept.id).toArray()).toEqual([
 			expect.objectContaining({ op: 'write', path: kept.path }),
 		]);
-		expect(notice.textContent).toContain('“Harbour”');
+		expect(notice.textContent).toContain('“Harbor”');
 
 		// The editor is on it, and nothing more is kept, however long it waits.
 		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(kept.text));
@@ -607,7 +887,7 @@ describe('the drawing open deleted under unsaved edits', () => {
 		expect(await screen.findByText(/This drawing was deleted elsewhere/)).toBeDefined();
 		const rows = await liveRows(db);
 		expect(rows).toHaveLength(1);
-		expect(rows[0]?.title).toMatch(/^Harbour \(conflict /);
+		expect(rows[0]?.title).toMatch(/^Harbor \(conflict /);
 		expect(onReplaced).toHaveBeenCalledExactlyOnceWith(rows[0]?.id);
 	});
 
@@ -717,7 +997,7 @@ describe('placing a picture and exporting', () => {
 		await user.click(screen.getByRole('button', { name: 'More' }));
 		await user.click(await screen.findByRole('menuitem', { name: 'Export…' }));
 		const dialog = await screen.findByRole('dialog', { name: 'Export' });
-		expect(within(dialog).getByText('Harbour')).toBeDefined();
+		expect(within(dialog).getByText('Harbor')).toBeDefined();
 		await user.click(within(dialog).getByRole('button', { name: 'Close the export' }));
 		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Export' })).toBeNull());
 	});

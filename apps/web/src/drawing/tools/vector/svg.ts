@@ -41,13 +41,13 @@ export const createSvg = (
  */
 export const CHROME_STYLE = 'stroke: var(--accent, #2563eb); fill: var(--bg, #ffffff)';
 
-/** What a mark is drawn in where neither colour is set: SVG's own default fill. */
+/** What a mark is drawn in where neither color is set: SVG's own default fill. */
 const DEFAULT_INK = '#000000';
 
 /**
- * The colour a tool that always makes a mark draws with: the one it prefers,
- * else the other, else black. A pencil with no stroke colour draws in the
- * fill colour rather than drawing nothing.
+ * The color a tool that always makes a mark draws with: the one it prefers,
+ * else the other, else black. A pencil with no stroke color draws in the
+ * fill color rather than drawing nothing.
  */
 export const inkOf = (options: ToolOptions, prefer: 'fill' | 'stroke'): string => {
 	const first = options[prefer];

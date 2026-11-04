@@ -57,7 +57,7 @@ there is nothing in it that a maintainer can fix for you.
 
 What is expected of a change:
 
-- **Tests for new behaviour.** Not coverage for its own sake — a test that fails
+- **Tests for new behavior.** Not coverage for its own sake — a test that fails
   if the thing you fixed comes back.
 - **Amend `docs/ARCHITECTURE.md`**, or the record in `docs/decisions/`, if the change alters a decision recorded there.
 - **A changeset**, if the change touches `apps/` or `packages/`:
@@ -68,7 +68,7 @@ What is expected of a change:
   answer rather than a way round the question. `.changeset/README.md` explains
   how a release is cut and why the three packages share one version.
 - **Say why** for a new dependency, in the pull request description, and check
-  the licence. Anything that reaches the shipped bundle must be MIT, Apache-2.0
+  the license. Anything that reaches the shipped bundle must be MIT, Apache-2.0
   or ISC. Build- and test-time tools are held to a looser line — `docs/ARCHITECTURE.md`
   §13 records what is already in the tree and why — but say which it is.
 - **A doc comment says what the code promises, in one to five lines.** It sits on
@@ -111,15 +111,15 @@ user id, the id and timestamp of the comment you signed with, and the number of
 the pull request it was on. No email address, and no part of your contribution.
 That branch holds nothing else and is never merged into `main`.
 
-**It is a licence grant, not an assignment.** You keep ownership of everything
+**It is a license grant, not an assignment.** You keep ownership of everything
 you write, and you keep the right to use your own work anywhere else, under any
 terms you like. What you grant is permission for the project to use, modify,
 sublicense and distribute your contribution — which is what lets the project
-ship it at all, and what lets it stay relicensable if the licence ever has to
+ship it at all, and what lets it stay relicensable if the license ever has to
 change.
 
 In exchange, the agreement binds the project in the other direction: every
-contribution stays available under AGPL-3.0, or a licence one-way compatible
+contribution stays available under AGPL-3.0, or a license one-way compatible
 with it, whatever else happens. The sublicensing right cannot be used to take
 the project closed.
 

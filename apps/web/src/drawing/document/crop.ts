@@ -57,7 +57,7 @@ const scaledLength = (value: string, factor: number): string => {
 /**
  * The canvas set to `box`: the root's `viewBox`, and its `width` and `height`
  * where it has them, scaled by as much as the box, so a file that says its
- * size in millimetres still says it in millimetres. `from` is the canvas as it
+ * size in millimeters still says it in millimeters. `from` is the canvas as it
  * is, which a file with no `viewBox` has only by its size. Undo puts the
  * root's attributes back as they were, in their order.
  */

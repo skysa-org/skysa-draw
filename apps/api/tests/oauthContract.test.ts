@@ -16,7 +16,7 @@ import {
 /**
  * What every provider whose grant comes with an ID token does the same way,
  * asked of each (#450). Where they differ — Google's scope that can be
- * unticked, Microsoft's tenant and rotating refresh token — stays in
+ * unchecked, Microsoft's tenant and rotating refresh token — stays in
  * `gdrive.test.ts` and `onedrive.test.ts`. Dropbox names its account from an
  * API call, not a token, and is not one of these.
  */
@@ -72,7 +72,7 @@ describe.each(PROVIDERS)('$provider', (each) => {
 
 	it('starts for a device that already holds another provider', async () => {
 		// This used to be refused, because in the old model any connected account
-		// signed you in as its user, so holding two crossed the authorisation
+		// signed you in as its user, so holding two crossed the authorization
 		// between them. Each connection is now its own silo, and a device may
 		// hold as many as the person has accounts.
 		const app = buildApp({ config: allProvidersConfig() });

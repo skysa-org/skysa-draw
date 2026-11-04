@@ -1596,7 +1596,7 @@ export const describeSyncStoreContract = (
 				expect((await store.drawingById('n1'))?.content).toBe(svg('mine\n'));
 			});
 
-			it('can be found again by its remote id afterwards', async () => {
+			it('can be found again by its remote id afterward', async () => {
 				const { store, seedFolder } = await harness();
 				await seedFolder({ path: 'Work', remoteId: 'f1' });
 				await store.applyChanges({

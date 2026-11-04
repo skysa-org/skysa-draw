@@ -2,7 +2,7 @@ import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
 import { isTyping } from '../../keys.js';
-import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { constrainLine, distance, type Point } from './geometry.js';
 import { guardLayer, layerSpace, targetLayer } from './guard.js';
 import { mirror } from './path/edit.js';
@@ -33,7 +33,7 @@ import { type Attributes, createSvg, inkOf, paintOf } from './svg.js';
  * the tool changes.
  *
  * Neither Enter nor Escape between presses reaches a tool through
- * `ToolBehaviour`, which hears the pointer alone, so the pen listens for them
+ * `ToolBehavior`, which hears the pointer alone, so the pen listens for them
  * on the document while a path is being drawn, and for the overlay being
  * emptied, and stops when the path is done.
  */
@@ -76,7 +76,7 @@ const pointOf = (sample: PointerSample): Point => ({ x: sample.x, y: sample.y })
  * The paint a pen path gets: the shape tools' (`paintOf`), the fill and the
  * stroke and its width from the options, with one exception. An open path
  * with no stroke, whose fill would make a wedge of a line, or a path with
- * neither colour, is a line in the fill colour with no fill, as the line
+ * neither color, is a line in the fill color with no fill, as the line
  * tool's line is (`shapes.ts`) and as Figma's pen draws.
  */
 const paintFor = (options: ToolOptions, closed: boolean): Attributes => {
@@ -171,12 +171,12 @@ const marksOf = (drawing: Drawing): readonly Mark[] => {
 					},
 					outlineMark(d),
 				];
-	const towards = closing
+	const toward = closing
 		? first
 		: corner(constrainLine(last.point, pointer?.at ?? last.point, pointer?.shift ?? false));
 	const band: readonly Mark[] =
 		press === undefined && pointer !== undefined
-			? [outlineMark(formatPath([{ anchors: [last, towards], closed: false }]))]
+			? [outlineMark(formatPath([{ anchors: [last, toward], closed: false }]))]
 			: [];
 	const shaping = (press === undefined ? undefined : anchors[press.index]) ?? last;
 	return [
@@ -198,7 +198,7 @@ const draw = (drawing: Drawing): void => {
 	);
 };
 
-export const createPen = (): ToolBehaviour => {
+export const createPen = (): ToolBehavior => {
 	const drawing = cell<Drawing | undefined>(undefined);
 
 	const show = (next: Drawing): void => {

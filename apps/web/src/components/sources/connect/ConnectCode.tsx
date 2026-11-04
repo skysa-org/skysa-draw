@@ -114,7 +114,7 @@ export const openStep = (
  * and stays pressable so the focus is not lost from under it.
  *
  * A one-time code to the browser, so a code the operator sent by email or text
- * can be offered from there. Taken as typed, with nothing capitalised or
+ * can be offered from there. Taken as typed, with nothing capitalized or
  * corrected: whether case matters is the policy's to say. A blank one cannot
  * be used, since there is nothing to ask about.
  */

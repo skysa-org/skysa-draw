@@ -1,6 +1,6 @@
 import { cell } from '@skysa/draw-core';
 
-import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, unionBox } from '../vector/geometry.js';
 import { type Area, areaMask, areaOf, pixelsToScreen, reachesArea } from './area.js';
 import { claimScreen, clearScreen, guardedSurface, releaseScreen, reportFailure } from './guard.js';
@@ -12,7 +12,7 @@ import type { RasterSurface } from './surface.js';
  * pixels"): the classic one. Along the stroke, dabs a `size` across are
  * spaced as the brush's stamps are; each picks up the pixels under the dab
  * before it and lays them over the pixels under itself, by `strength` and
- * with an edge as soft as `hardness` says (`smudgeDab`), so colour is dragged
+ * with an edge as soft as `hardness` says (`smudgeDab`), so color is dragged
  * the way the pointer goes and thins as it goes. Pressure is not read.
  *
  * It reads the pixels it writes, so it paints on the layer's own pixels and
@@ -22,7 +22,9 @@ import type { RasterSurface } from './surface.js';
  * as a brush stroke is, and a save waits for it; a stroke that changed no
  * pixel writes nothing. A stroke abandoned leaves pixels that are not the
  * file's, so the surface is forgotten and read from the file again. Where an
- * area is selected the dabs change only what is inside it.
+ * area is selected each dab changes a pixel by as much as the area covers
+ * it (`areaMask`): nothing outside, less over a feathered edge, and for an
+ * inverse the canvas outside the outline.
  */
 
 interface Stroke {
@@ -135,18 +137,18 @@ const paintDabs = (
 	};
 	const reach = options.size / 2;
 	return stroke.queued.reduce<Painted>(
-		(painted, centre) => {
+		(painted, center) => {
 			const near = reachesArea(stroke.area, {
-				x: centre.x - reach,
-				y: centre.y - reach,
+				x: center.x - reach,
+				y: center.y - reach,
 				width: 2 * reach,
 				height: 2 * reach,
 			});
 			const box = near
-				? dabAt(ctx, stroke.surface, painted.from, centre, settings)
+				? dabAt(ctx, stroke.surface, painted.from, center, settings)
 				: undefined;
 			return {
-				from: centre,
+				from: center,
 				changed: painted.changed || box !== undefined,
 				box:
 					box === undefined
@@ -183,7 +185,7 @@ const mirror = (context: ToolContext, surface: RasterSurface, box: Box): void =>
 	ctx.restore();
 };
 
-export const smudgeBehaviour = (): ToolBehaviour => {
+export const smudgeBehavior = (): ToolBehavior => {
 	const active = cell<Stroke | undefined>(undefined);
 
 	/** The dabs queued so far painted, where the picture can be read, and shown. */

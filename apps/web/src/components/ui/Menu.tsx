@@ -8,37 +8,23 @@ import {
 	useState,
 } from 'react';
 
-import { classes } from './classes.js';
 import { IconButton } from './IconButton.js';
+import {
+	type Closing,
+	enabledItems,
+	MARGIN,
+	type MenuItem,
+	MenuList,
+	type Place,
+	raise,
+} from './MenuList.js';
 
-export interface MenuItem {
-	readonly id: string;
-	readonly label: string;
-	readonly onSelect: () => void;
-	readonly disabled?: boolean;
-	readonly shortcut?: string;
-	/** An item that destroys something: drawn in `--bad`. */
-	readonly danger?: boolean;
-}
+export type { MenuItem } from './MenuList.js';
 
 /** Closed, or open with focus to go to the first item or, from ArrowUp, the last. */
 type Open = 'closed' | 'first' | 'last';
 
 type Align = 'start' | 'end';
-
-/** The items the arrow keys move among: a disabled one is read, but passed over. */
-const enabledItems = (menu: HTMLElement): HTMLElement[] => [
-	...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'),
-];
-
-/** Where a key moves focus from `at` among `count` items, wrapping; `at` is -1 off the items. */
-const moveTo = (key: string, at: number, count: number): number | undefined => {
-	if (key === 'Home') return 0;
-	if (key === 'End') return count - 1;
-	if (key === 'ArrowDown') return (at + 1) % count;
-	if (key === 'ArrowUp') return at < 0 ? count - 1 : (at - 1 + count) % count;
-	return undefined;
-};
 
 /**
  * The side of its button a menu hangs from when the caller has not said: the
@@ -55,12 +41,8 @@ const alignFor = (root: HTMLElement, list: HTMLElement): Align => {
 	return overflows ? 'end' : 'start';
 };
 
-/** Where a menu in the top layer sits: from the window's top left, and as tall as it may be. */
-type Place = Readonly<{ top: number; left: number; maxHeight: number }>;
-
-/** Between the button and its menu, and between a menu and the window's edge, in CSS pixels. */
+/** Between the button and its menu, in CSS pixels. */
 const GAP = 4;
-const MARGIN = 8;
 
 /**
  * Where a menu in the top layer goes: under its button, on the side `align`
@@ -87,23 +69,6 @@ const placeFor = (button: HTMLElement, list: HTMLElement, align: Align): Place =
 };
 
 /**
- * Whether the browser has the Popover API. jsdom has not, and yet hides an
- * element that asks for it, so the attribute is given only where it works.
- */
-const HAS_POPOVER = typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
-
-/**
- * Puts the menu in the top layer, out of every panel's overflow and over
- * everything, where the browser can; whether it could. Elsewhere the menu
- * stays where it is in the page.
- */
-const raise = (list: HTMLElement): boolean => {
-	if (!HAS_POPOVER) return false;
-	list.showPopover();
-	return true;
-};
-
-/**
  * A menu under an icon button (docs/ARCHITECTURE.md §7, "The interface"): the
  * top bar's More, a layer's own. After the WAI-ARIA menu button pattern
  * (https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/): the arrows move
@@ -112,7 +77,9 @@ const raise = (list: HTMLElement): boolean => {
  * press anywhere else closes it where it is. `align` says which side of the
  * button the menu lines up with; without it the menu finds the side that
  * keeps it in the window. Open, it is in the top layer (`raise`), so a panel
- * that clips what overflows it, as the dock does, does not cut it off.
+ * that clips what overflows it, as the dock does, does not cut it off. The
+ * list itself, its items and its keys, is `MenuList`, which `ContextMenu`
+ * shares.
  */
 export const Menu = ({
 	label,
@@ -177,17 +144,12 @@ export const Menu = ({
 		return () => document.removeEventListener('pointerdown', onPointerDown);
 	}, [open]);
 
-	const close = () => {
+	// The list gives the focus back before the item acts, so that an item
+	// which opens something of its own is not then robbed of the focus it
+	// took. Tab moves it on from where the menu was, as the pattern has it.
+	const onClose = (why: Closing) => {
 		setOpen('closed');
-		button.current?.focus();
-	};
-
-	const choose = (item: MenuItem) => {
-		if (item.disabled === true) return;
-		// The focus goes back before the item acts, so that an item which opens
-		// something of its own is not then robbed of the focus it took.
-		close();
-		item.onSelect();
+		if (why !== 'tab') button.current?.focus();
 	};
 
 	const onButtonKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -206,28 +168,6 @@ export const Menu = ({
 		}
 	};
 
-	const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			// The menu's own, not also the sheet's or the dialog's it may be in.
-			event.stopPropagation();
-			close();
-			return;
-		}
-		if (event.key === 'Tab') {
-			setOpen('closed');
-			return;
-		}
-		if (list.current === null) return;
-		const enabled = enabledItems(list.current);
-		if (enabled.length === 0) return;
-		const at = enabled.findIndex((item) => item === event.target);
-		const to = moveTo(event.key, at, enabled.length);
-		if (to === undefined) return;
-		event.preventDefault();
-		enabled[to]?.focus();
-	};
-
 	return (
 		<div ref={root} className="menu">
 			<IconButton
@@ -241,46 +181,15 @@ export const Menu = ({
 				onKeyDown={onButtonKeyDown}
 			/>
 			{open !== 'closed' && (
-				<div
+				<MenuList
 					ref={list}
 					id={id}
-					role="menu"
-					aria-label={label}
-					tabIndex={-1}
-					popover={HAS_POPOVER ? 'manual' : undefined}
+					label={label}
+					items={items}
 					style={place}
-					className={classes('menu-list', `menu-${align ?? fitted}`)}
-					onKeyDown={onMenuKeyDown}
-				>
-					{items.map((item, index) => {
-						// The key is the item's description, not part of its name: the
-						// name is what is shown, so that a voice saying it is understood.
-						const keyId =
-							item.shortcut === undefined ? undefined : `${id}-key-${index}`;
-						return (
-							<button
-								key={item.id}
-								type="button"
-								role="menuitem"
-								tabIndex={-1}
-								className={classes(
-									'menu-item',
-									item.danger === true && 'menu-item-danger'
-								)}
-								aria-disabled={item.disabled === true || undefined}
-								aria-describedby={keyId}
-								onClick={() => choose(item)}
-							>
-								<span className="menu-item-label">{item.label}</span>
-								{item.shortcut !== undefined && (
-									<kbd id={keyId} className="menu-shortcut" aria-hidden="true">
-										{item.shortcut}
-									</kbd>
-								)}
-							</button>
-						);
-					})}
-				</div>
+					className={`menu-${align ?? fitted}`}
+					onClose={onClose}
+				/>
 			)}
 		</div>
 	);

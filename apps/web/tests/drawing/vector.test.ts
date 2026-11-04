@@ -5,7 +5,7 @@ import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/docum
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolContext,
 	type ToolOptions,
 } from '../../src/drawing/tools/types.js';
@@ -15,7 +15,7 @@ import {
 	type Point,
 	rotate,
 } from '../../src/drawing/tools/vector/geometry.js';
-import { createVectorBehaviours, deleteSelection } from '../../src/drawing/tools/vector/index.js';
+import { createVectorBehaviors, deleteSelection } from '../../src/drawing/tools/vector/index.js';
 import { attributeBox, measureOf } from '../../src/drawing/tools/vector/measure.js';
 import { t } from '../../src/i18n/t.js';
 
@@ -94,7 +94,7 @@ type Fake = Readonly<{
 	/** Every command executed, to be applied again as a redo would. */
 	commands: Command[];
 	notices: string[];
-	colours: [string, string][];
+	colors: [string, string][];
 	/** Called by `execute` before the command applies: what the layer looked like then. */
 	onExecute: { current: (() => void) | undefined };
 }>;
@@ -109,7 +109,7 @@ const createFake = (
 	const labels: string[] = [];
 	const commands: Command[] = [];
 	const notices: string[] = [];
-	const colours: [string, string][] = [];
+	const colors: [string, string][] = [];
 	const onExecute: Fake['onExecute'] = { current: undefined };
 	const selected: { current: readonly Element[] } = { current: [] };
 	const editor: EditorDocument = {
@@ -152,7 +152,7 @@ const createFake = (
 			pixelRatio: 1,
 		},
 		viewport: { scale, zoomBy: noop, panBy: noop, fit: noop, actualSize: noop },
-		region: { path: undefined, set: noop },
+		region: { path: undefined, region: undefined, set: noop, update: noop },
 		host: document.createElement('div'),
 		selection: {
 			get elements() {
@@ -165,10 +165,10 @@ const createFake = (
 				selected.current = [];
 			},
 		},
-		setColour: (which, value) => colours.push([which, value]),
+		setColor: (which, value) => colors.push([which, value]),
 		notify: (message) => notices.push(message),
 	};
-	return { context, labels, commands, notices, colours, onExecute };
+	return { context, labels, commands, notices, colors, onExecute };
 };
 
 const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSample => ({
@@ -187,25 +187,25 @@ const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSa
 
 /** A whole stroke: begin at the first point, move through the rest, end at the last. */
 const stroke = (
-	behaviour: ToolBehaviour,
+	behavior: ToolBehavior,
 	context: ToolContext,
 	points: readonly Point[],
 	extra: Partial<PointerSample> = {}
 ): void => {
 	const [first, ...rest] = points;
 	if (first === undefined) return;
-	behaviour.begin(context, at(first.x, first.y, extra));
-	rest.forEach((p) => behaviour.move(context, at(p.x, p.y, extra)));
+	behavior.begin(context, at(first.x, first.y, extra));
+	rest.forEach((p) => behavior.move(context, at(p.x, p.y, extra)));
 	const last = rest.at(-1) ?? first;
-	behaviour.end(context, at(last.x, last.y, extra));
+	behavior.end(context, at(last.x, last.y, extra));
 };
 
-const tools = createVectorBehaviours({ measure: attributeBox });
+const tools = createVectorBehaviors({ measure: attributeBox });
 
-const tool = (name: keyof typeof tools): ToolBehaviour => {
-	const behaviour = tools[name];
-	if (behaviour === undefined) throw new Error(`no ${name}`);
-	return behaviour;
+const tool = (name: keyof typeof tools): ToolBehavior => {
+	const behavior = tools[name];
+	if (behavior === undefined) throw new Error(`no ${name}`);
+	return behavior;
 };
 
 const WAVE: Point[] = [
@@ -323,7 +323,7 @@ describe('the guard', () => {
 });
 
 describe('the pencil', () => {
-	it('adds one smoothed path, stroked in the fill colour where there is no stroke colour', () => {
+	it('adds one smoothed path, stroked in the fill color where there is no stroke color', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
 		const { context, labels } = createFake(root, [info], info, {
@@ -346,7 +346,7 @@ describe('the pencil', () => {
 		expect(context.overlay.children.length).toBe(0);
 	});
 
-	it('prefers the stroke colour, previews on the overlay, and makes a dot of a stroke that did not move', () => {
+	it('prefers the stroke color, previews on the overlay, and makes a dot of a stroke that did not move', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
 		const { context } = createFake(root, [info], info, { stroke: '#00ff00', opacity: 1 });
@@ -375,7 +375,7 @@ describe('the pencil', () => {
 		expect(layer.firstElementChild?.getAttribute('d')).toBe('M 10 10 L 20 10');
 	});
 
-	it('leaves the layer and the overlay untouched when cancelled mid-stroke', () => {
+	it('leaves the layer and the overlay untouched when canceled mid-stroke', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
 		const { context, labels } = createFake(root, [info], info);
@@ -410,7 +410,7 @@ describe('the brush', () => {
 		expect(context.overlay.children.length).toBe(0);
 	});
 
-	it('paints in the stroke colour where there is no fill colour', () => {
+	it('paints in the stroke color where there is no fill color', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
 		const { context } = createFake(root, [info], info, { fill: 'none', stroke: '#abcdef' });
@@ -520,7 +520,7 @@ describe('the eyedropper', () => {
 			{ id: 'c', x: '100', y: '0', width: '20', height: '20' },
 		]);
 		const info = layerInfo('layer-1', { locked: true });
-		const { context, colours, labels } = createFake(root, [info], info);
+		const { context, colors, labels } = createFake(root, [info], info);
 		const eyedropper = tool('eyedropper');
 		eyedropper.begin(context, at(10, 10));
 		eyedropper.begin(context, at(10, 10, { altKey: true }));
@@ -528,7 +528,7 @@ describe('the eyedropper', () => {
 		eyedropper.begin(context, at(110, 10));
 		eyedropper.begin(context, at(110, 10, { altKey: true }));
 		eyedropper.begin(context, at(500, 500));
-		expect(colours).toEqual([
+		expect(colors).toEqual([
 			['fill', '#ff0000'],
 			['stroke', '#00ff00'],
 			['fill', '#0000ff'],
@@ -538,18 +538,18 @@ describe('the eyedropper', () => {
 		expect(labels).toEqual([]);
 	});
 
-	it('reads a colour the layer gives its children', () => {
+	it('reads a color the layer gives its children', () => {
 		const { root, layer } = createDrawing([
 			{ id: 'a', x: '0', y: '0', width: '20', height: '20' },
 		]);
 		layer.setAttribute('fill', '#333333');
 		const info = layerInfo('layer-1');
-		const { context, colours } = createFake(root, [info], info);
+		const { context, colors } = createFake(root, [info], info);
 		tool('eyedropper').begin(context, at(10, 10));
-		expect(colours).toEqual([['fill', '#333333']]);
+		expect(colors).toEqual([['fill', '#333333']]);
 	});
 
-	it('reads a colour a group gives the layers in it', () => {
+	it('reads a color a group gives the layers in it', () => {
 		const { root, owner } = createDrawing();
 		const group = svg(owner, 'g', { id: 'layer-2', fill: '#444444' });
 		const inner = svg(owner, 'g', { id: 'layer-3' });
@@ -557,9 +557,9 @@ describe('the eyedropper', () => {
 		group.appendChild(inner);
 		root.appendChild(group);
 		const info = layerInfo('layer-3', { depth: 1, parentId: 'layer-2' });
-		const { context, colours } = createFake(root, [layerInfo('layer-2'), info], info);
+		const { context, colors } = createFake(root, [layerInfo('layer-2'), info], info);
 		tool('eyedropper').begin(context, at(10, 10));
-		expect(colours).toEqual([['fill', '#444444']]);
+		expect(colors).toEqual([['fill', '#444444']]);
 	});
 });
 
@@ -609,7 +609,7 @@ describe('the shapes', () => {
 		expect(rect?.getAttribute('height')).toBe('271.49');
 	});
 
-	it('leaves the stroke off a filled shape with no stroke colour, and previews while dragging', () => {
+	it('leaves the stroke off a filled shape with no stroke color, and previews while dragging', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
 		const { context } = createFake(root, [info], info, { fill: '#222222', stroke: 'none' });
@@ -631,7 +631,7 @@ describe('the shapes', () => {
 		expect(made?.hasAttribute('rx')).toBe(true);
 	});
 
-	it('snaps a line to 45° with Shift and strokes it in the fill colour where there is no stroke', () => {
+	it('snaps a line to 45° with Shift and strokes it in the fill color where there is no stroke', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
 		const { context } = createFake(root, [info], info, {
@@ -810,17 +810,17 @@ describe('the select tool', () => {
 		expect(labels).toEqual(['tools.select']);
 		expect(a?.getAttribute('transform')).toBe('matrix(2 0 0 2 -10 -10)');
 		// The box is now 10,10 to 210,110; the rotate handle is 24 screen px above its top middle.
-		const centre = { x: 110, y: 60 };
+		const center = { x: 110, y: 60 };
 		const handle = { x: 110, y: 10 - 24 };
-		const radius = centre.y - handle.y;
+		const radius = center.y - handle.y;
 		const angle = (-90 + 20) * (Math.PI / 180);
 		const to = {
-			x: centre.x + radius * Math.cos(angle),
-			y: centre.y + radius * Math.sin(angle),
+			x: center.x + radius * Math.cos(angle),
+			y: center.y + radius * Math.sin(angle),
 		};
 		select.begin(context, at(handle.x, handle.y));
 		select.end(context, at(to.x, to.y, { shiftKey: true }));
-		const expected = rotate(15, centre);
+		const expected = rotate(15, center);
 		const resized = parseTransform('matrix(2 0 0 2 -10 -10)');
 		const corner = apply(parseTransform(a?.getAttribute('transform') ?? null), {
 			x: 10,
@@ -852,7 +852,7 @@ describe('the select tool', () => {
 		expect(context.overlay.querySelectorAll('[data-draw-selection]').length).toBe(1);
 	});
 
-	it('puts things back when cancelled mid-drag, and leaves the overlay empty after a cancelled marquee', () => {
+	it('puts things back when canceled mid-drag, and leaves the overlay empty after a canceled marquee', () => {
 		const { root, layer } = createDrawing(THREE);
 		const info = layerInfo('layer-1');
 		const { context, labels } = createFake(root, [info], info);
@@ -894,6 +894,147 @@ describe('the select tool', () => {
 		select.end(context, at(60, 60));
 		expect(notices).toEqual([t('layers.locked', { name: 'Layer 1' })]);
 		expect(context.selection.elements).toEqual([]);
+	});
+});
+
+describe('the select tool’s double press', () => {
+	const select = () => tool('select');
+
+	/** A context whose `useTool` is a spy, as the viewport's is when the frame takes tools from it. */
+	const withUseTool = (fake: Fake) => {
+		const useTool = vi.fn<NonNullable<ToolContext['useTool']>>();
+		return { context: { ...fake.context, useTool }, useTool };
+	};
+
+	/** A press and its lift at one point, at a time, by a pointer. */
+	const press = (
+		behavior: ToolBehavior,
+		context: ToolContext,
+		x: number,
+		y: number,
+		extra: Partial<PointerSample> = {}
+	) => {
+		behavior.begin(context, at(x, y, extra));
+		behavior.end(context, at(x, y, extra));
+	};
+
+	it('hands a text to the text tool as the second press lifts, after a first that selected it, and drags nothing', () => {
+		const { root, layer } = createDrawing([{ tag: 'text', id: 't', x: '50', y: '50' }]);
+		const info = layerInfo('layer-1');
+		const fake = createFake(root, [info], info);
+		const { context, useTool } = withUseTool(fake);
+		const behavior = select();
+		press(behavior, context, 50, 50, { time: 1000 });
+		expect(context.selection.elements.map((e) => e.id)).toEqual(['t']);
+		expect(useTool).not.toHaveBeenCalled();
+		behavior.begin(context, at(52, 51, { time: 1400 }));
+		behavior.move(context, at(90, 90, { time: 1450 }));
+		expect(layer.querySelector('#t')?.hasAttribute('transform')).toBe(false);
+		expect(useTool).not.toHaveBeenCalled();
+		behavior.end(context, at(90, 90, { time: 1500 }));
+		expect(useTool).toHaveBeenCalledExactlyOnceWith('text', {
+			element: layer.querySelector('#t'),
+			at: { x: 52, y: 51 },
+		});
+		expect(fake.labels).toEqual([]);
+		// A third press starts afresh: it is a first press again.
+		press(behavior, context, 50, 50, { time: 1600 });
+		expect(useTool).toHaveBeenCalledOnce();
+	});
+
+	it('hands a path or a shape to the node tool, and for a group the path in it under the press', () => {
+		const { root, layer, owner } = createDrawing([
+			{ id: 'r', x: '0', y: '0', width: '40', height: '40' },
+		]);
+		const group = svg(owner, 'g', { id: 'g' });
+		const inner = svg(owner, 'path', { id: 'p', d: 'M 100 100 L 200 100' });
+		group.appendChild(inner);
+		layer.appendChild(group);
+		const info = layerInfo('layer-1');
+		const { context, useTool } = withUseTool(createFake(root, [info], info));
+		// A measurer that gives the group its children's box, as the browser's would.
+		const behavior = createVectorBehaviors({
+			measure: (element) =>
+				element.localName === 'g'
+					? { x: 100, y: 100, width: 100, height: 0 }
+					: attributeBox(element),
+		}).select;
+		if (behavior === undefined) throw new Error('no select');
+		press(behavior, context, 20, 20, { time: 0 });
+		press(behavior, context, 20, 20, { time: 100 });
+		expect(useTool).toHaveBeenLastCalledWith('node', {
+			element: layer.querySelector('#r'),
+			at: { x: 20, y: 20 },
+		});
+		press(behavior, context, 150, 101, { time: 1000 });
+		press(behavior, context, 150, 101, { time: 1100 });
+		expect(useTool).toHaveBeenLastCalledWith('node', {
+			element: inner,
+			at: { x: 150, y: 101 },
+		});
+		expect(useTool).toHaveBeenCalledTimes(2);
+	});
+
+	it('is two presses when too slow, too far apart, on two elements, with Shift, or after a drag', () => {
+		const { root } = createDrawing(THREE);
+		const info = layerInfo('layer-1');
+		const { context, useTool } = withUseTool(createFake(root, [info], info));
+		const behavior = select();
+		press(behavior, context, 10, 10, { time: 0 });
+		press(behavior, context, 10, 10, { time: 501 });
+		press(behavior, context, 10, 10, { time: 10_000 });
+		press(behavior, context, 15, 10, { time: 10_100 });
+		press(behavior, context, 205, 205, { time: 20_000 });
+		press(behavior, context, 30, 30, { time: 20_100 });
+		press(behavior, context, 205, 205, { time: 30_000 });
+		press(behavior, context, 205, 205, { time: 30_100, shiftKey: true });
+		// A drag of `a` 10 down, then a press back near where it began, on `a` still.
+		behavior.begin(context, at(5, 5, { time: 40_000 }));
+		behavior.end(context, at(5, 15, { time: 40_050 }));
+		press(behavior, context, 5, 8, { time: 40_100 });
+		expect(useTool).not.toHaveBeenCalled();
+		// Near enough and soon enough, on `a`, it is one.
+		press(behavior, context, 5, 8, { time: 40_200 });
+		expect(useTool).toHaveBeenCalledOnce();
+	});
+
+	it('takes a finger’s two taps farther apart than a mouse’s, and none whose second a pinch canceled', () => {
+		const { root } = createDrawing(THREE);
+		const info = layerInfo('layer-1');
+		const { context, useTool } = withUseTool(createFake(root, [info], info));
+		const behavior = select();
+		press(behavior, context, 30, 30, { time: 0 });
+		press(behavior, context, 45, 30, { time: 100 });
+		expect(useTool).not.toHaveBeenCalled();
+		const finger = { pointerType: 'touch' } as const;
+		press(behavior, context, 30, 30, { ...finger, time: 1000 });
+		behavior.begin(context, at(45, 30, { ...finger, time: 1100 }));
+		behavior.cancel(context);
+		behavior.end(context, at(45, 30, { ...finger, time: 1150 }));
+		expect(useTool).not.toHaveBeenCalled();
+		press(behavior, context, 30, 30, { ...finger, time: 2000 });
+		press(behavior, context, 45, 30, { ...finger, time: 2100 });
+		expect(useTool).toHaveBeenCalledExactlyOnceWith('node', {
+			element: expect.objectContaining({ id: 'b' }) as Element,
+			at: { x: 45, y: 30 },
+		});
+	});
+
+	it('only selects with a double press on what no tool edits, and without a frame to hand to', () => {
+		const { root, layer } = createDrawing([
+			{ tag: 'image', id: 'i', x: '0', y: '0', width: '40', height: '40' },
+		]);
+		const info = layerInfo('layer-1');
+		const fake = createFake(root, [info], info);
+		const { context, useTool } = withUseTool(fake);
+		const behavior = select();
+		press(behavior, context, 20, 20, { time: 0 });
+		// The second press is a press like any: it drags what it is on.
+		behavior.begin(context, at(20, 20, { time: 100 }));
+		behavior.end(context, at(30, 20, { time: 150 }));
+		expect(useTool).not.toHaveBeenCalled();
+		expect(layer.querySelector('#i')?.getAttribute('transform')).toBe('matrix(1 0 0 1 10 0)');
+		expect(fake.context.useTool).toBeUndefined();
 	});
 });
 

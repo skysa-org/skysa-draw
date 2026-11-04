@@ -54,5 +54,6 @@ What did not come across, and why:
 the markdown pipeline, the clipboard, the scratchpad, the vault, secrets and the bookmarklet, which are the notes app;
 the editors, the list and the library's rows, which are this app's own.
 
+On 2026-11-04 the whole repository, these layers with it, was respelled in US English (color, behavior, center, canceled, recognize, license and the rest), so a carried-over file no longer matches skysa-notes letter for letter, and a fix carried across in either direction is respelled on the way; nothing stored or sent had a British word, so no data changed.
 Until a shared package exists, a fix to a carried-over layer is a fix in both repositories.
 The trigger for extracting the package is the first change that has to be made twice: when that happens, the shared layers move to a package the two products depend on, and this record says so.

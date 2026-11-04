@@ -14,8 +14,8 @@ import { Question, QuestionActions } from './Question.js';
  * What the user is asked before a source is disconnected.
  *
  * The rule it exists for: they are asked **before** anything happens, not told
- * afterwards (docs/ARCHITECTURE.md §10). Nothing is sent to the server until this has
- * an answer, so cancelling has changed nothing anywhere — and the answer is
+ * afterward (docs/ARCHITECTURE.md §10). Nothing is sent to the server until this has
+ * an answer, so canceling has changed nothing anywhere — and the answer is
  * about a list they were actually shown, which is the only thing a discard may
  * reach (`releaseConnection`'s `seen`).
  *

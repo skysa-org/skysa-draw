@@ -20,7 +20,7 @@ import {
 } from '../brand.js';
 
 /**
- * The brand: the one way a deployment names and colours the app without
+ * The brand: the one way a deployment names and colors the app without
  * changing this repo (docs/ARCHITECTURE.md §8, "Brand"). A mistake in a brand
  * file shows up nowhere in a build that goes ahead, only as an app that will
  * not install or installs without its icon, so each one has to stop the build.
@@ -90,16 +90,16 @@ describe('a brand file the build refuses', () => {
 		['is not JSON', '{ "name": ', /the file: /],
 		['leaves out the name', { ...defaults, name: undefined }, /name: /],
 		[
-			'has a colour that is not #RRGGBB',
+			'has a color that is not #RRGGBB',
 			{ ...defaults, colors: { ...(defaults.colors as object), background: 'white' } },
-			/colors\.background: a colour is #RRGGBB/,
+			/colors\.background: a color is #RRGGBB/,
 		],
 		[
 			'has a short name a home screen would cut off',
 			{ ...defaults, shortName: 'Thirteen char' },
 			/shortName is cut off/,
 		],
-		['has a key it does not know', { ...defaults, colour: '#000000' }, /colour/],
+		['has a key it does not know', { ...defaults, color: '#000000' }, /color/],
 		[
 			'names a font that is not woff2',
 			{ ...defaults, fonts: { sans: { family: 'X', files: [{ src: 'x.ttf' }] } } },
@@ -156,7 +156,7 @@ describe('a brand of its own', () => {
 		expect(brand.shortName).toBe('Field');
 	});
 
-	it('sets the brand colour for each theme', () => {
+	it('sets the brand color for each theme', () => {
 		const css = brandCss(brand);
 		const [light = '', dark = ''] = css.split('@media (prefers-color-scheme: dark)');
 		expect(light).toContain('--brand: #0F766E;');
@@ -185,7 +185,7 @@ describe('a brand of its own', () => {
 		expect(brandCssUrl(brand)).not.toBe(brandCssUrl(loadBrand()));
 	});
 
-	it('gives the page its title, theme colours, icons and stylesheet, and no script', () => {
+	it('gives the page its title, theme colors, icons and stylesheet, and no script', () => {
 		const tags = brandTags(brand);
 		expect(tags.find((tag) => tag.tag === 'title')?.children).toBe('Field &amp; Notes');
 		expect(

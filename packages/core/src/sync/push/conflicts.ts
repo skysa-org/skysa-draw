@@ -61,7 +61,7 @@ export const createConflictPush = (
 		onRemote = false
 	): Promise<string> =>
 		// Bounded exactly as `freeFolderPath` is, and for the same reason: each
-		// turn here is a request, and a `conflictName` that stopped recognising
+		// turn here is a request, and a `conflictName` that stopped recognizing
 		// its own names would spend them without end. Running out throws, as it
 		// does there, rather than handing back a name nobody has looked at: the
 		// op fails and is retried, where a drawing displaced onto a taken name
@@ -120,7 +120,7 @@ export const createConflictPush = (
 	 * `unread` is the file, where the caller knows which it is and where: it is
 	 * listed in the same step as the drawing moves aside for it
 	 * (`UnreadableFile`), rather than whenever the next pull reads it. Not on
-	 * the way round again for a name that was taken — it has been said.
+	 * the way around again for a name that was taken — it has been said.
 	 *
 	 * Without `movedAside`, unlike the displacement in `resolvePushConflict`:
 	 * the name this lands at is not known until the create succeeds, and the

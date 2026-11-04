@@ -4,11 +4,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { canvasBoxOf, cropCanvas } from '../../src/drawing/document/crop.js';
 import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
-import { cropBehaviour, draggedBox, gripAt } from '../../src/drawing/tools/common/crop.js';
+import { cropBehavior, draggedBox, gripAt } from '../../src/drawing/tools/common/crop.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolContext,
 } from '../../src/drawing/tools/types.js';
 
@@ -162,9 +162,14 @@ const contextFor = (
 			actualSize: () => undefined,
 		},
 		selection: { elements: [], set: () => undefined, clear: () => undefined },
-		region: { path: undefined, set: () => undefined },
+		region: {
+			path: undefined,
+			region: undefined,
+			set: () => undefined,
+			update: () => undefined,
+		},
 		host,
-		setColour: () => undefined,
+		setColor: () => undefined,
 		notify: () => undefined,
 	};
 };
@@ -182,14 +187,14 @@ const sample = (x: number, y: number): PointerSample => ({
 	primaryKey: false,
 });
 
-const behaviour = (): ToolBehaviour => {
-	const made = cropBehaviour();
-	if (made === undefined) throw new Error('the crop has a behaviour');
+const behavior = (): ToolBehavior => {
+	const made = cropBehavior();
+	if (made === undefined) throw new Error('the crop has a behavior');
 	return made;
 };
 
 const drag = (
-	crop: ToolBehaviour,
+	crop: ToolBehavior,
 	context: ToolContext,
 	from: readonly [number, number],
 	to: readonly [number, number]
@@ -207,7 +212,7 @@ const press = (key: string) => {
 describe('the crop tool', () => {
 	it('shows the box over the darkened outside, and applies it with Enter as one step', () => {
 		const document = open();
-		const crop = behaviour();
+		const crop = behavior();
 		const context = contextFor(document);
 		drag(crop, context, [50, 60], [150, 260]);
 		expect(context.overlay.querySelector('.crop-overlay .crop-shade')).not.toBeNull();
@@ -224,7 +229,7 @@ describe('the crop tool', () => {
 
 	it('moves the box by its inside and sizes it by a handle before it is applied', () => {
 		const document = open();
-		const crop = behaviour();
+		const crop = behavior();
 		const context = contextFor(document);
 		drag(crop, context, [50, 60], [150, 260]);
 		drag(crop, context, [100, 100], [110, 90]);
@@ -235,7 +240,7 @@ describe('the crop tool', () => {
 
 	it("drags the canvas's own edge in before any box is drawn, kept in proportion", () => {
 		const document = open();
-		const crop = behaviour();
+		const crop = behavior();
 		const context = contextFor(document, true);
 		drag(crop, context, [210, 297], [105, 200]);
 		press('Enter');
@@ -248,7 +253,7 @@ describe('the crop tool', () => {
 
 	it('lets the box go with Escape, with another tool, and with a click that drew nothing', () => {
 		const document = open();
-		const crop = behaviour();
+		const crop = behavior();
 		const context = contextFor(document);
 		drag(crop, context, [50, 60], [150, 260]);
 		press('Escape');
@@ -278,7 +283,7 @@ describe('the crop tool', () => {
 
 	it('leaves Enter to a field being typed in, and to a control that has the focus', () => {
 		const document = open();
-		const crop = behaviour();
+		const crop = behavior();
 		const context = contextFor(document);
 		drag(crop, context, [50, 60], [150, 260]);
 		const button = window.document.createElement('button');

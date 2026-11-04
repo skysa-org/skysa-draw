@@ -46,7 +46,7 @@ export class OAuthError extends Error {
 
 /**
  * The user completed the consent screen but left out a scope the connection
- * cannot work without — Google lets them untick each one. Not a failure of the
+ * cannot work without — Google lets them uncheck each one. Not a failure of the
  * provider or the operator, and not a code a token endpoint can send, so it is
  * its own class rather than an `OAuthError` code any provider could match.
  */

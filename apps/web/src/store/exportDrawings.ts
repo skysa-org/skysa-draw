@@ -464,7 +464,7 @@ const today = (): string => {
  * Hand an archive to the user's disk.
  *
  * Through a link that is clicked and taken away again, which is the only way a
- * page names the file it is handing over. The blob's URL is let go afterwards,
+ * page names the file it is handing over. The blob's URL is let go afterward,
  * and not at once: the click only asks for the download, and some browsers
  * have not begun reading when it returns.
  *

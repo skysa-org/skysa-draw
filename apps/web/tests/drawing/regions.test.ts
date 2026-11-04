@@ -4,16 +4,24 @@ import { describe, expect, it } from 'vitest';
 import type { EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
 import {
 	addToArea,
+	antsPath,
+	areaHolds,
+	areaOf,
+	areaPixelBox,
 	areaPolygons,
 	areaTouchesBox,
 	polygonPath,
+	reachesArea,
+	reachesSurface,
 	rectPath,
+	translatePath,
 } from '../../src/drawing/tools/raster/area.js';
-import { rasterBehaviours } from '../../src/drawing/tools/raster/index.js';
+import { rasterBehaviors } from '../../src/drawing/tools/raster/index.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type Region,
+	type ToolBehavior,
 	type ToolContext,
 	type ToolOptions,
 } from '../../src/drawing/tools/types.js';
@@ -48,8 +56,10 @@ const layerInfo = (overrides: Partial<LayerInfo> = {}): LayerInfo => ({
 
 type Fake = Readonly<{
 	context: ToolContext;
-	/** What the area is now. */
+	/** What the area's outline is now. */
 	area: () => string | undefined;
+	/** The whole area now. */
+	region: () => Region | undefined;
 	/** What is selected now. */
 	selected: () => readonly Element[];
 	notices: string[];
@@ -60,6 +70,8 @@ type Fake = Readonly<{
 type Setup = Readonly<{
 	layer?: Partial<LayerInfo>;
 	area?: string;
+	/** The whole area, where it is inverted or feathered; `area` for a plain one. */
+	region?: Region;
 	options?: Partial<ToolOptions>;
 	selected?: readonly string[];
 	scale?: number;
@@ -89,7 +101,9 @@ const createFake = (setup: Setup = {}): Fake => {
 	};
 	const info = layerInfo(setup.layer);
 	const notices: string[] = [];
-	let area = setup.area;
+	let region: Region | undefined =
+		setup.region ??
+		(setup.area === undefined ? undefined : { path: setup.area, inverted: false, feather: 0 });
 	let selected: readonly Element[] = (setup.selected ?? []).map(element);
 	const editor: EditorDocument = {
 		root,
@@ -144,17 +158,30 @@ const createFake = (setup: Setup = {}): Fake => {
 		},
 		region: {
 			get path() {
-				return area;
+				return region?.path;
+			},
+			get region() {
+				return region;
 			},
 			set: (path) => {
-				area = path;
+				region = path === undefined ? undefined : { path, inverted: false, feather: 0 };
+			},
+			update: (change) => {
+				if (region !== undefined) region = { ...region, ...change };
 			},
 		},
 		host: document.createElement('div'),
-		setColour: noop,
+		setColor: noop,
 		notify: (message) => notices.push(message),
 	};
-	return { context, area: () => area, selected: () => selected, notices, element };
+	return {
+		context,
+		area: () => region?.path,
+		region: () => region,
+		selected: () => selected,
+		notices,
+		element,
+	};
 };
 
 const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSample => ({
@@ -174,19 +201,19 @@ const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSa
 type Step = Readonly<{ x: number; y: number }> & Partial<PointerSample>;
 
 /** A drag: begin at the first step, move through the rest, end at the last. */
-const drag = (behaviour: ToolBehaviour, context: ToolContext, steps: readonly Step[]): void => {
+const drag = (behavior: ToolBehavior, context: ToolContext, steps: readonly Step[]): void => {
 	const [first, ...rest] = steps;
 	if (first === undefined) return;
-	behaviour.begin(context, at(first.x, first.y, first));
-	rest.forEach((step) => behaviour.move(context, at(step.x, step.y, step)));
+	behavior.begin(context, at(first.x, first.y, first));
+	rest.forEach((step) => behavior.move(context, at(step.x, step.y, step)));
 	const last = rest.at(-1) ?? first;
-	behaviour.end(context, at(last.x, last.y, last));
+	behavior.end(context, at(last.x, last.y, last));
 };
 
-const raster = (id: 'marquee' | 'lasso'): ToolBehaviour => {
-	const behaviour = rasterBehaviours[id];
-	if (behaviour === undefined) throw new Error(`no raster ${id}`);
-	return behaviour;
+const raster = (id: 'marquee' | 'lasso'): ToolBehavior => {
+	const behavior = rasterBehaviors[id];
+	if (behavior === undefined) throw new Error(`no raster ${id}`);
+	return behavior;
 };
 
 const RASTER = { id: 'layer-1', kind: 'raster' } as const;
@@ -264,7 +291,7 @@ describe('the marquee on a raster layer', () => {
 		expect(shifted.area()).toBe(square);
 	});
 
-	it('draws from the centre with Alt', () => {
+	it('draws from the center with Alt', () => {
 		const fake = createFake({ layer: RASTER });
 		drag(raster('marquee'), fake.context, [
 			{ x: 20, y: 20 },
@@ -288,6 +315,62 @@ describe('the marquee on a raster layer', () => {
 			{ x: 80, y: 70 },
 		]);
 		expect(replaced.area()).toBe('M 60 60 L 80 60 L 80 70 L 60 70 Z');
+	});
+
+	it('keeps the feather when Shift adds, and makes a new area plain', () => {
+		const first = 'M 0 0 L 10 0 L 10 10 L 0 10 Z';
+		const feathered = createFake({
+			layer: RASTER,
+			region: { path: first, inverted: false, feather: 3 },
+		});
+		drag(raster('marquee'), feathered.context, [
+			{ x: 60, y: 60, shiftKey: true },
+			{ x: 80, y: 70, shiftKey: true },
+		]);
+		expect(feathered.region()).toEqual({
+			path: `${first} M 60 60 L 80 60 L 80 70 L 60 70 Z`,
+			inverted: false,
+			feather: 3,
+		});
+
+		// Begun in the hole, outside what an inverse selects: inside it, the drag would move it.
+		const replaced = createFake({
+			layer: RASTER,
+			region: { path: first, inverted: true, feather: 3 },
+		});
+		drag(raster('marquee'), replaced.context, [
+			{ x: 5, y: 5 },
+			{ x: 80, y: 70 },
+		]);
+		expect(replaced.region()).toEqual({
+			path: 'M 5 5 L 80 5 L 80 70 L 5 70 Z',
+			inverted: false,
+			feather: 0,
+		});
+	});
+
+	it('starts a new plain area with Shift over an inverted one, which no union of outlines adds to', () => {
+		const fake = createFake({
+			layer: RASTER,
+			region: { path: 'M 0 0 L 10 0 L 10 10 L 0 10 Z', inverted: true, feather: 2 },
+		});
+		drag(raster('lasso'), fake.context, [
+			{ x: 60, y: 60, shiftKey: true },
+			{ x: 80, y: 60, shiftKey: true },
+			{ x: 80, y: 70, shiftKey: true },
+		]);
+		expect(fake.region()).toEqual({
+			path: 'M 60 60 L 80 60 L 80 70 Z',
+			inverted: false,
+			feather: 0,
+		});
+
+		const clicked = createFake({
+			layer: RASTER,
+			region: { path: 'M 0 0 L 10 0 L 10 10 L 0 10 Z', inverted: true, feather: 2 },
+		});
+		drag(raster('marquee'), clicked.context, [{ x: 5, y: 5, shiftKey: true }]);
+		expect(clicked.region()?.inverted).toBe(true);
 	});
 
 	it('drops the area on a click, and keeps it on a Shift-click', () => {
@@ -320,7 +403,7 @@ describe('the marquee on a raster layer', () => {
 		expect(zoomed.area()).toBe('M 5 5 L 7 5 L 7 7 L 5 7 Z');
 	});
 
-	it('previews the drag on the overlay, and takes the preview away when it ends or is cancelled', () => {
+	it('previews the drag on the overlay, and takes the preview away when it ends or is canceled', () => {
 		const fake = createFake({ layer: RASTER });
 		const marquee = raster('marquee');
 		marquee.begin(fake.context, at(10, 10));
@@ -399,6 +482,124 @@ describe('the lasso on a raster layer', () => {
 	});
 });
 
+describe('a drag from inside the area on a raster layer', () => {
+	const FIRST = 'M 10 10 L 30 10 L 30 30 L 10 30 Z';
+
+	it('moves the outline with the pointer, live, and nothing else, with either tool', () => {
+		(['marquee', 'lasso'] as const).forEach((kind) => {
+			const fake = createFake({
+				layer: RASTER,
+				region: { path: FIRST, inverted: false, feather: 3 },
+			});
+			const behavior = raster(kind);
+			behavior.begin(fake.context, at(20, 20));
+			behavior.move(fake.context, at(25, 22.5));
+			expect(fake.area()).toBe('M 15 12.5 L 35 12.5 L 35 32.5 L 15 32.5 Z');
+			behavior.end(fake.context, at(30, 25));
+			expect(fake.region()).toEqual({
+				path: 'M 20 15 L 40 15 L 40 35 L 20 35 Z',
+				inverted: false,
+				feather: 3,
+			});
+			expect(fake.context.overlay.childElementCount).toBe(0);
+		});
+	});
+
+	it('holds the outline across, down or at 45° with Shift pressed during the drag', () => {
+		const fake = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('marquee'), fake.context, [
+			{ x: 20, y: 20 },
+			{ x: 30, y: 22, shiftKey: true },
+		]);
+		expect(fake.area()).toBe('M 20 10 L 40 10 L 40 30 L 20 30 Z');
+	});
+
+	it('makes a new area from inside with Shift or Alt held as it begins', () => {
+		const added = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('marquee'), added.context, [
+			{ x: 20, y: 20, shiftKey: true },
+			{ x: 40, y: 40, shiftKey: true },
+		]);
+		expect(added.area()).toBe(`${FIRST} M 20 20 L 40 20 L 40 40 L 20 40 Z`);
+
+		const fromCenter = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('marquee'), fromCenter.context, [
+			{ x: 20, y: 20, altKey: true },
+			{ x: 25, y: 25, altKey: true },
+		]);
+		expect(fromCenter.area()).toBe('M 15 15 L 25 15 L 25 25 L 15 25 Z');
+
+		// Pressed only once the drag began, Alt leaves it the outline's.
+		const later = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('marquee'), later.context, [
+			{ x: 20, y: 20 },
+			{ x: 25, y: 25, altKey: true },
+		]);
+		expect(later.area()).toBe('M 15 15 L 35 15 L 35 35 L 15 35 Z');
+	});
+
+	it('drops the area on a click inside it, and keeps an outline moved away and back', () => {
+		const clicked = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('lasso'), clicked.context, [
+			{ x: 20, y: 20 },
+			{ x: 21, y: 21 },
+		]);
+		expect(clicked.area()).toBeUndefined();
+
+		const back = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('marquee'), back.context, [
+			{ x: 20, y: 20 },
+			{ x: 40, y: 20 },
+			{ x: 20, y: 20 },
+		]);
+		expect(back.area()).toBe(FIRST);
+	});
+
+	it('takes an inverse’s inside to be the canvas outside its outline, and keeps it inverted', () => {
+		const inverse = { path: FIRST, inverted: true, feather: 0 };
+		const moved = createFake({ layer: RASTER, region: inverse });
+		drag(raster('marquee'), moved.context, [
+			{ x: 50, y: 50 },
+			{ x: 55, y: 50 },
+		]);
+		expect(moved.region()).toEqual({
+			path: 'M 15 10 L 35 10 L 35 30 L 15 30 Z',
+			inverted: true,
+			feather: 0,
+		});
+
+		const hole = createFake({ layer: RASTER, region: inverse });
+		drag(raster('marquee'), hole.context, [
+			{ x: 20, y: 20 },
+			{ x: 25, y: 25 },
+		]);
+		expect(hole.region()).toEqual({
+			path: 'M 20 20 L 25 20 L 25 25 L 20 25 Z',
+			inverted: false,
+			feather: 0,
+		});
+	});
+
+	it('puts the outline back when canceled', () => {
+		const fake = createFake({ layer: RASTER, area: FIRST });
+		const marquee = raster('marquee');
+		marquee.begin(fake.context, at(20, 20));
+		marquee.move(fake.context, at(40, 30));
+		marquee.cancel(fake.context);
+		expect(fake.area()).toBe(FIRST);
+	});
+
+	it('moves the outline of an area on a locked layer, since it changes no pixel', () => {
+		const fake = createFake({ layer: { ...RASTER, locked: true }, area: FIRST });
+		drag(raster('marquee'), fake.context, [
+			{ x: 20, y: 20 },
+			{ x: 25, y: 20 },
+		]);
+		expect(fake.area()).toBe('M 15 10 L 35 10 L 35 30 L 15 30 Z');
+		expect(fake.notices).toEqual([]);
+	});
+});
+
 describe('the marquee and the lasso on a vector layer', () => {
 	const marquee = createRegionSelect('marquee');
 	const lasso = createRegionSelect('lasso');
@@ -462,5 +663,126 @@ describe('the marquee and the lasso on a vector layer', () => {
 		expect(fake.notices).toEqual([t('layers.locked', { name: 'Layer 1' })]);
 		expect(fake.selected()).toEqual([fake.element('b')]);
 		expect(fake.context.overlay.childElementCount).toBe(0);
+	});
+});
+
+describe('the area as the raster tools read it', () => {
+	const SQUARE = 'M 10 10 L 30 10 L 30 30 L 10 30 Z';
+	const areaFor = (region: Region) => {
+		const area = areaOf(createFake({ layer: RASTER, region }).context);
+		if (area === undefined) throw new Error('an area');
+		return area;
+	};
+
+	it('is bounded by its outline, grown as far as its feather reaches', () => {
+		expect(areaFor({ path: SQUARE, inverted: false, feather: 0 }).bounds).toEqual({
+			x: 10,
+			y: 10,
+			width: 20,
+			height: 20,
+		});
+		// A blur of half the feather reaches three deviations: one and a half feathers.
+		expect(areaFor({ path: SQUARE, inverted: false, feather: 4 }).bounds).toEqual({
+			x: 4,
+			y: 4,
+			width: 32,
+			height: 32,
+		});
+	});
+
+	it('is bounded by the canvas when inverted, whatever its outline', () => {
+		const area = areaFor({ path: SQUARE, inverted: true, feather: 4 });
+		expect(area.bounds).toEqual({ x: 0, y: 0, ...DEFAULT_DRAWING_SIZE });
+		expect(area.canvas).toEqual(area.bounds);
+	});
+
+	it('is reached by a box in it, and for an inverse not by one wholly in the hole', () => {
+		const plain = areaFor({ path: SQUARE, inverted: false, feather: 0 });
+		expect(reachesArea(plain, { x: 15, y: 15, width: 2, height: 2 })).toBe(true);
+		expect(reachesArea(plain, { x: 50, y: 50, width: 2, height: 2 })).toBe(false);
+		expect(reachesArea(undefined, { x: 500, y: 500, width: 1, height: 1 })).toBe(true);
+
+		const inverse = areaFor({ path: SQUARE, inverted: true, feather: 0 });
+		expect(reachesArea(inverse, { x: 15, y: 15, width: 2, height: 2 })).toBe(false);
+		expect(reachesArea(inverse, { x: 25, y: 15, width: 10, height: 2 })).toBe(true);
+		expect(reachesArea(inverse, { x: 50, y: 50, width: 2, height: 2 })).toBe(true);
+		const offCanvas = DEFAULT_DRAWING_SIZE.width + 10;
+		expect(reachesArea(inverse, { x: offCanvas, y: 0, width: 2, height: 2 })).toBe(false);
+
+		// The feather reaches into the hole: a box near the edge is touched by it.
+		const soft = areaFor({ path: SQUARE, inverted: true, feather: 4 });
+		expect(reachesArea(soft, { x: 13, y: 19, width: 2, height: 2 })).toBe(true);
+		expect(reachesArea(soft, { x: 19, y: 19, width: 2, height: 2 })).toBe(false);
+	});
+
+	it('has a box in the layer’s pixels that grows with the feather and stays on the canvas', () => {
+		const surface = {
+			canvas: Object.assign(document.createElement('canvas'), { width: 100, height: 80 }),
+			toPixel: (x: number, y: number) => [x / 2, y / 2] as const,
+		};
+		const hard = areaFor({ path: SQUARE, inverted: false, feather: 0 });
+		expect(areaPixelBox(surface, hard)).toEqual({ x: 5, y: 5, width: 10, height: 10 });
+		const soft = areaFor({ path: SQUARE, inverted: false, feather: 10 });
+		expect(areaPixelBox(surface, soft)).toEqual({ x: 0, y: 0, width: 23, height: 23 });
+	});
+});
+
+describe('the area moved and tested', () => {
+	const SQUARE = 'M 10 10 L 30 10 L 30 30 L 10 30 Z';
+	const areaFor = (region: Region) => {
+		const area = areaOf(createFake({ layer: RASTER, region }).context);
+		if (area === undefined) throw new Error('an area');
+		return area;
+	};
+
+	it('moves every number of an outline, x then y, to the area’s two decimals', () => {
+		expect(translatePath(SQUARE, 5, -2.5)).toBe('M 15 7.5 L 35 7.5 L 35 27.5 L 15 27.5 Z');
+		expect(translatePath('M 0.1 0.2 L 1 0 L 1 1 Z M 5 5 L 6 5 L 6 6 Z', 0.2, 0.1)).toBe(
+			'M 0.3 0.3 L 1.2 0.1 L 1.2 1.1 Z M 5.2 5.1 L 6.2 5.1 L 6.2 6.1 Z'
+		);
+		expect(translatePath('M 10 10 L 20 10 L 20 20 Z', 1 / 3, 0)).toBe(
+			'M 10.33 10 L 20.33 10 L 20.33 20 Z'
+		);
+	});
+
+	it('holds a point inside its outline under nonzero, or an inverse’s on the canvas outside it', () => {
+		// The second subpath winds around the first's corner twice: still inside under nonzero.
+		const twice = `${SQUARE} M 20 20 L 40 20 L 40 40 L 20 40 Z`;
+		const plain = areaFor({ path: twice, inverted: false, feather: 5 });
+		expect(areaHolds(plain, { x: 15, y: 15 })).toBe(true);
+		expect(areaHolds(plain, { x: 25, y: 25 })).toBe(true);
+		expect(areaHolds(plain, { x: 35, y: 15 })).toBe(false);
+		const inverse = areaFor({ path: SQUARE, inverted: true, feather: 0 });
+		expect(areaHolds(inverse, { x: 15, y: 15 })).toBe(false);
+		expect(areaHolds(inverse, { x: 50, y: 50 })).toBe(true);
+		expect(areaHolds(inverse, { x: -5, y: 50 })).toBe(false);
+	});
+
+	it('reaches a layer’s pixels it covers, and for an inverse not a layer wholly in the hole', () => {
+		const layer = (width: number, height: number, x = 0, y = 0) => ({
+			canvas: Object.assign(document.createElement('canvas'), { width, height }),
+			toPixel: (ux: number, uy: number) => [ux - x, uy - y] as const,
+		});
+		const plain = areaFor({ path: SQUARE, inverted: false, feather: 0 });
+		expect(reachesSurface(layer(40, 40), plain)).toBe(true);
+		expect(reachesSurface(layer(5, 5), plain)).toBe(false);
+		const inverse = areaFor({ path: SQUARE, inverted: true, feather: 0 });
+		expect(reachesSurface(layer(5, 5, 15, 15), inverse)).toBe(false);
+		expect(reachesSurface(layer(40, 40), inverse)).toBe(true);
+	});
+});
+
+describe('the marching ants', () => {
+	const SQUARE = 'M 10 10 L 30 10 L 30 30 L 10 30 Z';
+	const CANVAS = { x: 0, y: 0, width: 100, height: 80 };
+
+	it('trace the outline, whatever the feather', () => {
+		expect(antsPath({ path: SQUARE, inverted: false, feather: 6 }, CANVAS)).toBe(SQUARE);
+	});
+
+	it('trace the canvas’s edge as well for an inverse, as Photoshop shows it', () => {
+		expect(antsPath({ path: SQUARE, inverted: true, feather: 0 }, CANVAS)).toBe(
+			`M 0 0 L 100 0 L 100 80 L 0 80 Z ${SQUARE}`
+		);
 	});
 });

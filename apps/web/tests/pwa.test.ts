@@ -111,7 +111,7 @@ describe('the web app manifest', () => {
 	// Chrome paints an installed app's navigation bar with `theme_color` where
 	// it can, Android 14 and older; from Android 15 the bar is the
 	// `background_color` under it, the brand's `background` (2026-10-11).
-	it("colours the navigation bar with the brand's own colour, where Chrome can paint it", () => {
+	it("colors the navigation bar with the brand's own color, where Chrome can paint it", () => {
 		expect(manifest.theme_color).toBe(brand.colors.light.brand);
 	});
 });

@@ -98,7 +98,7 @@ export const gdriveOAuth: StorageOAuth = {
 			input.now ?? Date.now()
 		);
 
-		// Google's consent screen lets the user untick each scope, and the grant
+		// Google's consent screen lets the user uncheck each scope, and the grant
 		// still succeeds with what is left. Without Drive the connection could do
 		// nothing, so it is refused. What was granted is *not* revoked: Google
 		// revokes every scope granted to the whole Cloud project, which would

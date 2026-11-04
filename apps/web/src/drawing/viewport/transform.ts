@@ -58,7 +58,7 @@ export const panBy = (view: View, dxUser: number, dyUser: number): View => ({
 
 const measurable = (viewport: DrawingSize): boolean => viewport.width > 0 && viewport.height > 0;
 
-const centred = (drawing: DrawingSize, viewport: DrawingSize, scale: number): View => ({
+const centered = (drawing: DrawingSize, viewport: DrawingSize, scale: number): View => ({
 	scale,
 	tx: (viewport.width - drawing.width * scale) / 2,
 	ty: (viewport.height - drawing.height * scale) / 2,
@@ -67,7 +67,7 @@ const centred = (drawing: DrawingSize, viewport: DrawingSize, scale: number): Vi
 /**
  * The whole drawing in the middle of the viewport with `margin` around it. A
  * viewport that measures nothing yet, as one does before layout and always in
- * a test, gets the identity: there is nothing to centre in.
+ * a test, gets the identity: there is nothing to center in.
  */
 export const fitView = (
 	drawing: DrawingSize,
@@ -78,12 +78,12 @@ export const fitView = (
 	const roomX = Math.max(1, viewport.width - 2 * margin);
 	const roomY = Math.max(1, viewport.height - 2 * margin);
 	const scale = clampScale(Math.min(roomX / drawing.width, roomY / drawing.height));
-	return centred(drawing, viewport, scale);
+	return centered(drawing, viewport, scale);
 };
 
 /** One user unit per CSS pixel, the drawing in the middle of the viewport. */
 export const actualSizeView = (drawing: DrawingSize, viewport: DrawingSize): View =>
-	measurable(viewport) ? centred(drawing, viewport, 1) : IDENTITY_VIEW;
+	measurable(viewport) ? centered(drawing, viewport, 1) : IDENTITY_VIEW;
 
 /** The root's `viewBox` attribute as numbers, or nothing for one that is not four of them. */
 export const parseViewBox = (value: string | null | undefined): ViewBox | undefined => {

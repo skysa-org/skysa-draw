@@ -122,7 +122,7 @@ export const mapAnchors = (m: Mat, anchors: readonly Anchor[]): readonly Anchor[
 	anchors.map((anchor) => mapAnchor(m, anchor));
 
 /**
- * The box round every anchor and handle: the curve lies inside its control
+ * The box around every anchor and handle: the curve lies inside its control
  * points, so this holds it, a little generously where a handle reaches out.
  * None for a path with no points.
  */

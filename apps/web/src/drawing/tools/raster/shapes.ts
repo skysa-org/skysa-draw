@@ -1,6 +1,6 @@
 import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 
-import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, constrainLine, constrainRect, distance, rectFrom } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
 import { type Area, areaOf, reachesArea } from './area.js';
@@ -186,7 +186,7 @@ const drawShape = (
 	paintPath(ctx, options);
 };
 
-export const shapeBehaviour = (kind: ShapeKind): ToolBehaviour => {
+export const shapeBehavior = (kind: ShapeKind): ToolBehavior => {
 	const active = cell<Drag | undefined>(undefined);
 	const label = `tools.${kind}`;
 

@@ -1,7 +1,7 @@
 /**
  * The shared components (docs/ARCHITECTURE.md §7, "The interface"): the few
  * words a panel, a sheet, a menu or a field says of itself, whatever it holds.
- * `{label}` is a control's name and `{shortcut}` its key, `{hex}` a colour as
+ * `{label}` is a control's name and `{shortcut}` its key, `{hex}` a color as
  * `#rrggbb`.
  */
 export const ui = {
@@ -11,12 +11,12 @@ export const ui = {
 	sheetHandle: 'Drag to resize',
 	/** A tool button's tooltip, when the tool has a key. */
 	labelWithShortcut: '{label} ({shortcut})',
-	/** The colour field's text, where a colour is typed as `#rrggbb`; `{label}` is the field's, "Fill" or "Stroke". */
+	/** The color field's text, where a color is typed as `#rrggbb`; `{label}` is the field's, "Fill" or "Stroke". */
 	hex: '{label} (hex)',
-	/** The colour field's toggle for no colour at all: no fill, no stroke. */
+	/** The color field's toggle for no color at all: no fill, no stroke. */
 	none: 'None',
-	/** The row of colours used lately. */
-	recentColours: 'Recent colours',
-	/** One of the colours used lately, named by its value. */
-	recentColour: 'Use {hex}',
+	/** The row of colors used lately. */
+	recentColors: 'Recent colors',
+	/** One of the colors used lately, named by its value. */
+	recentColor: 'Use {hex}',
 } as const;

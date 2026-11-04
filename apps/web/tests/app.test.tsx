@@ -51,7 +51,8 @@ describe('the app', () => {
 		expect(await db.drawings.count()).toBe(1);
 		const [made] = await db.drawings.toArray();
 		expect(router.state.location.search).toEqual({ d: made?.id });
-		expect(screen.getByRole('toolbar', { name: 'Tools' })).toBeDefined();
+		// Found, not got: under a loaded run the editor's frame may come a moment after the title.
+		expect(await screen.findByRole('toolbar', { name: 'Tools' })).toBeDefined();
 
 		// The library is a drawer from the top bar, with the drawing current in it.
 		await user.click(screen.getByRole('button', { name: 'Drawings' }));
@@ -144,6 +145,27 @@ describe('the app', () => {
 		await screen.findByText('No drawings here yet.');
 		expect(screen.queryByRole('alert')).toBeNull();
 		expect(router.state.location.search).toEqual({});
+	});
+
+	it('renames the open drawing on a double-click of its title, and Escape keeps the old one', async () => {
+		const user = userEvent.setup();
+		const db = freshDatabase();
+		const made = await createDrawing(db, { title: 'Before' });
+		renderApp(`/?d=${made.id}`, db);
+		const heading = await screen.findByRole('heading', { name: 'Before' });
+		expect(heading.getAttribute('title')).toBe('Double-click to rename');
+
+		// Looked up again: the editor draws its bar anew once the drawing is open.
+		await user.dblClick(screen.getByRole('heading', { name: 'Before' }));
+		expect(document.activeElement).toBe(screen.getByLabelText('Title'));
+		await user.keyboard('{Escape}');
+		expect(screen.queryByLabelText('Title')).toBeNull();
+		expect(screen.getByRole('heading', { name: 'Before' })).toBeDefined();
+
+		await user.dblClick(screen.getByRole('heading', { name: 'Before' }));
+		await user.keyboard('After{Enter}');
+		expect(await screen.findByRole('heading', { name: 'After' })).toBeDefined();
+		expect((await db.drawings.get(drawingKey(made)))?.title).toBe('After');
 	});
 
 	it('renames and deletes the open drawing from the top bar', async () => {

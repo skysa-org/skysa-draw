@@ -1,7 +1,7 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
-import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { apply, constrainLine, constrainRect, distance, type Point, rectFrom } from './geometry.js';
 import { guardLayer, layerSpace, targetLayer } from './guard.js';
 import { type Attributes, createSvg, inkOf, opacityOf, paintOf, setAttributes } from './svg.js';
@@ -37,7 +37,7 @@ const attributesOf = (
 	options: ToolOptions
 ): Attributes => {
 	if (kind === 'line') {
-		// A line has no inside, so it always has a stroke: the fill colour where none is set.
+		// A line has no inside, so it always has a stroke: the fill color where none is set.
 		return {
 			x1: rounded(from.x),
 			y1: rounded(from.y),
@@ -73,7 +73,7 @@ const attributesOf = (
 const constrained = (kind: ShapeKind, from: Point, to: Point, constrain: boolean): Point =>
 	kind === 'line' ? constrainLine(from, to, constrain) : constrainRect(from, to, constrain);
 
-export const createShape = (kind: ShapeKind): ToolBehaviour => {
+export const createShape = (kind: ShapeKind): ToolBehavior => {
 	const drag = cell<Drag | undefined>(undefined);
 
 	const endOf = (context: ToolContext, from: Point, sample: PointerSample): Point =>

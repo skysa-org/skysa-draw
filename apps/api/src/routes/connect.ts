@@ -263,7 +263,7 @@ export const connectRoutes = (deps: RouteDeps) => {
 		// same, because an expired client secret looks exactly like this to the
 		// user, and nothing else would tell the operator.
 		//
-		// A consent screen whose storage box the user unticked (Google lets them)
+		// A consent screen whose storage box the user unchecked (Google lets them)
 		// is neither: the user did it, and can put it right by connecting again.
 		const exchanged = await client
 			.exchangeCode(doFetch, credentials, {

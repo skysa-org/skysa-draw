@@ -145,7 +145,7 @@ const gif = (width: number, height: number, ...frames: number[][]): Uint8Array =
 		'GIF89a',
 		le16(width),
 		le16(height),
-		// A global table of two colours.
+		// A global table of two colors.
 		[0x80, 0, 0],
 		[0, 0, 0, 255, 255, 255],
 		// A looping block before the frames, as an animated GIF usually has.
@@ -209,7 +209,7 @@ describe('imageInfo', () => {
 			});
 		});
 
-		it('has alpha where its colour type carries it, or a colour is see-through', () => {
+		it('has alpha where its color type carries it, or a color is see-through', () => {
 			expect(imageInfo(png(10, 10, { colorType: 6 }))?.alpha).toBe(true);
 			expect(imageInfo(png(10, 10, { colorType: 4 }))?.alpha).toBe(true);
 			expect(imageInfo(png(10, 10, { colorType: 3 }))?.alpha).toBe(false);
@@ -347,7 +347,7 @@ describe('imageInfo', () => {
 			expect(imageInfo(big)?.animated).toBe(true);
 		});
 
-		it('has alpha where a frame names a transparent colour', () => {
+		it('has alpha where a frame names a transparent color', () => {
 			const box = [0, 0, 10, 10] as const;
 			expect(imageInfo(gif(10, 10, frame({ box, transparent: true })))?.alpha).toBe(true);
 			expect(imageInfo(gif(10, 10, frame({ box, control: false })))?.alpha).toBe(false);

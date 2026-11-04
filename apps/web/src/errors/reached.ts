@@ -50,7 +50,7 @@ class Failed extends Error {
 
 /**
  * Label what a call fails with. The innermost label wins: a server call made
- * inside work labelled `device` is still a server call, and an outer label must
+ * inside work labeled `device` is still a server call, and an outer label must
  * not overwrite it with something else for the user to act on.
  *
  * The call itself is the argument, not the promise it returns, so that making

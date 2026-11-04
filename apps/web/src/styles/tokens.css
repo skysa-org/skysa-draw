@@ -92,7 +92,7 @@
 	 * Motion, in as few steps as spacing has, so that everything that moves
 	 * moves alike. One curve for what arrives or answers, fast out of the gate
 	 * and settling, and one for what leaves, which goes without lingering.
-	 * `--duration-state` is a colour changing — hover, a press, what is
+	 * `--duration-state` is a color changing — hover, a press, what is
 	 * selected or on — and is not movement, so it stays when the system asks
 	 * for less motion; every other step goes to nothing then, and what would
 	 * have moved is simply there.
@@ -124,7 +124,7 @@
 	   with Enter, so it is a different hue and not a stronger tint. */
 	--find-match: #fde68a;
 	--find-current: #fdba74;
-	/* What a toast is about. These colour a 4px bar and a 10% wash behind the
+	/* What a toast is about. These color a 4px bar and a 10% wash behind the
 	   card, and never the words themselves — the text stays `--fg` on what is
 	   still very nearly `--surface`, so the contrast of the message does not
 	   depend on the tone it arrives with. */
@@ -133,8 +133,8 @@
 	--bad: #dc2626;
 	/* Code, in both editors and in the app's own prose. `--code-*` is the chip
 	   an inline span is drawn as and the slab a block is; `--tok-*` is the one
-	   palette both editors colour a token with (`editor/features/code/highlight.ts`), which is
-	   why it is here and not in either of them. Eleven colours, because a
+	   palette both editors color a token with (`editor/features/code/highlight.ts`), which is
+	   why it is here and not in either of them. Eleven colors, because a
 	   palette nobody can hold in their head is a palette that ends up
 	   inconsistent. */
 	--code-surface: #f5f6f8;
@@ -156,11 +156,11 @@
 	   pointer would read as "done" before anything has been. */
 	--drop: #2563eb;
 	/* What is on: a pressed toggle, the tab in use, a mark already applied.
-	   A colour of its own rather than a darker grey, because a grey that is
+	   A color of its own rather than a darker gray, because a gray that is
 	   darker than hover is only told apart from hover side by side, and a
 	   toggle is pressed with the pointer still over it. */
 	--accent: #2563eb;
-	/* `--brand` and `--on-brand`, the colour behind the app's icon: the
+	/* `--brand` and `--on-brand`, the color behind the app's icon: the
 	   answer a question expects, filled, and every link. Set for each theme by
 	   the brand's stylesheet, with `--font-sans` and `--font-mono` (`brand.ts`,
 	   docs/ARCHITECTURE.md §8). */
@@ -168,7 +168,7 @@
 	--on-fg: var(--accent);
 	--hover-bg: color-mix(in srgb, var(--fg) 8%, transparent);
 	/* A row pinned to the top of its list (`store/pins.ts`): a wash of the
-	   "on" colour, lighter than a pressed toggle's, since it is a row that is
+	   "on" color, lighter than a pressed toggle's, since it is a row that is
 	   kept somewhere rather than a control that is on. */
 	--pinned-bg: color-mix(in srgb, var(--accent) 9%, transparent);
 	/* Keyboard focus: a ring, drawn outside the control, so it never reads
@@ -198,8 +198,8 @@
 		--drop: #60a5fa;
 		--accent: #60a5fa;
 		/* The light palette's ink is unreadable on a dark slab: every token
-		   colour is the same hue lifted until it reads against `--surface`,
-		   and the slab itself steps away from the page rather than towards
+		   color is the same hue lifted until it reads against `--surface`,
+		   and the slab itself steps away from the page rather than toward
 		   it, which is the direction that reads as inset here. */
 		--code-surface: #11161f;
 		--code-inline-fg: #fda4af;

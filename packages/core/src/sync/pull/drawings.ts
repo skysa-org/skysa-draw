@@ -102,7 +102,7 @@ export const createPullDrawings = (
 
 	/**
 	 * The drawing an entry is about. `remoteId` is the identity; the path is the
-	 * fallback, and it is what lets a drawing created here be recognised when its
+	 * fallback, and it is what lets a drawing created here be recognized when its
 	 * own first push arrives back, and a file deleted and re-created at the same
 	 * path stay one drawing rather than becoming two rows the sidebar shows twice.
 	 *
@@ -196,7 +196,7 @@ export const createPullDrawings = (
 	 * thing to do in a folder the user can see, and the copy carries the
 	 * original's id — so adopting it blindly would write the copy over the drawing
 	 * it came from, unpushed edits included, and leave the two files fighting
-	 * over one row on every sync afterwards. Two files claiming one id is the
+	 * over one row on every sync afterward. Two files claiming one id is the
 	 * state the whole scheme is built to avoid; the second one to arrive is a
 	 * new drawing.
 	 */

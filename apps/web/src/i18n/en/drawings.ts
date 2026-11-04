@@ -10,6 +10,8 @@ export const drawings = {
 	/** The open drawing's picture, for a screen reader. */
 	preview: 'Preview of “{title}”',
 	rename: 'Rename',
+	/** The title's tooltip in the editor's top bar. */
+	renameHint: 'Double-click to rename',
 	/** The rename field's label. */
 	title: 'Title',
 	save: 'Save',

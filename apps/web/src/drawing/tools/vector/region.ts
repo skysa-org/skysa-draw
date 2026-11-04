@@ -1,9 +1,10 @@
+import { type LayerVia, layerViaElements } from '../../document/layerVia.js';
 import { areaPolygons, areaTouchesBox } from '../raster/area.js';
 import { areaDrag } from '../raster/region.js';
-import type { ToolBehaviour, ToolContext } from '../types.js';
+import type { ToolBehavior, ToolContext } from '../types.js';
 import { type Box, transformBox, unionBox } from './geometry.js';
-import { activeLayerElement, guardLayer, layerSpace } from './guard.js';
-import { elementsOf, placedBox } from './hit.js';
+import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
+import { elementsOf, placedBox, positionsIn } from './hit.js';
 import { measureOf } from './measure.js';
 import { clearSelectionBox, drawSelectionBox } from './selection.js';
 import { createSvg } from './svg.js';
@@ -38,11 +39,11 @@ const clearOutlines = (overlay: SVGSVGElement): void => {
 };
 
 /**
- * The selection shown on the overlay: a dashed outline round each element,
+ * The selection shown on the overlay: a dashed outline around each element,
  * or, with `handles`, the select tool's own box and handles, which that tool
  * then works from, so the two never disagree. Nothing for nothing selected.
  */
-const showSelection = (
+export const showSelection = (
 	context: ToolContext,
 	elements: readonly Element[],
 	handles: boolean
@@ -99,13 +100,62 @@ export const selectEveryElement = (context: ToolContext, handles: boolean): bool
 	return true;
 };
 
+/**
+ * Select inverse on a vector layer: the layer's elements that are not
+ * selected, in place of those that are, shown as `showSelection` shows them;
+ * none where every one was. Whether there was a layer to select in.
+ */
+export const selectOtherElements = (context: ToolContext, handles: boolean): boolean => {
+	const layer = activeLayerElement(context);
+	if (layer === undefined) return false;
+	const selected = context.selection.elements;
+	const others = elementsOf(layer).filter((element) => !selected.includes(element));
+	context.selection.set(others);
+	showSelection(context, others, handles);
+	return true;
+};
+
+/** The box around what is selected, in the drawing's user units; none for nothing selected. */
+export const selectedBox = (context: ToolContext): Box | undefined => {
+	const layer = activeLayerElement(context);
+	if (layer === undefined) return undefined;
+	const own = elementsOf(layer);
+	const boxes = context.selection.elements
+		.filter((element) => own.includes(element))
+		.map((element) => boxIn(layer, element));
+	return unionBox(boxes);
+};
+
+/**
+ * Layer via copy or cut on a vector layer (`document/layerVia.ts`): the
+ * selected elements into a new layer above theirs, by one command, after the
+ * guard every vector tool passes (a loose layer wrapped first, as an edit
+ * wraps it), and the selection let go, as Photoshop leaves it. The new
+ * layer's id, for the caller to make active; none where nothing was made.
+ */
+export const layerViaSelection = (context: ToolContext, how: LayerVia): string | undefined => {
+	if (context.selection.elements.length === 0 || guardLayer(context) === undefined) {
+		return undefined;
+	}
+	const layer = activeLayerElement(context);
+	const positions = layer === undefined ? [] : positionsIn(layer, context.selection.elements);
+	if (positions.length === 0) return undefined;
+	const target = targetLayer(context);
+	if (target === undefined) return undefined;
+	const made = layerViaElements(context.document.root, target.id, positions, how);
+	context.document.execute(made);
+	context.selection.clear();
+	hideSelection(context.overlay);
+	return made.id;
+};
+
 /** Every element of the layer whose box the area touches, bottom to top. */
 const touchedBy = (layer: Element, path: string): readonly Element[] => {
 	const polygons = areaPolygons(path);
 	return elementsOf(layer).filter((element) => areaTouchesBox(polygons, boxIn(layer, element)));
 };
 
-export const createRegionSelect = (kind: 'marquee' | 'lasso'): ToolBehaviour =>
+export const createRegionSelect = (kind: 'marquee' | 'lasso'): ToolBehavior =>
 	areaDrag(
 		kind,
 		(context, path, adding) => {

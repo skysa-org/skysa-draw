@@ -176,9 +176,9 @@ describe('arcs', () => {
 		expect(end?.in.y).toBeCloseTo(10, 6);
 	});
 
-	it('goes the other way round without the sweep flag, and the long way with the large one', () => {
+	it('goes the other way around without the sweep flag, and the long way with the large one', () => {
 		const short = parsePath('M 10 0 A 10 10 0 0 0 0 10');
-		// Anticlockwise on screen from (10, 0) to (0, 10), about (10, 10): the handle leaves to the left.
+		// Counterclockwise on screen from (10, 0) to (0, 10), about (10, 10): the handle leaves to the left.
 		expect(short[0]?.anchors[0]?.out.x).toBeCloseTo(10 - 10 * K, 6);
 		expect(short[0]?.anchors[0]?.out.y).toBeCloseTo(0, 6);
 		const long = parsePath('M 10 0 A 10 10 0 1 1 0 10');
@@ -208,7 +208,7 @@ describe('arcs', () => {
 	it('grows radii too small to reach, draws a line for a zero radius and nothing between equal ends', () => {
 		const grown = parsePath('M 0 0 A 1 1 0 0 1 20 0');
 		const top = grown[0]?.anchors[1]?.point;
-		// A half circle of radius 10, its middle 10 from the centre (10, 0).
+		// A half circle of radius 10, its middle 10 from the center (10, 0).
 		expect(top === undefined ? undefined : distance(top, p(10, 0))).toBeCloseTo(10, 6);
 		expect(normal('M 0 0 A 0 5 0 0 1 20 0')).toBe('M 0 0 L 20 0');
 		expect(arcToCubics(p(3, 3), { rx: 5, ry: 5 }, 0, false, true, p(3, 3))).toEqual([]);

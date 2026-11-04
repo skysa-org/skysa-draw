@@ -1,18 +1,21 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
-import type { ToolBehaviour, ToolContext } from '../types.js';
+import type { ToolBehavior, ToolContext } from '../types.js';
 import { guardedLayer } from './guard.js';
+import { createAreaMove } from './move.js';
 import type { Point } from './pixels.js';
 import { moveInParent } from './space.js';
 
 /**
- * Select on a raster layer (docs/decisions/0004-the-interface.md): the layer
- * moves as a whole, as a `transform` on its `<g>`, never a resample
- * (docs/ARCHITECTURE.md §7, "The editor"). The drag changes the attribute
- * live; at its end the original is put back and the move is executed as a
- * command, so the history holds the layer before and after and nothing else.
- * Resize and rotate of a raster layer are not here yet.
+ * Select on a raster layer (docs/decisions/0004-the-interface.md): with an
+ * area that reaches the layer, or pixels still afloat from the last move,
+ * the drag moves the area's pixels (`move.ts`), as Photoshop's move tool
+ * does; otherwise the layer moves as a whole, as a `transform` on its `<g>`,
+ * never a resample (docs/ARCHITECTURE.md §7, "The editor"). That drag changes
+ * the attribute live; at its end the original is put back and the move is
+ * executed as a command, so the history holds the layer before and after and
+ * nothing else. Resize and rotate of a raster layer are not here yet.
  */
 
 interface Move {
@@ -59,8 +62,9 @@ const movedTo = (
 	return composed(move.original, round(dx), round(dy));
 };
 
-const createSelect = (): ToolBehaviour => {
+const createSelect = (): ToolBehavior => {
 	const active = cell<Move | undefined>(undefined);
+	const area = createAreaMove();
 
 	/** The attribute as it was before the drag, back on the live element. */
 	const restore = (element: Element | undefined, move: Move): void => {
@@ -70,7 +74,7 @@ const createSelect = (): ToolBehaviour => {
 	return {
 		begin: (context, sample) => {
 			const layer = guardedLayer(context);
-			if (layer === undefined) return;
+			if (layer === undefined || area.begin(context, sample)) return;
 			const element = context.document.layer(layer.id);
 			if (element === undefined) return;
 			active.current = {
@@ -80,6 +84,7 @@ const createSelect = (): ToolBehaviour => {
 			};
 		},
 		move: (context, sample) => {
+			area.move(context, sample);
 			const move = active.current;
 			if (move === undefined) return;
 			const element = context.document.layer(move.layerId);
@@ -87,6 +92,7 @@ const createSelect = (): ToolBehaviour => {
 			setTransform(element, movedTo(context, element, move, sample));
 		},
 		end: (context, sample) => {
+			area.end(context, sample);
 			const move = active.current;
 			if (move === undefined) return;
 			active.current = undefined;
@@ -105,6 +111,7 @@ const createSelect = (): ToolBehaviour => {
 			);
 		},
 		cancel: (context) => {
+			area.cancel(context);
 			const move = active.current;
 			active.current = undefined;
 			if (move !== undefined) restore(context.document.layer(move.layerId), move);
@@ -112,4 +119,4 @@ const createSelect = (): ToolBehaviour => {
 	};
 };
 
-export const select: ToolBehaviour = createSelect();
+export const select: ToolBehavior = createSelect();

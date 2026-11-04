@@ -26,7 +26,7 @@ on:
 permissions:
     contents: write
 
-# Per commit, so nothing is ever cancelled. A single `release` group would
+# Per commit, so nothing is ever canceled. A single `release` group would
 # serialize these — which sounds right and is not: GitHub keeps one *pending*
 # run per group and cancels the previous pending one, so two version bumps
 # merged in quick succession would drop the first one's tag for ever. Two runs

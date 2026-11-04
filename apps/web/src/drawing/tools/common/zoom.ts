@@ -1,4 +1,4 @@
-import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 
 /**
  * The zoom tool (docs/decisions/0004-the-interface.md): a click zooms in about
@@ -20,7 +20,7 @@ type ZoomStroke = Readonly<{ anchor: PointerSample; scale: number; dragged: bool
 
 const strokes = new WeakMap<ToolContext, ZoomStroke>();
 
-export const zoomBehaviour: ToolBehaviour = {
+export const zoomBehavior: ToolBehavior = {
 	begin: (context, sample) => {
 		strokes.set(context, { anchor: sample, scale: context.viewport.scale, dragged: false });
 	},

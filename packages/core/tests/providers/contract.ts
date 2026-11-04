@@ -20,7 +20,7 @@ import { sameBytes } from './wireBody.js';
  * register several adapters against it; Vitest collects only `*.test.ts`, so
  * this module is never picked up on its own.
  *
- * It asserts only what all four providers can honour. Where they genuinely
+ * It asserts only what all four providers can honor. Where they genuinely
  * differ — whether a move keeps the file's id, whether a move changes its
  * version — the suite pins the weaker invariant and the difference is either a
  * harness capability or left to the adapter's own tests.
@@ -63,7 +63,7 @@ export interface ProviderContractOptions {
 	 * a malformed one is refused with a 400 at parameter validation — before the
 	 * comparison the scenario is about ever happens. Against a live account that
 	 * turned it into an error that is neither a conflict nor a missing file, so
-	 * the behaviour it exists to pin went unchecked.
+	 * the behavior it exists to pin went unchecked.
 	 */
 	staleVersion?: string;
 	/**
@@ -534,7 +534,7 @@ export const describeProviderContract = (
 				// ordered queue stops on a failed op, so an adapter that
 				// reported this as an error would strand every op behind it.
 				// Dropbox's `files/move_v2` does refuse it, so its adapter has
-				// to recognise the refusal for what it is.
+				// to recognize the refusal for what it is.
 				const provider = await open();
 				const entry = await seedFile(provider, 'a.svg', 'body\n');
 

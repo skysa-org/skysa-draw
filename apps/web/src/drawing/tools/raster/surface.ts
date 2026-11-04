@@ -1,9 +1,9 @@
 import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 
 import { replaceRasterImage } from '../../document/commands.js';
-import type { EditorDocument } from '../../document/model.js';
+import type { Command, EditorDocument } from '../../document/model.js';
 import type { ToolContext } from '../types.js';
-import { type Area, clipToArea } from './area.js';
+import { type Area, areaMask, clipToArea, isPlain, keepCovered, releaseCanvas } from './area.js';
 import { type Bounds, type PixelGrid, pixelGrid, placePicture } from './pixels.js';
 import { toLocal } from './space.js';
 
@@ -43,15 +43,26 @@ export interface RasterSurface {
 	readonly ready: Promise<void>;
 	/** Whether `ready` has settled, for a tool that reads the pixels as it goes. */
 	readonly decoded: () => boolean;
+	/** Whether the pixels are decoded and may be read: the picture neither failed nor is still decoding. */
+	readonly readable: () => boolean;
+	/**
+	 * How many writes have been asked of this surface (`commit`, `paint`,
+	 * `derive`, `rewrite`), counted as they are asked, before any is decoded or
+	 * encoded: a tool that remembers what it wrote knows by this whether
+	 * another has written since.
+	 */
+	readonly writes: () => number;
 	/** The `href` the pixels came from, to tell when the file moved under the surface. */
 	readonly source: () => string | undefined;
 	/** The root's user units to `canvas`'s pixels, through the layer's own transform. Not rounded. */
 	readonly toPixel: (x: number, y: number) => readonly [number, number];
 	/**
 	 * The stroke composited onto the pixels in `mode` at `opacity`, once, so
-	 * overlapping stamps do not darken, and only inside `area` where one is
-	 * selected; then encoded and written, after every write this surface began
-	 * before it. Resolves after the command executed; rejects with
+	 * overlapping stamps do not darken, and only as far as `area` covers each
+	 * pixel where one is selected: through a clip for a plain area, through
+	 * the area's mask for an inverted or a feathered one (`areaMask`); then
+	 * encoded and written, after every write this surface began before it.
+	 * Resolves after the command executed; rejects with
 	 * `UnreadablePictureError` for a picture that would not decode or cannot be
 	 * read, and nothing is written then.
 	 */
@@ -71,6 +82,39 @@ export interface RasterSurface {
 		label: string,
 		painter: (ctx: CanvasRenderingContext2D) => boolean
 	) => Promise<void>;
+	/**
+	 * A change to the layer's pixels made from something other than what they
+	 * are, for a move from pixels a tool remembers: as `paint`, and, as
+	 * `derive`, written only where the file's picture is still the one these
+	 * pixels came from when the encoding lands; it rejects otherwise, since an
+	 * undo meanwhile put other pixels in the file. Resolves on whether it was
+	 * written, which it is not where `painter` changed nothing or the layer went.
+	 */
+	readonly rewrite: (
+		label: string,
+		painter: (ctx: CanvasRenderingContext2D) => boolean
+	) => Promise<boolean>;
+	/**
+	 * A picture made from the layer's pixels once they are decoded, written by
+	 * one command with them: `painter` may change the pixels, as for `paint`,
+	 * and gives back the picture, a canvas of the same size; whether it changed
+	 * the layer's own pixels, which are then encoded too; and the command to
+	 * make of the picture's `href` and the layer's new one, which this surface
+	 * executes in its turn, after every write it began before. Or nothing, and
+	 * nothing is written. Resolves on whether the command executed, which it
+	 * does not into a layer that went meanwhile; rejects as `commit` does, and
+	 * where the file's picture moved under the surface while it encoded (an
+	 * undo), since the pixels it holds are then not the file's.
+	 */
+	readonly derive: (
+		painter: (ctx: CanvasRenderingContext2D) =>
+			| Readonly<{
+					picture: HTMLCanvasElement;
+					changed: boolean;
+					command: (picture: string, own: string | undefined) => Command;
+			  }>
+			| undefined
+	) => Promise<boolean>;
 	/** Forget the surface: the next tool to ask gets one built from the file again. */
 	readonly discard: () => void;
 }
@@ -82,7 +126,7 @@ const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';
  * the one `replaceRasterImage` writes, and not an element of that name in
  * another namespace.
  */
-const imageOf = (layer: Element): Element | undefined =>
+export const imageOf = (layer: Element): Element | undefined =>
 	Array.from(layer.children).find(
 		(child) => child.namespaceURI === SVG_NAMESPACE && child.localName === 'image'
 	);
@@ -120,7 +164,7 @@ const canvasBounds = (editor: EditorDocument): Bounds => {
 };
 
 /** What a layer's pixels cover: its `<image>`'s geometry, or the canvas for a layer without one yet. */
-const boundsFor = (editor: EditorDocument, image: Element | undefined): Bounds =>
+export const boundsFor = (editor: EditorDocument, image: Element | undefined): Bounds =>
 	(image === undefined ? undefined : boundsOf(image)) ?? canvasBounds(editor);
 
 const sameBounds = (a: Bounds, b: Bounds): boolean =>
@@ -230,6 +274,7 @@ const createSurface = (
 	// way at once may finish in either order, and the later stroke's pixels
 	// hold the earlier's, so the later must be the one the file keeps.
 	const queue = cell<Promise<void>>(Promise.resolve());
+	const asked = cell(0);
 	const settled = cell(href === undefined || ctx === null);
 	const ready =
 		href === undefined || ctx === null
@@ -245,32 +290,66 @@ const createSurface = (
 					});
 
 	/**
-	 * The pixels as they are now, encoded, and written in turn. The encoding
-	 * starts here, so what is written is what the canvas held when it was asked
-	 * for, whatever a later stroke does to it meanwhile.
+	 * Encodings landed in turn: `land` is given their `href`s once every write
+	 * this surface began before has landed, and what it gives back is the
+	 * turn's. Each encoding starts when it is asked for, so what is written is
+	 * what the canvas held then, whatever a later stroke does to it meanwhile.
 	 */
-	const write = (label: string): Promise<void> => {
-		const encoded = encodePng(canvas);
-		const turn = queue.current
-			.then(() => encoded)
-			.then((encodedHref) => {
-				// The layer went while its pixels were encoded: nothing to write into.
-				if (editor.layer(layerId) === undefined) return;
-				// Before the command runs: a tool asking for the surface while it
-				// runs must find the href it is about to see, not rebuild from the old one.
-				source.current = encodedHref;
-				editor.execute(
-					replaceRasterImage(layerId, label, { href: encodedHref, ...bounds })
-				);
-			});
-		queue.current = turn.catch(() => undefined);
+	const inTurn = <T>(
+		encodings: readonly Promise<string>[],
+		land: (hrefs: readonly string[]) => T
+	): Promise<T> => {
+		const turn = queue.current.then(() => Promise.all(encodings)).then(land);
+		queue.current = turn.then(
+			() => undefined,
+			() => undefined
+		);
 		return turn;
 	};
+
+	/** Whether the file's picture is still the one the pixels came from, or last went to. */
+	const unmoved = (live: Element): boolean => hrefOf(imageOf(live)) === source.current;
+
+	/**
+	 * The pixels as they are now, encoded, and written in turn; with `strict`,
+	 * only where the file's picture did not move under them meanwhile.
+	 * Whether they were written.
+	 */
+	const write = (label: string, strict = false): Promise<boolean> =>
+		inTurn([encodePng(canvas)], ([encodedHref]) => {
+			const live = editor.layer(layerId);
+			// The layer went while its pixels were encoded: nothing to write into.
+			if (encodedHref === undefined || live === undefined) return false;
+			if (strict && !unmoved(live)) {
+				throw new Error(`the picture on ${layerId} changed while it was encoded`);
+			}
+			// Before the command runs: a tool asking for the surface while it
+			// runs must find the href it is about to see, not rebuild from the old one.
+			source.current = encodedHref;
+			editor.execute(replaceRasterImage(layerId, label, { href: encodedHref, ...bounds }));
+			return true;
+		});
 
 	const toPixel = (x: number, y: number): readonly [number, number] => {
 		const live = editor.layer(layerId) ?? layer;
 		const [lx, ly] = toLocal(live, editor.root, x, y);
 		return [(lx - bounds.x) * grid.ppu, (ly - bounds.y) * grid.ppu];
+	};
+
+	/**
+	 * What the stroke composites onto kept to the area: a clip for a plain
+	 * area, the stroke itself masked by the area's coverage for any other.
+	 * Where the browser has no `Path2D`, neither, and the stroke is not kept.
+	 */
+	const keepToArea = (target: CanvasRenderingContext2D, area: Area): void => {
+		if (isPlain(area)) {
+			clipToArea(target, area, toPixel);
+			return;
+		}
+		const mask = areaMask({ canvas, toPixel }, area);
+		if (mask === undefined) return;
+		keepCovered(stroke, mask);
+		releaseCanvas(mask);
 	};
 
 	const commit = async (
@@ -279,6 +358,7 @@ const createSurface = (
 		opacity: number,
 		area?: Area
 	): Promise<void> => {
+		asked.current += 1;
 		await ready;
 		if (failure.current !== undefined || ctx === null) {
 			clearCanvas(stroke);
@@ -286,7 +366,7 @@ const createSurface = (
 			return;
 		}
 		ctx.save();
-		if (area !== undefined) clipToArea(ctx, area, toPixel);
+		if (area !== undefined) keepToArea(ctx, area);
 		ctx.globalAlpha = opacity;
 		ctx.globalCompositeOperation = mode;
 		ctx.drawImage(stroke, 0, 0);
@@ -299,10 +379,39 @@ const createSurface = (
 		label: string,
 		painter: (ctx: CanvasRenderingContext2D) => boolean
 	): Promise<void> => {
+		asked.current += 1;
 		await ready;
 		if (failure.current !== undefined) throw failure.current;
 		if (ctx === null || !painter(ctx)) return;
 		await write(label);
+	};
+
+	const rewrite: RasterSurface['rewrite'] = async (label, painter) => {
+		asked.current += 1;
+		await ready;
+		if (failure.current !== undefined) throw failure.current;
+		if (ctx === null || !painter(ctx)) return false;
+		return write(label, true);
+	};
+
+	const derive: RasterSurface['derive'] = async (painter) => {
+		asked.current += 1;
+		await ready;
+		if (failure.current !== undefined) throw failure.current;
+		if (ctx === null) return false;
+		const made = painter(ctx);
+		if (made === undefined) return false;
+		const own = made.changed ? [encodePng(canvas)] : [];
+		return inTurn([encodePng(made.picture), ...own], ([picture, ownHref]) => {
+			const live = editor.layer(layerId);
+			if (picture === undefined || live === undefined) return false;
+			if (!unmoved(live)) {
+				throw new Error(`the picture on ${layerId} changed while it was encoded`);
+			}
+			if (ownHref !== undefined) source.current = ownHref;
+			editor.execute(made.command(picture, ownHref));
+			return true;
+		});
 	};
 
 	const surface: RasterSurface = {
@@ -313,16 +422,39 @@ const createSurface = (
 		stroke,
 		ready,
 		decoded: () => settled.current,
+		readable: () => settled.current && failure.current === undefined && ctx !== null,
+		writes: () => asked.current,
 		source: () => source.current,
 		toPixel,
 		commit,
 		paint,
+		rewrite,
+		derive,
 		discard: () => {
 			const byLayer = surfaces.get(editor);
 			if (byLayer?.get(layerId) === surface) byLayer.delete(layerId);
 		},
 	};
 	return surface;
+};
+
+/**
+ * The surface made for a layer already, while the file's `href` and geometry
+ * are still the ones it was built from; none otherwise, and none is made: for
+ * a reader of any layer's pixels that has no business decoding a picture onto
+ * a canvas of its own (`probe.ts`).
+ */
+export const cachedSurface = (
+	editor: EditorDocument,
+	layerId: string
+): RasterSurface | undefined => {
+	const element = editor.layer(layerId);
+	const cached = surfaces.get(editor)?.get(layerId);
+	if (element === undefined || cached === undefined) return undefined;
+	const image = imageOf(element);
+	return cached.source() === hrefOf(image) && sameBounds(cached.bounds, boundsFor(editor, image))
+		? cached
+		: undefined;
 };
 
 /**
@@ -336,18 +468,10 @@ export const surfaceFor = (context: ToolContext): RasterSurface | undefined => {
 	if (layer?.kind !== 'raster') return undefined;
 	const element = context.document.layer(layer.id);
 	if (element === undefined) return undefined;
-	const image = imageOf(element);
-	const byLayer = cacheFor(context.document);
-	const cached = byLayer.get(layer.id);
-	if (
-		cached !== undefined &&
-		cached.source() === hrefOf(image) &&
-		sameBounds(cached.bounds, boundsFor(context.document, image))
-	) {
-		return cached;
-	}
-	cached?.discard();
+	const cached = cachedSurface(context.document, layer.id);
+	if (cached !== undefined) return cached;
+	surfaces.get(context.document)?.get(layer.id)?.discard();
 	const made = createSurface(context.document, layer.id, element);
-	byLayer.set(layer.id, made);
+	cacheFor(context.document).set(layer.id, made);
 	return made;
 };

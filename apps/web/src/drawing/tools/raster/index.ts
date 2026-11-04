@@ -1,10 +1,11 @@
-import type { Behaviours } from '../types.js';
-import { brushBehaviour } from './brush.js';
+import type { Behaviors } from '../types.js';
+import { brushBehavior } from './brush.js';
 import { eyedropper, fill } from './fill.js';
-import { regionBehaviour } from './region.js';
+import { regionBehavior } from './region.js';
 import { select } from './select.js';
-import { shapeBehaviour } from './shapes.js';
-import { smudgeBehaviour } from './smudge.js';
+import { shapeBehavior } from './shapes.js';
+import { smudgeBehavior } from './smudge.js';
+import { wandBehavior } from './wand.js';
 
 /**
  * What each tool does on a raster layer (docs/decisions/0004-the-interface.md).
@@ -13,19 +14,21 @@ import { smudgeBehaviour } from './smudge.js';
  * asynchronous and a save waits for it (docs/ARCHITECTURE.md §7, "The editor").
  * Where an area is selected, every tool that paints paints inside it.
  */
-export const rasterBehaviours: Behaviours = {
+export const rasterBehaviors: Behaviors = {
 	select,
-	marquee: regionBehaviour('marquee'),
-	lasso: regionBehaviour('lasso'),
-	pencil: brushBehaviour('pencil'),
-	brush: brushBehaviour('brush'),
-	eraser: brushBehaviour('eraser'),
-	smudge: smudgeBehaviour(),
+	marquee: regionBehavior('marquee'),
+	lasso: regionBehavior('lasso'),
+	wand: wandBehavior(),
+	pencil: brushBehavior('pencil'),
+	brush: brushBehavior('brush'),
+	eraser: brushBehavior('eraser'),
+	smudge: smudgeBehavior(),
 	fill,
 	eyedropper,
-	rectangle: shapeBehaviour('rectangle'),
-	ellipse: shapeBehaviour('ellipse'),
-	line: shapeBehaviour('line'),
+	rectangle: shapeBehavior('rectangle'),
+	ellipse: shapeBehavior('ellipse'),
+	line: shapeBehavior('line'),
 };
 
-export { clearArea } from './region.js';
+export { clearArea, fillArea, layerViaArea } from './region.js';
+export { nudgeArea } from './move.js';

@@ -1,4 +1,4 @@
-import { isNone, toHex } from '../components/ui/colour.js';
+import { isNone, toHex } from '../components/ui/color.js';
 import type { LayerInfo } from './document/model.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
@@ -18,10 +18,10 @@ import {
  */
 
 /** What opens over the canvas: a sheet on compact, a drawer elsewhere. */
-export type PanelId = 'layers' | 'colour';
+export type PanelId = 'layers' | 'color';
 
-/** The two colours every tool draws with: `options.fill` and `options.stroke`. */
-export type ColourSlot = 'fill' | 'stroke';
+/** The two colors every tool draws with: `options.fill` and `options.stroke`. */
+export type ColorSlot = 'fill' | 'stroke';
 
 export type EditorState = Readonly<{
 	toolId: ToolId;
@@ -38,12 +38,14 @@ export type EditorState = Readonly<{
 	 * moment starts again.
 	 */
 	notice: Readonly<{ message: string }> | undefined;
-	/** The colours picked most recently, newest first, as `#rrggbb` where they have one. */
-	recentColours: readonly string[];
+	/** The colors picked most recently, newest first, as `#rrggbb` where they have one. */
+	recentColors: readonly string[];
+	/** The color the color panel opens on, as the tool bar's pair last asked for it. */
+	colorSlot: ColorSlot;
 }>;
 
-/** How many colours the swatches remember. */
-export const RECENT_COLOURS_MAX = 10;
+/** How many colors the swatches remember. */
+export const RECENT_COLORS_MAX = 10;
 
 /** `[` and `]` scale a brush by this, the step Photoshop and Procreate agree on. */
 const SIZE_STEP = 1.25;
@@ -59,8 +61,14 @@ type SetOption = {
 export type EditorAction =
 	| Readonly<{ type: 'setTool'; toolId: ToolId }>
 	| SetOption
-	| Readonly<{ type: 'setColour'; which: ColourSlot; value: string }>
-	| Readonly<{ type: 'swapColours' }>
+	/** Options a tool set, not the user: an edited text's own size and fill, which are no colors picked. */
+	| Readonly<{ type: 'setOptions'; change: Partial<ToolOptions> }>
+	| Readonly<{ type: 'setColor'; which: ColorSlot; value: string }>
+	| Readonly<{ type: 'swapColors' }>
+	/** The fill and the stroke a new drawing starts with, put back: D, and the pair's reset. */
+	| Readonly<{ type: 'resetColors' }>
+	/** The color panel, on one of the two colors: a press on that color in the tool bar. */
+	| Readonly<{ type: 'editColor'; which: ColorSlot }>
 	| Readonly<{ type: 'setActiveLayer'; id: string | undefined }>
 	| Readonly<{ type: 'togglePanel'; panel: PanelId }>
 	| Readonly<{ type: 'closePanel' }>
@@ -78,7 +86,8 @@ export const initialEditorState: EditorState = {
 	dockOpen: undefined,
 	libraryOpen: false,
 	notice: undefined,
-	recentColours: [],
+	recentColors: [],
+	colorSlot: 'fill',
 };
 
 /**
@@ -97,14 +106,14 @@ const withOption = <K extends ToolOptionKey>(
 ): ToolOptions => ({ ...options, [key]: value });
 
 /**
- * `colour` at the front, once, and never `none`, which is not a colour to come
+ * `color` at the front, once, and never `none`, which is not a color to come
  * back to. Written as `#rrggbb` where it has that form, so `#F00` and `red`
  * are the one swatch they look like.
  */
-const remembered = (recent: readonly string[], colour: string): readonly string[] => {
-	if (isNone(colour)) return recent;
-	const swatch = toHex(colour) ?? colour;
-	return [swatch, ...recent.filter((each) => each !== swatch)].slice(0, RECENT_COLOURS_MAX);
+const remembered = (recent: readonly string[], color: string): readonly string[] => {
+	if (isNone(color)) return recent;
+	const swatch = toHex(color) ?? color;
+	return [swatch, ...recent.filter((each) => each !== swatch)].slice(0, RECENT_COLORS_MAX);
 };
 
 /**
@@ -133,6 +142,12 @@ export const activeLayerIn = (
 	return (fromTop.find((layer) => layer.kind !== 'group') ?? fromTop[0])?.id;
 };
 
+/** The color panel on `which`; asked again for the color it is open on, it closes, as a toggle does. */
+const editingColor = (state: EditorState, which: ColorSlot): EditorState =>
+	state.panel === 'color' && state.colorSlot === which
+		? { ...state, panel: undefined }
+		: { ...state, panel: 'color', colorSlot: which };
+
 export const editorReducer = (state: EditorState, action: EditorAction): EditorState => {
 	switch (action.type) {
 		case 'setTool':
@@ -141,19 +156,21 @@ export const editorReducer = (state: EditorState, action: EditorAction): EditorS
 			return {
 				...state,
 				options: withOption(state.options, action.key, action.value),
-				// A colour picked in the options strip is a colour picked.
-				recentColours:
+				// A color picked in the options strip is a color picked.
+				recentColors:
 					action.key === 'fill' || action.key === 'stroke'
-						? remembered(state.recentColours, action.value)
-						: state.recentColours,
+						? remembered(state.recentColors, action.value)
+						: state.recentColors,
 			};
-		case 'setColour':
+		case 'setOptions':
+			return { ...state, options: { ...state.options, ...action.change } };
+		case 'setColor':
 			return {
 				...state,
 				options: withOption(state.options, action.which, action.value),
-				recentColours: remembered(state.recentColours, action.value),
+				recentColors: remembered(state.recentColors, action.value),
 			};
-		case 'swapColours':
+		case 'swapColors':
 			return {
 				...state,
 				options: {
@@ -162,10 +179,22 @@ export const editorReducer = (state: EditorState, action: EditorAction): EditorS
 					stroke: state.options.fill,
 				},
 			};
+		case 'resetColors':
+			// No color picked, as a swap is none: the recent colors stay as they were.
+			return {
+				...state,
+				options: {
+					...state.options,
+					fill: DEFAULT_TOOL_OPTIONS.fill,
+					stroke: DEFAULT_TOOL_OPTIONS.stroke,
+				},
+			};
 		case 'setActiveLayer':
 			return { ...state, activeLayerId: action.id };
 		case 'togglePanel':
 			return { ...state, panel: state.panel === action.panel ? undefined : action.panel };
+		case 'editColor':
+			return editingColor(state, action.which);
 		case 'closePanel':
 			return { ...state, panel: undefined };
 		case 'setDockOpen':

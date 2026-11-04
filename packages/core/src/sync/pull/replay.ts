@@ -186,8 +186,8 @@ export const folderNow = (path: string, decided: readonly PullChange[]): string 
 /**
  * Where whatever is at `path` once the decisions so far have run was before
  * them, or `undefined` if nothing that was there before is there now. Walked
- * backwards, because the store can only be asked about the paths it already
- * holds; `folderNow` walks forwards, and takes the answer back to `path`.
+ * backward, because the store can only be asked about the paths it already
+ * holds; `folderNow` walks forward, and takes the answer back to `path`.
  */
 export const folderBefore = (path: string, decided: readonly PullChange[]): string | undefined =>
 	decided.reduceRight<string | undefined>((at, change) => {

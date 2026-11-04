@@ -64,7 +64,7 @@
 	display: flex;
 }
 
-/* The colour a tool will draw with, ringed in the page's so it sits on the icon. */
+/* The color a tool will draw with, ringed in the page's so it sits on the icon. */
 .tool-button-badge {
 	border-radius: 50%;
 	box-shadow: 0 0 0 1.5px var(--bg);
@@ -75,6 +75,163 @@
 	pointer-events: none;
 	position: absolute;
 	width: 0.75rem;
+}
+
+/*
+ * The two colors at the foot of the tool bar (`ColorPair`): a target per
+ * control along the bar, the fill's, the stroke's and the swap's, abutting
+ * so they read as one. Down the rail by default, and across a bar that runs
+ * across.
+ */
+.color-pair {
+	/* The edge every square has, so that a color as dark or as light as the page still shows. */
+	--pair-edge: color-mix(in srgb, var(--fg) 45%, transparent);
+	display: flex;
+	flex: none;
+	flex-direction: column;
+}
+
+.toolbar-horizontal .color-pair {
+	flex-direction: row;
+}
+
+/* A color as a square, in `currentColor`; none is the page struck through. No press of its own. */
+.color-pair-square {
+	background: currentColor;
+	border-radius: var(--radius-xs);
+	box-shadow: inset 0 0 0 1px var(--pair-edge);
+	pointer-events: none;
+	position: absolute;
+}
+
+.color-pair-square.is-none {
+	background:
+		linear-gradient(
+			to top right,
+			transparent calc(50% - 1px),
+			var(--bad) calc(50% - 1px) calc(50% + 1px),
+			transparent calc(50% + 1px)
+		),
+		var(--bg);
+}
+
+/*
+ * The fill's and the stroke's squares, each in its own target and drawn
+ * across into the other's, the fill's in front with the page around it, as
+ * Photoshop draws its two. A press goes by the target, not the square.
+ */
+.color-pair-slot > .color-pair-square {
+	height: 2rem;
+	width: 2rem;
+}
+
+.color-pair-fill {
+	z-index: 1;
+}
+
+.color-pair-fill > .color-pair-square {
+	box-shadow:
+		inset 0 0 0 1px var(--pair-edge),
+		0 0 0 2px var(--bg);
+	inset-block-start: 0.875rem;
+	inset-inline-start: 0.125rem;
+}
+
+.color-pair-stroke > .color-pair-square {
+	inset-block-start: -0.25rem;
+	inset-inline-start: 0.625rem;
+}
+
+.toolbar-horizontal .color-pair-fill > .color-pair-square {
+	inset-block-start: 0.125rem;
+	inset-inline-start: 0.875rem;
+}
+
+.toolbar-horizontal .color-pair-stroke > .color-pair-square {
+	inset-block-start: 0.625rem;
+	inset-inline-start: -0.25rem;
+}
+
+/*
+ * Under the pointer: the square lit as a target is, in a ring of the hover
+ * color around it, rather than the target, which the square is drawn across
+ * and does not fill. Thin enough that the fill's ring stays on the rail, and
+ * opaque, so the fill's is in front of the stroke as the fill is. Before the
+ * rings below, which a pressed color and the keyboard's keep under the
+ * pointer. Weighed above `shell.css`'s `button:not(.primary):hover`, which
+ * would light the target.
+ */
+.color-pair-slot:hover:enabled {
+	background: none;
+}
+
+.color-pair-slot:hover > .color-pair-square {
+	outline: 0.1875rem solid color-mix(in srgb, var(--fg) 8%, var(--bg));
+	outline-offset: 1px;
+}
+
+/*
+ * The color the color panel is open on, and the color the keyboard is on:
+ * the square ringed, rather than its target, whose ring the other square
+ * would cut across.
+ */
+.color-pair-slot[aria-pressed='true'] {
+	background: none;
+}
+
+.color-pair-slot:focus-visible {
+	outline: none;
+}
+
+.color-pair-slot[aria-pressed='true'] > .color-pair-square {
+	outline: 2px solid var(--on-fg);
+	outline-offset: 3px;
+}
+
+.color-pair-slot:focus-visible > .color-pair-square {
+	outline: 2px solid var(--ring);
+	outline-offset: 3px;
+}
+
+/* Two colors as one mark, sized by its box: two thirds a side each, the fill at the top left in front. */
+.color-pair-mark {
+	--pair-edge: color-mix(in srgb, var(--fg) 45%, transparent);
+	display: block;
+	flex: none;
+	height: 1.5rem;
+	position: relative;
+	width: 1.5rem;
+}
+
+.color-pair-mark > .color-pair-square {
+	border-radius: 0.1875rem;
+	height: 66%;
+	width: 66%;
+}
+
+.color-pair-mark-fill {
+	box-shadow:
+		inset 0 0 0 1px var(--pair-edge),
+		0 0 0 1.5px var(--bg);
+	inset-block-start: 0;
+	inset-inline-start: 0;
+}
+
+.color-pair-mark-stroke {
+	inset-block-end: 0;
+	inset-inline-end: 0;
+}
+
+/* The compact pair's one control for both: the mark as large as a target holds. */
+.color-pair-both > .color-pair-mark {
+	height: 2.125rem;
+	width: 2.125rem;
+}
+
+.color-pair-both > .color-pair-mark > .color-pair-mark-fill {
+	box-shadow:
+		inset 0 0 0 1px var(--pair-edge),
+		0 0 0 2px var(--bg);
 }
 
 /* A row of controls a hair apart: a bar, a panel's header and its actions. */
@@ -217,7 +374,7 @@
 	padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* The grab handle: a pill, centred in a strip a target tall. */
+/* The grab handle: a pill, centered in a strip a target tall. */
 .sheet-handle {
 	cursor: grab;
 	display: grid;
@@ -369,7 +526,7 @@
 	gap: var(--space-2xs);
 }
 
-/* A target around a smaller square of its colour, in `currentColor`. */
+/* A target around a smaller square of its color, in `currentColor`. */
 .color-recent-swatch {
 	display: grid;
 	padding: var(--space-s);
@@ -422,16 +579,43 @@
 }
 
 /*
- * Open in the top layer (the Popover API, `Menu`'s `raise`): out of the
- * flow of the panel it was opened in, placed by the menu beside its button.
- * A popover takes the system's colours and is centred unless told otherwise.
+ * Open in the top layer (the Popover API, `MenuList`'s `raise`): out of the
+ * flow of the panel it was opened in, placed by the menu beside its button
+ * or at its point. A popover takes the system's colors and is centered
+ * unless told otherwise. As wide as its items, whatever the room left of
+ * where it was last, so that it is measured the same wherever it goes; and
+ * scrolled to its end, it does not scroll the page, which would close it.
  */
 .menu-list:popover-open {
 	color: var(--fg);
 	inset: auto;
 	margin: 0;
 	overflow: auto;
+	overscroll-behavior: contain;
 	position: fixed;
+	width: max-content;
+}
+
+/*
+ * A menu at a point (`ContextMenu`), placed by its style from the window's
+ * top left, in the top layer or, without the Popover API, in place; growing
+ * from the point it was opened at, from no side in particular.
+ */
+.menu-context {
+	--arrive-y: 0;
+	inset: auto;
+	margin: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+	position: fixed;
+	width: max-content;
+}
+
+/* A rule between a menu's groups (`separatorBefore`): not a control, and so no target. */
+.menu-separator {
+	border-block-start: 1px solid var(--border);
+	flex: none;
+	margin-block: var(--space-2xs);
 }
 
 .menu-item {

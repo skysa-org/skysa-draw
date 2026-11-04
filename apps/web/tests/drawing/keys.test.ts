@@ -6,7 +6,9 @@ import {
 	isHandKey,
 	isTyping,
 	type KeyLike,
+	nudgeFor,
 	primaryKeyLabel,
+	shortcutFor,
 	shortcutLabel,
 	TOOL_KEYS,
 	toolFor,
@@ -62,6 +64,7 @@ describe('TOOL_KEYS', () => {
 			text: 'T',
 			marquee: 'M',
 			lasso: 'Q',
+			wand: 'W',
 			crop: 'C',
 		});
 	});
@@ -113,6 +116,23 @@ describe('isTyping', () => {
 		expect(isTyping(null)).toBe(false);
 		expect(isTyping(undefined)).toBe(false);
 		expect(isTyping(window)).toBe(false);
+	});
+});
+
+describe('nudgeFor', () => {
+	it("nudges by a pixel per arrow, and ten with Shift, as Photoshop's move tool", () => {
+		expect(nudgeFor(key('ArrowLeft'))).toEqual([-1, 0]);
+		expect(nudgeFor(key('ArrowRight'))).toEqual([1, 0]);
+		expect(nudgeFor(key('ArrowUp'))).toEqual([0, -1]);
+		expect(nudgeFor(key('ArrowDown', { shiftKey: true }))).toEqual([0, 10]);
+	});
+
+	it('leaves an arrow with Ctrl, ⌘ or Alt, one in a field, and any other key alone', () => {
+		expect(nudgeFor(key('ArrowLeft', { ctrlKey: true }))).toBeUndefined();
+		expect(nudgeFor(key('ArrowLeft', { metaKey: true }))).toBeUndefined();
+		expect(nudgeFor(key('ArrowLeft', { altKey: true }))).toBeUndefined();
+		expect(nudgeFor(key('ArrowLeft', { target: field() }))).toBeUndefined();
+		expect(nudgeFor(key('h'))).toBeUndefined();
 	});
 });
 
@@ -175,8 +195,10 @@ describe('editActionFor', () => {
 		expect(editActionFor(key('Escape'), false)).toBe('escape');
 		expect(editActionFor(key(']'), false)).toBe('sizeUp');
 		expect(editActionFor(key('['), false)).toBe('sizeDown');
-		expect(editActionFor(key('x'), false)).toBe('swapColours');
-		expect(editActionFor(key('X'), false)).toBe('swapColours');
+		expect(editActionFor(key('x'), false)).toBe('swapColors');
+		expect(editActionFor(key('X'), false)).toBe('swapColors');
+		expect(editActionFor(key('d'), false)).toBe('resetColors');
+		expect(editActionFor(key('D'), true)).toBe('resetColors');
 		expect(editActionFor(key('v'), false)).toBeUndefined();
 		expect(editActionFor(key('x', { ctrlKey: true }), true)).toBeUndefined();
 	});
@@ -210,8 +232,71 @@ describe('editActionFor', () => {
 		expect(editActionFor(key('z', { ctrlKey: true, target }), false)).toBeUndefined();
 		expect(editActionFor(key('Backspace', { target }), false)).toBeUndefined();
 		expect(editActionFor(key('x', { target }), false)).toBeUndefined();
+		expect(editActionFor(key('d', { target }), false)).toBeUndefined();
 		expect(editActionFor(key('Escape', { target }), false)).toBe('escape');
 	});
+
+	it.each([true, false])(
+		'reads the selection’s keys: Photoshop’s and Krita’s (mac: %s)',
+		(isMac) => {
+			const held = primary(isMac);
+			expect(editActionFor(key('I', { ...held, shiftKey: true }), isMac)).toBe(
+				'selectInverse'
+			);
+			expect(editActionFor(key('J', { ...held, shiftKey: true }), isMac)).toBe('layerViaCut');
+			expect(editActionFor(key('F6', { shiftKey: true }), isMac)).toBe('feather');
+			expect(editActionFor(key('Backspace', { altKey: true }), isMac)).toBe('fillArea');
+			expect(editActionFor(key('Backspace', held), isMac)).toBe('fillAreaStroke');
+			expect(editActionFor(key('F5', { shiftKey: true }), isMac)).toBe('fillDialog');
+			expect(editActionFor(key('Backspace', { shiftKey: true }), isMac)).toBe('fillDialog');
+			// I alone is the eyedropper's, F6 and F5 alone the browser's, Shift and Delete a delete.
+			expect(editActionFor(key('i', held), isMac)).toBeUndefined();
+			expect(editActionFor(key('F6'), isMac)).toBeUndefined();
+			expect(editActionFor(key('F6', held), isMac)).toBeUndefined();
+			expect(editActionFor(key('F5'), isMac)).toBeUndefined();
+			expect(
+				editActionFor(key('Backspace', { ...held, shiftKey: true }), isMac)
+			).toBeUndefined();
+			expect(editActionFor(key('Delete', { shiftKey: true }), isMac)).toBe('delete');
+		}
+	);
+
+	it.each([true, false])(
+		'reads Alt with Backspace alone, and no other Alt key (mac: %s)',
+		(isMac) => {
+			expect(editActionFor(key('Delete', { altKey: true }), isMac)).toBeUndefined();
+			expect(editActionFor(key('x', { altKey: true }), isMac)).toBeUndefined();
+			expect(editActionFor(key(']', { altKey: true }), isMac)).toBeUndefined();
+			expect(
+				editActionFor(key('Backspace', { altKey: true, shiftKey: true }), isMac)
+			).toBeUndefined();
+			// AltGr is Ctrl and Alt on Windows.
+			expect(
+				editActionFor(key('Backspace', { altKey: true, ctrlKey: true }), isMac)
+			).toBeUndefined();
+			expect(
+				editActionFor(key('Backspace', { altKey: true, metaKey: true }), isMac)
+			).toBeUndefined();
+		}
+	);
+
+	it('leaves Alt with Backspace to a field, where it deletes a word', () => {
+		expect(
+			editActionFor(key('Backspace', { altKey: true, target: field() }), false)
+		).toBeUndefined();
+	});
+
+	it.each([true, false])(
+		'leaves the primary key or Shift with Backspace to a field (mac: %s)',
+		(isMac) => {
+			expect(
+				editActionFor(key('Backspace', { ...primary(isMac), target: field() }), isMac)
+			).toBeUndefined();
+			expect(
+				editActionFor(key('Backspace', { shiftKey: true, target: field() }), isMac)
+			).toBeUndefined();
+		}
+	);
 
 	it('only ever answers with one of the actions', () => {
 		const keys = [
@@ -231,6 +316,10 @@ describe('editActionFor', () => {
 			']',
 			'[',
 			'x',
+			'i',
+			'j',
+			'F6',
+			'F5',
 		];
 		const seen = keys.flatMap((name) =>
 			[true, false].flatMap((isMac) =>
@@ -242,6 +331,64 @@ describe('editActionFor', () => {
 		seen.filter((action) => action !== undefined).forEach((action) => {
 			expect(EDIT_ACTIONS).toContain(action);
 		});
+	});
+});
+
+describe('shortcutFor', () => {
+	/** A shown key read back as the event it names: `⇧⌘I` or `Ctrl+Shift+I` as Shift, the primary key and I. */
+	const pressed = (label: string, isMac: boolean): KeyLike => {
+		if (isMac) {
+			const name = label.replace(/^[⌥⇧⌘]+/, '');
+			return key(name === '⌫' ? 'Backspace' : name, {
+				altKey: label.includes('⌥'),
+				shiftKey: label.includes('⇧'),
+				metaKey: label.includes('⌘'),
+			});
+		}
+		const parts = label.split('+');
+		const name = label.endsWith('++') ? '+' : (parts.at(-1) ?? '');
+		return key(name, {
+			ctrlKey: parts.includes('Ctrl'),
+			shiftKey: parts.includes('Shift'),
+			altKey: parts.includes('Alt'),
+		});
+	};
+
+	it.each([true, false])(
+		'shows for each action a key the map reads as that action (mac: %s)',
+		(isMac) => {
+			EDIT_ACTIONS.forEach((action) => {
+				const label = shortcutFor(action, isMac);
+				if (label === undefined) return;
+				expect(editActionFor(pressed(label, isMac), isMac)).toBe(action);
+			});
+		}
+	);
+
+	it('writes a chord as each platform does', () => {
+		expect(shortcutFor('selectInverse', true)).toBe('⇧⌘I');
+		expect(shortcutFor('selectInverse', false)).toBe('Ctrl+Shift+I');
+		expect(shortcutFor('swapColors', true)).toBe('X');
+		expect(shortcutFor('resetColors', false)).toBe('D');
+		expect(shortcutFor('feather', true)).toBe('⇧F6');
+		expect(shortcutFor('feather', false)).toBe('Shift+F6');
+		expect(shortcutFor('fillArea', true)).toBe('⌥⌫');
+		expect(shortcutFor('fillArea', false)).toBe('Alt+Backspace');
+		expect(shortcutFor('fillAreaStroke', true)).toBe('⌘⌫');
+		expect(shortcutFor('fillAreaStroke', false)).toBe('Ctrl+Backspace');
+		expect(shortcutFor('fillDialog', true)).toBe('⇧F5');
+		expect(shortcutFor('fillDialog', false)).toBe('Shift+F5');
+		expect(shortcutFor('duplicate', false)).toBe('Ctrl+J');
+		expect(shortcutFor('zoomIn', false)).toBe('Ctrl++');
+		expect(shortcutFor('delete', true)).toBe('⌫');
+		expect(shortcutFor('delete', false)).toBe('Delete');
+	});
+
+	it('shows no key a Mac in a tab cannot press, nor one for an action without one', () => {
+		expect(shortcutFor('newLayer', false)).toBe('Insert');
+		expect(shortcutFor('newLayer', true)).toBeUndefined();
+		expect(shortcutFor('escape', false)).toBeUndefined();
+		expect(shortcutFor(undefined, false)).toBeUndefined();
 	});
 });
 

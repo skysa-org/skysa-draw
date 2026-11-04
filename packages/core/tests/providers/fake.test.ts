@@ -7,7 +7,7 @@ import { drainChanges } from './contract.js';
 /**
  * What the contract suite cannot assert, because real providers disagree about
  * it — plus the knobs the sync-engine tests will lean on. The fake is a test
- * fixture, so its own behaviour needs pinning as much as any adapter's.
+ * fixture, so its own behavior needs pinning as much as any adapter's.
  */
 
 const ready = async (options = {}) => {

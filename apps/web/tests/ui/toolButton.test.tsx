@@ -103,7 +103,7 @@ describe('ToolButton', () => {
 		expect(onLongPress).toHaveBeenCalledTimes(1);
 	});
 
-	it('is not a long press once the pointer leaves, is cancelled, or is not the primary button', () => {
+	it('is not a long press once the pointer leaves, is canceled, or is not the primary button', () => {
 		const { button, onLongPress } = renderTool();
 		fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
 		fireEvent.pointerLeave(button, { pointerId: 1 });

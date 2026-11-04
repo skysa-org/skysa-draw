@@ -626,7 +626,7 @@ const pulled = async (content = 'x\n') => {
 
 describe('a pull that lands after the user has typed', () => {
 	// The engine reads the drawing clean, goes to the network, and hands the batch
-	// over afterwards. An autosave can land in that window.
+	// over afterward. An autosave can land in that window.
 	it('is refused rather than overwriting the edit and calling the drawing clean', async () => {
 		const { db, store } = await pulled();
 		await saveDrawing(db, 'n1', svgOf('typed meanwhile'), { connectionId: CONNECTION });

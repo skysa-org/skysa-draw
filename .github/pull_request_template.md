@@ -18,13 +18,13 @@ out this works — and, for a fix, what fails without it?
 -->
 
 - [ ] `pnpm verify` passes (format, lint, typecheck, unused code, tests)
-- [ ] Tests cover the new behaviour, and fail without the change
+- [ ] Tests cover the new behavior, and fail without the change
 - [ ] `docs/ARCHITECTURE.md`, or the record in `docs/decisions/`, amended in this pull request if the change alters a decision recorded there
 
 ## Anything else
 
 <!--
-New dependency? Say why, and its licence — MIT, Apache-2.0 or ISC only.
+New dependency? Say why, and its license — MIT, Apache-2.0 or ISC only.
 Provider API detail? Link the vendor doc you checked, and put the URL in a comment.
 Something you are unsure about? Say so here; it is more useful than a clean
 description that hides it.

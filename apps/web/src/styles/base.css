@@ -35,7 +35,7 @@ button.row:focus-visible,
 	outline-offset: -2px;
 }
 
-/* A tap is answered by the control's own state; the grey flash a phone adds on
+/* A tap is answered by the control's own state; the gray flash a phone adds on
    top of it looked, for a moment, like the toggle staying on. */
 button,
 a {
@@ -63,7 +63,7 @@ a {
 }
 
 /* Everything that opens arrives the same way: from nothing, from a little
-   short of where it rests and a little smaller, towards the edge it opened
+   short of where it rests and a little smaller, toward the edge it opened
    from. The longhands, `translate` and `scale`, rather than `transform`, so
    this composes with whatever an element is already transformed by and
    leaves a measurement of its size (`offsetWidth`) alone. Where it comes
@@ -84,7 +84,7 @@ a {
 	}
 }
 
-/* Behind a dialog. The backdrop's colour, not its opacity, which would fade
+/* Behind a dialog. The backdrop's color, not its opacity, which would fade
    the dialog in a second time on top of its own. */
 @keyframes dim-in {
 	from {
@@ -144,8 +144,8 @@ body {
 
 /* Inline code is a chip, the way Atlassian's editors draw one: a tint, a thin
    edge and its own ink, so a `--flag` or a `pnpm verify` in the middle of a
-   sentence is visibly not the sentence. Not tokenised — there is no language on
-   an inline span for a highlighter to use, and guessing at one would colour
+   sentence is visibly not the sentence. Not tokenized — there is no language on
+   an inline span for a highlighter to use, and guessing at one would color
    English prose as if it were code. */
 code {
 	font-family: var(--font-mono);
@@ -161,7 +161,7 @@ code {
 /*
  * The token palette, written once for both editors: ProseMirror gets these as
  * inline decorations over the real text, CodeMirror gets them through
- * `syntaxHighlighting`, and neither has a colour of its own to disagree with.
+ * `syntaxHighlighting`, and neither has a color of its own to disagree with.
  */
 .tok-keyword {
 	color: var(--tok-keyword);

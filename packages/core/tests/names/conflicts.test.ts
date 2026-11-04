@@ -47,7 +47,7 @@ describe('conflictFilename', () => {
 	});
 
 	it('does not slug the name', () => {
-		// The copy has to be recognisable as the drawing it came from, and sort
+		// The copy has to be recognizable as the drawing it came from, and sort
 		// next to it. A slug would lowercase it and strip the parentheses that
 		// say what it is.
 		expect(conflictFilename('Q3 Review.svg', AT)).toBe(

@@ -14,13 +14,13 @@ You should have received a copy of the GNU Affero General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>.
 
 If you run a modified version of this program as a network service, section 13
-of the licence requires you to offer its users the source of your modified
+of the license requires you to offer its users the source of your modified
 version.
 
 ---
 
-The licence text itself is in LICENSE, which is a verbatim copy of the GNU
+The license text itself is in LICENSE, which is a verbatim copy of the GNU
 Affero General Public License version 3 and is not to be changed. This file is
 the copyright notice its appendix asks to be attached to the program.
 
-"Skysa" and "skysa-draw" are not covered by the licence above; see TRADEMARK.md.
+"Skysa" and "skysa-draw" are not covered by the license above; see TRADEMARK.md.

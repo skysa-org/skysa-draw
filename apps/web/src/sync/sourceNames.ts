@@ -88,6 +88,6 @@ export const inOrder = <T extends Pick<ConnectedSource, 'connectionId' | 'boundA
 	[...sources].sort((left, right) => {
 		const when = (source: T) => source.boundAt ?? Number.MAX_SAFE_INTEGER;
 		// By id where two rows carry the same instant, so the order is total and
-		// a tab never swaps places with its neighbour between renders.
+		// a tab never swaps places with its neighbor between renders.
 		return when(left) - when(right) || left.connectionId.localeCompare(right.connectionId);
 	});

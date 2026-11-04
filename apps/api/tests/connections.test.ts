@@ -442,7 +442,7 @@ describe('DELETE /api/connection/grants/:id', () => {
 		expect(await rows(app.db)).toEqual([]);
 	});
 
-	it('connects the account afresh afterwards, under a new row', async () => {
+	it('connects the account afresh afterward, under a new row', async () => {
 		const app = buildApp();
 		const first = await app.connect();
 		const before: { id: string; grantId: string } = await (

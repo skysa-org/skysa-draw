@@ -5,7 +5,7 @@ import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/docum
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolContext,
 	type ToolOptions,
 } from '../../src/drawing/tools/types.js';
@@ -122,7 +122,7 @@ const createFake = (
 			pixelRatio: 1,
 		},
 		viewport: { scale, zoomBy: noop, panBy: noop, fit: noop, actualSize: noop },
-		region: { path: undefined, set: noop },
+		region: { path: undefined, region: undefined, set: noop, update: noop },
 		host: document.createElement('div'),
 		selection: {
 			get elements() {
@@ -135,7 +135,7 @@ const createFake = (
 				selected.current = [];
 			},
 		},
-		setColour: noop,
+		setColor: noop,
 		notify: (message) => notices.push(message),
 	};
 	return { context, labels, notices, onExecute };
@@ -156,7 +156,7 @@ const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSa
 });
 
 const click = (
-	pen: ToolBehaviour,
+	pen: ToolBehavior,
 	context: ToolContext,
 	x: number,
 	y: number,
@@ -167,7 +167,7 @@ const click = (
 };
 
 const drag = (
-	pen: ToolBehaviour,
+	pen: ToolBehavior,
 	context: ToolContext,
 	from: readonly [number, number],
 	to: readonly [number, number],
@@ -297,7 +297,7 @@ describe('the pen', () => {
 		expect(context.overlay.children.length).toBe(0);
 	});
 
-	it('makes an open path with no stroke colour a line in the fill colour, with no fill', () => {
+	it('makes an open path with no stroke color a line in the fill color, with no fill', () => {
 		const { context, layer, pen } = setUp({ fill: '#123456', stroke: 'none', strokeWidth: 4 });
 		click(pen, context, 0, 0);
 		click(pen, context, 50, 0);
@@ -309,7 +309,7 @@ describe('the pen', () => {
 		expect(path?.getAttribute('fill')).toBe('none');
 	});
 
-	it('keeps the fill of a closed path with no stroke colour', () => {
+	it('keeps the fill of a closed path with no stroke color', () => {
 		const { context, layer, pen } = setUp({ fill: '#123456', stroke: 'none', strokeWidth: 4 });
 		click(pen, context, 0, 0);
 		click(pen, context, 50, 0);

@@ -1,9 +1,9 @@
 /**
- * The colour field's small, pure converter (docs/ARCHITECTURE.md §7, "The
- * interface"): a CSS colour as a drawing writes it — `#rgb`, `#rrggbb`,
- * `rgb()` as a browser's computed style has it, or one of the named colours —
- * to the `#rrggbb` a native colour picker takes. Anything else, including a
- * colour that is not opaque, has no such form and is `undefined`.
+ * The color field's small, pure converter (docs/ARCHITECTURE.md §7, "The
+ * interface"): a CSS color as a drawing writes it — `#rgb`, `#rrggbb`,
+ * `rgb()` as a browser's computed style has it, or one of the named colors —
+ * to the `#rrggbb` a native color picker takes. Anything else, including a
+ * color that is not opaque, has no such form and is `undefined`.
  */
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -12,13 +12,14 @@ const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const RGB =
 	/^rgba?\(\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/;
 
-/** An alpha that leaves the colour opaque, so that dropping it loses nothing. */
+/** An alpha that leaves the color opaque, so that dropping it loses nothing. */
 const isOpaque = (alpha: string | undefined): boolean =>
 	alpha === undefined || (alpha.endsWith('%') ? parseFloat(alpha) >= 100 : Number(alpha) >= 1);
 
 /**
- * The CSS named colours (https://www.w3.org/TR/css-color-4/#named-colors), as
+ * The CSS named colors (https://www.w3.org/TR/css-color-4/#named-colors), as
  * `name:rrggbb`, so the table is read in one glance rather than down a page.
+ * The `grey` names are CSS's own, beside the `gray` ones, and stay as spelled.
  */
 const NAMED_TABLE = `
 aliceblue:f0f8ff antiquewhite:faebd7 aqua:00ffff aquamarine:7fffd4 azure:f0ffff beige:f5f5dc
@@ -68,7 +69,7 @@ export const isValidHex = (value: string): boolean => HEX.test(value.trim());
 
 const channel = (text: string): string => Math.min(255, Number(text)).toString(16).padStart(2, '0');
 
-/** The colour as `#rrggbb`, lower case, or `undefined` for one that has no such form. */
+/** The color as `#rrggbb`, lower case, or `undefined` for one that has no such form. */
 export const toHex = (value: string): string | undefined => {
 	const text = value.trim().toLowerCase();
 	if (HEX.test(text)) {

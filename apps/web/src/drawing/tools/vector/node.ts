@@ -2,7 +2,7 @@ import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 
 import { t } from '../../../i18n/t.js';
 import { editLayer } from '../../document/commands.js';
-import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 import {
 	boxContains,
 	constrainLine,
@@ -15,7 +15,7 @@ import {
 	type Point,
 } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
-import { paintedColour } from './hit.js';
+import { paintedColor } from './hit.js';
 import {
 	insertPoint,
 	isSmooth,
@@ -56,7 +56,9 @@ import { createSvg } from './svg.js';
  * handle of a smooth point turning with the one dragged unless Alt is held. A
  * click on a segment puts a point in there, and a drag from it moves it at
  * once; Alt-click on an anchor takes it out, and Alt-drag from one pulls
- * handles out of it. A click on nothing lets go.
+ * handles out of it. A click on nothing lets go. A double press on a path or
+ * a shape under the select tool brings it here with its anchors shown
+ * (`edit`), as a double-click does in Illustrator, Figma and Inkscape.
  *
  * While a drag lasts the element shows it, a shape by the path it will
  * become standing in its place; at the end the element is put back as it was
@@ -168,19 +170,24 @@ const asPath = (shape: Element, d: string): Element => {
 };
 
 const isFilled = (element: Element, layer: Element): boolean => {
-	const fill = paintedColour(element, 'fill', layer, '#000000').toLowerCase();
+	const fill = paintedColor(element, 'fill', layer, '#000000').toLowerCase();
 	return fill !== 'none' && fill !== 'transparent';
 };
 
 /**
- * The topmost element with points under `p`: one whose outline passes within
- * reach first, so a thin line over a filled shape can be picked, then one
- * whose fill holds it. By the shapes themselves rather than their boxes, so
- * paths that overlap are told apart.
+ * The topmost element with points under `p`, of those in `within`: one whose
+ * outline passes within reach first, so a thin line over a filled shape can
+ * be picked, then one whose fill holds it. By the shapes themselves rather
+ * than their boxes, so paths that overlap are told apart.
  */
-const elementUnder = (context: ToolContext, layer: Element, p: Point): Target | undefined => {
+const elementUnder = (
+	context: ToolContext,
+	layer: Element,
+	p: Point,
+	within: Element = layer
+): Target | undefined => {
 	const reach = SEGMENT_REACH_PX / context.viewport.scale;
-	const near = editableIn(layer)
+	const near = editableIn(within)
 		.flatMap((element) => targetOf(layer, element) ?? [])
 		.filter((target) => {
 			const box = boundsOf(target.data);
@@ -193,6 +200,22 @@ const elementUnder = (context: ToolContext, layer: Element, p: Point): Target | 
 			.at(-1)
 	);
 };
+
+/**
+ * The element with points the node tool would take up at `p`, in the drawing's
+ * units, of those inside `within` (a group in the layer): for the select
+ * tool's double press on a group, which goes into it.
+ */
+export const pointsElementAt = (
+	context: ToolContext,
+	layer: Element,
+	p: Point,
+	within: Element
+): Element | undefined => elementUnder(context, layer, p, within)?.element;
+
+/** Whether the node tool edits an element of this name: a path, or a shape it makes one of. */
+export const hasNodes = (element: Element): boolean =>
+	element.namespaceURI === SVG_NAMESPACE && hasPoints(element.localName);
 
 const validAnchors = (anchors: readonly AnchorRef[], data: PathData): readonly AnchorRef[] =>
 	anchors.filter((ref) => anchorAt(data, ref) !== undefined);
@@ -311,7 +334,7 @@ const drawMarks = (
 	context.overlay.appendChild(group);
 };
 
-export const createNode = (): ToolBehaviour => {
+export const createNode = (): ToolBehavior => {
 	const chosen = cell<Chosen | undefined>(undefined);
 	const drag = cell<Drag | undefined>(undefined);
 
@@ -541,6 +564,19 @@ export const createNode = (): ToolBehaviour => {
 		cancel: (context) => {
 			letGo();
 			redraw(context);
+		},
+
+		// What the select tool was double-pressed on: its anchors shown, none chosen.
+		edit: (context, { element }) => {
+			letGo();
+			const info = guardLayer(context);
+			if (info === undefined) return;
+			const layer = activeLayerElement(context);
+			if (layer === undefined || !editableIn(layer).includes(element)) return;
+			const target = targetOf(layer, element);
+			if (target === undefined) return;
+			choose(info.id, target, []);
+			drawMarks(context, target.data, []);
 		},
 
 		// The viewport empties the overlay when the tool changes, and an undo

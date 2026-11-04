@@ -1,48 +1,50 @@
 import type { Dispatch } from 'react';
 
-import { classes } from '../../components/ui/classes.js';
-import { isNone } from '../../components/ui/colour.js';
-import { ColourIcon, ICONS, LayersIcon } from '../../components/ui/icons.js';
+import { ColorPair } from '../../components/ui/ColorPair.js';
+import { ICONS, LayersIcon } from '../../components/ui/icons.js';
 import { ToolButton } from '../../components/ui/ToolButton.js';
 import { t } from '../../i18n/t.js';
-import type { EditorAction } from '../editorState.js';
-import { shortcutLabel } from '../keys.js';
+import type { ColorSlot, EditorAction } from '../editorState.js';
+import { shortcutFor, shortcutLabel } from '../keys.js';
 import { TOOLS } from '../tools/index.js';
 import type { Tool } from '../tools/types.js';
+import { isMac } from '../viewport/pointer.js';
 
 /**
  * What the tool bar and the rail hold (docs/ARCHITECTURE.md §7, "The
- * interface"): a button per tool, then the colour and the layers. The frame
- * (`Editor.tsx`) places the bar; this is what is in it.
+ * interface"): a button per tool, then the two colors and their swap, and the
+ * layers. The reset is the color panel's. The frame (`Editor.tsx`) places
+ * the bar; this is what is in it.
  */
 
-/** The fill as a mark on the colour button; none is a struck-through one. */
-const Swatch = ({ colour }: Readonly<{ colour: string }>) => (
-	<span
-		className={classes('swatch', isNone(colour) && 'swatch-none')}
-		// The swatch is drawn in `currentColor` (`ui.css`), so the colour is the one style set here.
-		style={isNone(colour) ? undefined : { color: colour }}
-		aria-hidden="true"
-	/>
-);
+const MAC = isMac();
 
 type ToolButtonsProps = Readonly<{
 	tool: Tool;
 	fill: string;
-	colourOpen: boolean;
+	stroke: string;
+	/** The color the color panel is open on, while it is open. */
+	editing: ColorSlot | undefined;
+	/** The bar is short of room, as a compact window's is: the colors as one control and the swap. */
+	compact: boolean;
 	layersOpen: boolean;
 	dispatch: Dispatch<EditorAction>;
 	onLayers: () => void;
 }>;
 
 /**
- * The tools, then the colour and the layers, which stay at the bar's far end
- * while the tools scroll past them on a narrow bar (`editor.css`).
+ * The tools, then the colors and the layers, which stay at the bar's far end
+ * while the tools scroll past them on a narrow bar (`editor.css`). The colors
+ * are where the tool's options are set (`data-tool-options`,
+ * `tools/optionsRegion.ts`), as the color panel they open is: a color picked
+ * or swapped there while the text tool's field is open is the text's.
  */
 export const ToolButtons = ({
 	tool,
 	fill,
-	colourOpen,
+	stroke,
+	editing,
+	compact,
 	layersOpen,
 	dispatch,
 	onLayers,
@@ -62,13 +64,17 @@ export const ToolButtons = ({
 			);
 		})}
 		<span className="tool-group-end">
-			<ToolButton
-				icon={<ColourIcon />}
-				label={t('editor.colour.title')}
-				pressed={colourOpen}
-				badge={<Swatch colour={fill} />}
-				onClick={() => dispatch({ type: 'togglePanel', panel: 'colour' })}
-			/>
+			<span className="tool-options" data-tool-options="">
+				<ColorPair
+					fill={fill}
+					stroke={stroke}
+					editing={editing}
+					compact={compact}
+					swapShortcut={shortcutFor('swapColors', MAC)}
+					onEdit={(which) => dispatch({ type: 'editColor', which })}
+					onSwap={() => dispatch({ type: 'swapColors' })}
+				/>
+			</span>
 			<ToolButton
 				icon={<LayersIcon />}
 				label={t('layers.title')}

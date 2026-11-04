@@ -9,7 +9,7 @@ import { createStore } from './emitter.js';
  * the disk runs short, and Safari deletes every kind of storage a script can
  * write after seven days of Safari use with no interaction with the site. For
  * a library with no storage connected, that store is the only copy there is,
- * and nothing inside the origin can tell afterwards that it was cleared: the
+ * and nothing inside the origin can tell afterward that it was cleared: the
  * next open looks like a new install (docs/ARCHITECTURE.md §8, "Keeping the
  * store").
  *

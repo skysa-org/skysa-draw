@@ -61,7 +61,7 @@ describe('a tab the browser freezes', { shuffle: false }, () => {
 		expect(db.isOpen()).toBe(false);
 	});
 
-	it('opens it again before anything asked of it afterwards reads it', async () => {
+	it('opens it again before anything asked of it afterward reads it', async () => {
 		const db = await thisTab();
 		freeze();
 		const open = vi.spyOn(indexedDB, 'open');

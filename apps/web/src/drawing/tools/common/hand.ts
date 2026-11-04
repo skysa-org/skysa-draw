@@ -1,4 +1,4 @@
-import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 
 /**
  * The hand (docs/decisions/0004-the-interface.md): the drawing follows the
@@ -12,7 +12,7 @@ import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
  */
 const anchors = new WeakMap<ToolContext, PointerSample>();
 
-export const handBehaviour: ToolBehaviour = {
+export const handBehavior: ToolBehavior = {
 	begin: (context, sample) => {
 		anchors.set(context, sample);
 	},

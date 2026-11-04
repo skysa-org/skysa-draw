@@ -1251,7 +1251,7 @@ describe('a write whose file is not where it was', () => {
 
 	it('does the same with no rename queued to carry the file after it', async () => {
 		// The same choice of name, reached without the queued `move` that lets
-		// `followTheRename` move the file. What becomes of the op afterwards is
+		// `followTheRename` move the file. What becomes of the op afterward is
 		// its own question \u2014 there is nothing here to move the file and the
 		// write finds nothing at the new path \u2014 but the drawing is moved aside
 		// once, to a name that is free on the remote, rather than twice.

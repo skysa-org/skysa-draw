@@ -27,7 +27,7 @@ export {
  * purpose, and `tests/drawing/sanitize.test.ts` holds both lists.
  *
  * Elements and attributes in a namespace that is not SVG's, XHTML's or
- * MathML's are kept: a browser gives them no behaviour at all, so they are
+ * MathML's are kept: a browser gives them no behavior at all, so they are
  * inert, and they are Inkscape's vocabulary, the metadata other tools write,
  * and this app's own (`draw:*`).
  */
@@ -53,7 +53,7 @@ export const parseDrawing = (text: string): XMLDocument | undefined => {
 	return parsed;
 };
 
-/** The namespaces a browser gives elements behaviour in. */
+/** The namespaces a browser gives elements behavior in. */
 const LIVE_NAMESPACES: ReadonlySet<string> = new Set([
 	SVG_NAMESPACE,
 	XHTML_NAMESPACE,

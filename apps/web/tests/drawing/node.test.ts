@@ -5,7 +5,7 @@ import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/docum
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
-	type ToolBehaviour,
+	type ToolBehavior,
 	type ToolContext,
 } from '../../src/drawing/tools/types.js';
 import { createNode } from '../../src/drawing/tools/vector/node.js';
@@ -123,7 +123,7 @@ const createFake = (root: SVGSVGElement, layers: LayerInfo[], active: LayerInfo 
 			pixelRatio: 1,
 		},
 		viewport: { scale: 1, zoomBy: noop, panBy: noop, fit: noop, actualSize: noop },
-		region: { path: undefined, set: noop },
+		region: { path: undefined, region: undefined, set: noop, update: noop },
 		host: document.createElement('div'),
 		selection: {
 			get elements() {
@@ -136,7 +136,7 @@ const createFake = (root: SVGSVGElement, layers: LayerInfo[], active: LayerInfo 
 				selected.current = [];
 			},
 		},
-		setColour: noop,
+		setColor: noop,
 		notify: (message) => notices.push(message),
 	};
 	return { context, labels, notices, onExecute };
@@ -157,7 +157,7 @@ const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSa
 });
 
 const click = (
-	node: ToolBehaviour,
+	node: ToolBehavior,
 	context: ToolContext,
 	x: number,
 	y: number,
@@ -168,7 +168,7 @@ const click = (
 };
 
 const drag = (
-	node: ToolBehaviour,
+	node: ToolBehavior,
 	context: ToolContext,
 	from: readonly [number, number],
 	to: readonly [number, number],
@@ -221,7 +221,7 @@ describe('the node tool', () => {
 		expect(path?.getAttribute('id')).toBe('p1');
 	});
 
-	it('puts the element back and writes nothing when the drag is cancelled', () => {
+	it('puts the element back and writes nothing when the drag is canceled', () => {
 		const { context, labels, layer, node } = setUp([{ d: 'M 0 0 L 100 0', fill: 'none' }]);
 		click(node, context, 50, 1);
 		node.begin(context, at(100, 0));
@@ -336,7 +336,7 @@ describe('the node tool', () => {
 		const wave = 'M 0 0 C 0 -20 40 -20 40 0 C 40 20 80 20 80 0';
 		const smooth = setUp([{ d: wave, fill: 'none' }]);
 		click(smooth.node, smooth.context, 60, 15);
-		// The anchor chosen, its handles and its neighbours' show.
+		// The anchor chosen, its handles and its neighbors' show.
 		click(smooth.node, smooth.context, 40, 0);
 		expect(handlesShown(smooth.context)).toBe(4);
 		drag(smooth.node, smooth.context, [40, 20], [60, 20]);
@@ -438,5 +438,52 @@ describe('the node tool', () => {
 		layer.replaceWith(copy);
 		node.hover?.(context, at(0, 0));
 		expect(anchorsShown(context)).toBe(3);
+	});
+});
+
+describe('the node tool handed an element to edit', () => {
+	const editOf = (node: ToolBehavior) => {
+		const { edit } = node;
+		if (edit === undefined) throw new Error('the node tool takes an element handed to it');
+		return edit;
+	};
+
+	it('shows the anchors of a path or a shape it is handed, chosen as a click would, and changes nothing', () => {
+		const { context, labels, layer, node } = setUp([
+			{ d: 'M 0 0 L 100 0 L 100 100', fill: 'none' },
+			{ tag: 'rect', x: '200', y: '200', width: '40', height: '20' },
+		]);
+		const [path, rect] = [...layer.children];
+		if (path === undefined || rect === undefined) throw new Error('the layer has both');
+		editOf(node)(context, { element: path, at: { x: 50, y: 0 } });
+		expect(anchorsShown(context)).toBe(3);
+		editOf(node)(context, { element: rect, at: { x: 210, y: 210 } });
+		expect(anchorsShown(context)).toBe(4);
+		// And it is the chosen one: a drag of its corner moves it.
+		drag(node, context, [200, 200], [190, 190]);
+		expect(labels).toEqual(['tools.node']);
+		expect(layer.lastElementChild?.localName).toBe('path');
+		expect(rect.isConnected).toBe(false);
+		expect(path.getAttribute('d')).toBe('M 0 0 L 100 0 L 100 100');
+	});
+
+	it('shows nothing for an element of another layer, or one with no points, and says why on a locked layer', () => {
+		const { context, notices, owner, root, layer, node } = setUp([
+			{ tag: 'text', x: '0', y: '10' },
+		]);
+		const other = svg(owner, 'g', { id: 'layer-2' });
+		const elsewhere = svg(owner, 'path', { d: 'M 0 0 L 10 0' });
+		other.appendChild(elsewhere);
+		root.appendChild(other);
+		const text = layer.firstElementChild;
+		if (text === null) throw new Error('the layer has a text');
+		editOf(node)(context, { element: text, at: { x: 0, y: 10 } });
+		editOf(node)(context, { element: elsewhere, at: { x: 5, y: 0 } });
+		expect(anchorsShown(context)).toBe(0);
+		const locked = layerInfo('layer-1', { locked: true });
+		const fake = createFake(root, [locked], locked);
+		editOf(node)(fake.context, { element: text, at: { x: 0, y: 10 } });
+		expect(fake.notices).toEqual([t('layers.locked', { name: 'Layer 1' })]);
+		expect(notices).toEqual([]);
 	});
 });

@@ -88,7 +88,7 @@ export interface FakeProviderOptions {
 	/**
 	 * Whether moving or deleting a folder reports its descendants too. Drive
 	 * reports only the folder and leaves the caller to rebase; Dropbox and Graph
-	 * report every affected entry. One knob, both behaviours.
+	 * report every affected entry. One knob, both behaviors.
 	 */
 	folderChanges?: 'folder-only' | 'recursive';
 	/**

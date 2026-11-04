@@ -5,7 +5,7 @@
  * said is shown as they said it.
  */
 export const scheduler = {
-	/** A sync that failed without a reason of its own. Shown in brackets after the panel's words. */
+	/** A sync that failed without a reason of its own. Shown in parentheses after the panel's words. */
 	failed: 'Sync failed',
 	unsupported: 'This app cannot sync with this storage provider yet.',
 } as const;

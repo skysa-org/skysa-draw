@@ -65,7 +65,7 @@ const withValue = (
 			: adjustment
 	);
 
-/** The list with the adjustment at `index` traded with its neighbour `by` away. */
+/** The list with the adjustment at `index` traded with its neighbor `by` away. */
 const moved = (list: readonly Adjustment[], index: number, by: number): readonly Adjustment[] => {
 	const other = index + by;
 	const one = list[index];

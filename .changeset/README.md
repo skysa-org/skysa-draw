@@ -34,7 +34,7 @@ and once `verify` is a required check such a pull request could never merge.
 That pull request needs no changeset of its own, and could not have one:
 `changeset version` **deletes** every changeset it consumes, so its diff is
 three bumped packages and nothing explaining them — the exact shape the CI
-check rejects. CI recognises it by that shape (nothing changed in a package but
+check rejects. CI recognizes it by that shape (nothing changed in a package but
 its `package.json` and its `CHANGELOG.md`) and does not ask. A source file
 alongside them is not a release, and is asked like anything else.
 
@@ -74,7 +74,7 @@ only a major version asks them to do anything beyond the routine steps under
   every device reconnect; a `brand.json` field that changes meaning; a storage
   layout older builds can only open read-only. The summary says what to do.
 
-No bump is licence to strand what people already have. Notes, files and
+No bump is license to strand what people already have. Notes, files and
 settings written by any earlier release — on the device or in the user's own
 storage — keep working after an update. Where a change cannot read them as they
 are, it ships with the upgrade path that carries them forward, in the same

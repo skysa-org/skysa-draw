@@ -322,7 +322,7 @@ describe('metadata Dropbox does not send', () => {
 });
 
 describe('ensureRoot', () => {
-	it('writes the marker once and leaves it alone afterwards', async () => {
+	it('writes the marker once and leaves it alone afterward', async () => {
 		const stub = createDropboxStub();
 		const dropbox = provider(stub.fetch);
 
@@ -454,7 +454,7 @@ describe('what a cooperative stub hides', () => {
 		expect((JSON.parse(header) as { path: string }).path).toBe('/🙂.svg');
 	});
 
-	it('recognises the not-found tag each route spells differently', async () => {
+	it('recognizes the not-found tag each route spells differently', async () => {
 		// move_v2 says `from_lookup/not_found`, delete_v2 says `path_lookup/...`.
 		const summaries = ['from_lookup/not_found/..', 'path_lookup/not_found/..'];
 		const errors = await Promise.all(
@@ -504,8 +504,8 @@ describe('encoding', () => {
 
 	it('drops a byte-order mark, and does so deliberately', async () => {
 		// `TextDecoder` strips a leading BOM, as `Response.text()` did before the
-		// decode was made strict (`providers/text.ts`). That is the behaviour we want —
-		// a BOM is an encoding artefact, not something the user typed, and leaving
+		// decode was made strict (`providers/text.ts`). That is the behavior we want —
+		// a BOM is an encoding artifact, not something the user typed, and leaving
 		// it in would put a stray character at the top of the editor. Worth
 		// knowing: a drawing written by an editor that adds one loses it here the
 		// first time the user edits and it is written back.
@@ -624,7 +624,7 @@ describe('not knowing, rather than guessing', () => {
 		);
 	});
 
-	it('recognises a move that has already happened, through a stale path', async () => {
+	it('recognizes a move that has already happened, through a stale path', async () => {
 		// The ref names the drawing by id, and its `path` is where the drawing was
 		// before something else moved it. The adapter cannot tell before asking
 		// that this is a move to where the drawing already is, so Dropbox tells it —
@@ -694,7 +694,7 @@ describe('not knowing, rather than guessing', () => {
 	 * *user* typed, so the path that comes back is routinely spelled differently
 	 * from the one the caller holds for the very same file.
 	 */
-	it('recognises its own file through a path Dropbox spells differently', async () => {
+	it('recognizes its own file through a path Dropbox spells differently', async () => {
 		const doFetch = routed({
 			'files/move_v2': () =>
 				new Response(errorBody('to/conflict/file/...', 'to'), { status: 409 }),
@@ -720,10 +720,10 @@ describe('not knowing, rather than guessing', () => {
 		expect(moved.path).toBe('Work/Drawings.svg');
 	});
 
-	it('recognises its own file through a path that was never normalized', async () => {
+	it('recognizes its own file through a path that was never normalized', async () => {
 		// An `EntryRef` carries whatever path its caller holds, and a drawing row
 		// holds whatever path it was imported with rather than one this app
-		// composed. Compared raw, the entry would not recognise itself.
+		// composed. Compared raw, the entry would not recognize itself.
 		const doFetch = routed({
 			'files/move_v2': () =>
 				new Response(errorBody('to/conflict/file/...', 'to'), { status: 409 }),
@@ -777,7 +777,7 @@ describe('not knowing, rather than guessing', () => {
 		);
 	});
 
-	it('recognises a folder move Dropbox calls moving it into itself', async () => {
+	it('recognizes a folder move Dropbox calls moving it into itself', async () => {
 		// A folder rename is a folder move, and what Dropbox answers for a
 		// folder sent to where it already is has no documented tag. This one is
 		// plausible enough that leaving it out would strand the queue on the

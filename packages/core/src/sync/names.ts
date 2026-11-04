@@ -36,7 +36,7 @@ export interface FreeNameSearch<T> {
 
 /**
  * The first name `claim` finds free. Bounded, because ending rests on
- * `candidate` recognising the names it made when they are handed back in
+ * `candidate` recognizing the names it made when they are handed back in
  * `taken`: two folds, the one that writes a name and the one that reads it,
  * and if they ever disagree the same name comes back for ever. Running out
  * throws `exhausted`, so the op fails and is retried rather than going on

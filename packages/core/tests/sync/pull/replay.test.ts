@@ -260,7 +260,7 @@ describe('folderNow and folderBefore', () => {
 });
 
 describe('rebaseThrough and survives', () => {
-	it('carry a path inside the folder, and leave its neighbours alone', () => {
+	it('carry a path inside the folder, and leave its neighbors alone', () => {
 		expect(rebaseThrough('Work/a.svg', { from: 'Work', to: 'Play' })).toBe('Play/a.svg');
 		expect(rebaseThrough('Work', { from: 'Work', to: 'Play' })).toBe('Play');
 		expect(rebaseThrough('Workshop/a.svg', { from: 'Work', to: 'Play' })).toBe(

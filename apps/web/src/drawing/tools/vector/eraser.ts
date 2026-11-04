@@ -1,7 +1,7 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
-import type { PointerSample, ToolBehaviour, ToolContext } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 import { apply, type Mat } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
 import { elementsAt, elementsAtPositions, elementsOf, positionsIn } from './hit.js';
@@ -24,7 +24,7 @@ type Stroke = Readonly<{
 	preview: SVGElement;
 }>;
 
-export const createEraser = (measure: Measure): ToolBehaviour => {
+export const createEraser = (measure: Measure): ToolBehavior => {
 	const stroke = cell<Stroke | undefined>(undefined);
 
 	const forget = (): void => {

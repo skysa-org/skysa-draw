@@ -6,12 +6,13 @@ import {
 	type EditorAction,
 	editorReducer,
 	initialEditorState,
-	RECENT_COLOURS_MAX,
+	RECENT_COLORS_MAX,
 	setOption,
 	SIZE_MAX,
 	SIZE_MIN,
 	steppedSize,
 } from '../../src/drawing/editorState.js';
+import { DEFAULT_TOOL_OPTIONS } from '../../src/drawing/tools/types.js';
 
 /** The frame's state after each of `actions`, in order. */
 const after = (...actions: EditorAction[]) => actions.reduce(editorReducer, initialEditorState);
@@ -35,7 +36,7 @@ describe('the editor state', () => {
 		expect(initialEditorState.panel).toBeUndefined();
 		expect(initialEditorState.dockOpen).toBeUndefined();
 		expect(initialEditorState.libraryOpen).toBe(false);
-		expect(initialEditorState.recentColours).toEqual([]);
+		expect(initialEditorState.recentColors).toEqual([]);
 	});
 
 	it('sets a tool and an option', () => {
@@ -54,58 +55,58 @@ describe('the editor state', () => {
 		expect(after(setOption('constrain', true)).options.constrain).toBe(true);
 	});
 
-	it('writes a colour into the options, and remembers it once, newest first', () => {
+	it('writes a color into the options, and remembers it once, newest first', () => {
 		const state = after(
-			{ type: 'setColour', which: 'fill', value: '#ff0000' },
-			{ type: 'setColour', which: 'stroke', value: '#00ff00' },
-			{ type: 'setColour', which: 'fill', value: '#ff0000' }
+			{ type: 'setColor', which: 'fill', value: '#ff0000' },
+			{ type: 'setColor', which: 'stroke', value: '#00ff00' },
+			{ type: 'setColor', which: 'fill', value: '#ff0000' }
 		);
 		expect(state.options.fill).toBe('#ff0000');
 		expect(state.options.stroke).toBe('#00ff00');
-		expect(state.recentColours).toEqual(['#ff0000', '#00ff00']);
+		expect(state.recentColors).toEqual(['#ff0000', '#00ff00']);
 	});
 
-	it('does not remember none as a colour, though it sets it', () => {
-		const state = after({ type: 'setColour', which: 'stroke', value: 'none' });
+	it('does not remember none as a color, though it sets it', () => {
+		const state = after({ type: 'setColor', which: 'stroke', value: 'none' });
 		expect(state.options.stroke).toBe('none');
-		expect(state.recentColours).toEqual([]);
+		expect(state.recentColors).toEqual([]);
 	});
 
-	it('remembers a colour by its #rrggbb, so the forms of one colour are one swatch', () => {
+	it('remembers a color by its #rrggbb, so the forms of one color are one swatch', () => {
 		const state = after(
-			{ type: 'setColour', which: 'fill', value: '#F00' },
-			{ type: 'setColour', which: 'fill', value: 'red' },
-			{ type: 'setColour', which: 'stroke', value: 'rgb(0, 0, 255)' }
+			{ type: 'setColor', which: 'fill', value: '#F00' },
+			{ type: 'setColor', which: 'fill', value: 'red' },
+			{ type: 'setColor', which: 'stroke', value: 'rgb(0, 0, 255)' }
 		);
 		expect(state.options.fill).toBe('red');
-		expect(state.recentColours).toEqual(['#0000ff', '#ff0000']);
+		expect(state.recentColors).toEqual(['#0000ff', '#ff0000']);
 	});
 
-	it('remembers a colour set as an option too, and nothing for any other option', () => {
+	it('remembers a color set as an option too, and nothing for any other option', () => {
 		const state = after(
 			{ type: 'setOption', key: 'fill', value: '#123456' },
 			{ type: 'setOption', key: 'stroke', value: 'none' },
 			{ type: 'setOption', key: 'size', value: 3 }
 		);
-		expect(state.recentColours).toEqual(['#123456']);
+		expect(state.recentColors).toEqual(['#123456']);
 	});
 
-	it(`remembers at most ${RECENT_COLOURS_MAX} colours`, () => {
-		const picks: EditorAction[] = Array.from({ length: RECENT_COLOURS_MAX + 3 }, (_, i) => ({
-			type: 'setColour',
+	it(`remembers at most ${RECENT_COLORS_MAX} colors`, () => {
+		const picks: EditorAction[] = Array.from({ length: RECENT_COLORS_MAX + 3 }, (_, i) => ({
+			type: 'setColor',
 			which: 'fill',
 			value: `#${String(i).padStart(6, '0')}`,
 		}));
 		const state = after(...picks);
-		expect(state.recentColours).toHaveLength(RECENT_COLOURS_MAX);
-		expect(state.recentColours[0]).toBe(`#${String(RECENT_COLOURS_MAX + 2).padStart(6, '0')}`);
+		expect(state.recentColors).toHaveLength(RECENT_COLORS_MAX);
+		expect(state.recentColors[0]).toBe(`#${String(RECENT_COLORS_MAX + 2).padStart(6, '0')}`);
 	});
 
-	it('swaps the two colours', () => {
+	it('swaps the two colors', () => {
 		const state = after(
-			{ type: 'setColour', which: 'fill', value: '#111111' },
-			{ type: 'setColour', which: 'stroke', value: 'none' },
-			{ type: 'swapColours' }
+			{ type: 'setColor', which: 'fill', value: '#111111' },
+			{ type: 'setColor', which: 'stroke', value: 'none' },
+			{ type: 'swapColors' }
 		);
 		expect(state.options.fill).toBe('none');
 		expect(state.options.stroke).toBe('#111111');
@@ -143,14 +144,43 @@ describe('the editor state', () => {
 			).panel
 		).toBeUndefined();
 		expect(
-			after(
-				{ type: 'togglePanel', panel: 'layers' },
-				{ type: 'togglePanel', panel: 'colour' }
-			).panel
-		).toBe('colour');
+			after({ type: 'togglePanel', panel: 'layers' }, { type: 'togglePanel', panel: 'color' })
+				.panel
+		).toBe('color');
 		expect(
-			after({ type: 'togglePanel', panel: 'colour' }, { type: 'closePanel' }).panel
+			after({ type: 'togglePanel', panel: 'color' }, { type: 'closePanel' }).panel
 		).toBeUndefined();
+	});
+
+	it('opens the color panel on the color asked for, and closes it when asked again for that one', () => {
+		expect(initialEditorState.colorSlot).toBe('fill');
+		const onStroke = after({ type: 'editColor', which: 'stroke' });
+		expect(onStroke.panel).toBe('color');
+		expect(onStroke.colorSlot).toBe('stroke');
+		const moved = after(
+			{ type: 'editColor', which: 'stroke' },
+			{ type: 'editColor', which: 'fill' }
+		);
+		expect(moved.panel).toBe('color');
+		expect(moved.colorSlot).toBe('fill');
+		expect(
+			after({ type: 'editColor', which: 'fill' }, { type: 'editColor', which: 'fill' }).panel
+		).toBeUndefined();
+		expect(
+			after({ type: 'togglePanel', panel: 'layers' }, { type: 'editColor', which: 'stroke' })
+				.panel
+		).toBe('color');
+	});
+
+	it('puts back the default colors, which is no color picked', () => {
+		const state = after(
+			{ type: 'setColor', which: 'fill', value: '#ff0000' },
+			{ type: 'setColor', which: 'stroke', value: '#00ff00' },
+			{ type: 'resetColors' }
+		);
+		expect(state.options.fill).toBe(DEFAULT_TOOL_OPTIONS.fill);
+		expect(state.options.stroke).toBe(DEFAULT_TOOL_OPTIONS.stroke);
+		expect(state.recentColors).toEqual(['#00ff00', '#ff0000']);
 	});
 
 	it('keeps the dock as the layers button left it', () => {

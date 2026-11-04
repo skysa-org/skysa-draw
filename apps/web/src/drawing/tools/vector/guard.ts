@@ -35,7 +35,7 @@ export const guardLayer = (context: ToolContext): LayerInfo | undefined => {
  * in a `<g>` first where it was a bare element at the root (docs/ARCHITECTURE.md
  * §3, "Layers": a loose element is wrapped the first time it is edited). The
  * wrapping is a command of its own, so it is done only when an edit follows,
- * never for a stroke that is cancelled.
+ * never for a stroke that is canceled.
  */
 export const targetLayer = (context: ToolContext): SVGGraphicsElement | undefined => {
 	const layer = guardLayer(context);

@@ -262,11 +262,11 @@ describe('matrices', () => {
 	});
 
 	it('keeps the point it rotates about', () => {
-		const centre = { x: 40, y: 25 };
-		const turned = apply(rotate(37, centre), centre);
-		expect(near(turned.x, centre.x)).toBe(true);
-		expect(near(turned.y, centre.y)).toBe(true);
-		const moved = apply(rotate(90, centre), { x: 50, y: 25 });
+		const center = { x: 40, y: 25 };
+		const turned = apply(rotate(37, center), center);
+		expect(near(turned.x, center.x)).toBe(true);
+		expect(near(turned.y, center.y)).toBe(true);
+		const moved = apply(rotate(90, center), { x: 50, y: 25 });
 		expect(near(moved.x, 40)).toBe(true);
 		expect(near(moved.y, 35)).toBe(true);
 	});

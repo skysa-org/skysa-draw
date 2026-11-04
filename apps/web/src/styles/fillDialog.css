@@ -1,0 +1,158 @@
+/* Fill…: the contents with their swatches, the blending, and the buttons
+   (`drawing/panels/FillDialog.tsx`); and the line over the canvas while a
+   content-aware fill is under way (`drawing/tools/raster/areaFill.ts`). Every
+   control is a `--target` tall. */
+.fill-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-m);
+}
+
+.fill-group {
+	border: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2xs);
+	margin: 0;
+	min-width: 0;
+	padding: 0;
+}
+
+.fill-legend {
+	color: var(--muted);
+	font-size: var(--text-s);
+	margin-block-end: var(--space-2xs);
+	padding: 0;
+}
+
+/* A whole row to press, the radio, the swatch and the words. */
+.fill-choice,
+.fill-check {
+	align-items: center;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	display: flex;
+	gap: var(--space-s);
+	min-height: var(--target);
+	padding-inline: var(--space-xs);
+	touch-action: manipulation;
+}
+
+.fill-choice:hover,
+.fill-check:hover {
+	background: var(--hover-bg);
+}
+
+.fill-choice input,
+.fill-check input {
+	accent-color: var(--accent);
+	flex: none;
+	height: 1.25rem;
+	margin: 0;
+	width: 1.25rem;
+}
+
+.fill-choice:has(:focus-visible),
+.fill-check:has(:focus-visible) {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
+/* In `currentColor`, as the color field's swatch is. */
+.fill-swatch {
+	background: currentColor;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-xs);
+	flex: none;
+	height: 1.5rem;
+	width: 1.5rem;
+}
+
+/* Content-aware has no color of its own: the picture around, as a hint of one. */
+.fill-swatch.is-picture {
+	background:
+		radial-gradient(circle at 70% 30%, var(--bg) 0 18%, transparent 20%),
+		linear-gradient(to top, var(--muted) 0 35%, var(--surface) 35%);
+}
+
+/* Color…'s field, under its row and in from its radio. */
+.fill-color {
+	padding-inline-start: calc(var(--space-xs) + 1.25rem + var(--space-s));
+}
+
+.fill-opacity {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	min-width: 0;
+}
+
+.fill-opacity .slider {
+	flex: 1;
+}
+
+.fill-field {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: none;
+	font: inherit;
+	/* What Safari on a phone needs of a field, or it zooms in on focus. */
+	font-size: var(--text-field-floor);
+	min-height: var(--target);
+	padding: 0 var(--space-s);
+	width: 5.5rem;
+}
+
+.fill-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-s);
+	justify-content: flex-end;
+	margin-block-start: var(--space-s);
+}
+
+.fill-actions button {
+	min-height: var(--target);
+	min-width: 6rem;
+}
+
+/* Over the top of the canvas, in the viewport's own element, while the
+   picture is made again: the words, a bar that does not say how far, and Stop. */
+.fill-progress {
+	align-items: center;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow-m);
+	cursor: default;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: var(--text-s);
+	gap: var(--space-s);
+	inset-block-start: var(--space-m);
+	inset-inline: var(--space-m);
+	justify-content: center;
+	margin-inline: auto;
+	max-width: 28rem;
+	padding-block: var(--space-2xs);
+	padding-inline: var(--space-m) var(--space-2xs);
+	position: absolute;
+	width: fit-content;
+	z-index: 2;
+}
+
+.fill-progress progress {
+	accent-color: var(--accent);
+	flex: 1 1 5rem;
+	min-width: 4rem;
+}
+
+.fill-progress button {
+	cursor: pointer;
+	min-height: var(--target);
+	min-width: var(--target);
+	padding: 0 var(--space-m);
+	touch-action: manipulation;
+}

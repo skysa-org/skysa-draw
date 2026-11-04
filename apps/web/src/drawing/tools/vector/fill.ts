@@ -1,5 +1,5 @@
 import { editLayer } from '../../document/commands.js';
-import type { ToolBehaviour } from '../types.js';
+import type { ToolBehavior } from '../types.js';
 import { apply } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
 import {
@@ -15,11 +15,11 @@ const nothing = (): undefined => undefined;
 
 /**
  * The fill tool on a vector layer (docs/decisions/0004-the-interface.md): a
- * click sets the fill colour of the element under the pointer, the topmost
+ * click sets the fill color of the element under the pointer, the topmost
  * where several overlap. A `fill` in the element's `style` is taken out, since
  * it would win over the attribute and the click would seem to do nothing.
  */
-export const createFill = (measure: Measure): ToolBehaviour => ({
+export const createFill = (measure: Measure): ToolBehavior => ({
 	begin: (context, sample) => {
 		if (guardLayer(context) === undefined) return;
 		const layer = activeLayerElement(context);
@@ -31,14 +31,14 @@ export const createFill = (measure: Measure): ToolBehaviour => ({
 		const positions = positionsIn(layer, [hit]);
 		const target = targetLayer(context);
 		if (target === undefined) return;
-		const colour = context.options.fill;
+		const color = context.options.fill;
 		context.document.execute(
 			editLayer(target.id, 'tools.fill', (g: Element) => {
 				elementsAtPositions(g, positions).forEach((element) => {
 					const style = element.getAttribute('style');
 					if (style !== null)
 						element.setAttribute('style', withoutStyleProperty(style, 'fill'));
-					element.setAttribute('fill', colour);
+					element.setAttribute('fill', color);
 				});
 			})
 		);

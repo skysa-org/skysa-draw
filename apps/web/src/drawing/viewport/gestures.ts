@@ -38,7 +38,7 @@ export type GestureState = Readonly<{
 	since: number;
 	/** The most fingers down at once since then: two tapping is undo, three redo. */
 	peak: number;
-	/** Whether what is down could still be a tap: nothing moved past `TAP_SLOP` and nothing was cancelled. */
+	/** Whether what is down could still be a tap: nothing moved past `TAP_SLOP` and nothing was canceled. */
 	still: boolean;
 }>;
 
@@ -104,7 +104,7 @@ const spread = (touches: ReadonlyMap<number, Finger>): number => {
 };
 
 /**
- * The fingers' centre moved: pan by that. Two fingers' distance changed: zoom
+ * The fingers' center moved: pan by that. Two fingers' distance changed: zoom
  * by the ratio, about where they are now, so the thing between them stays
  * between them.
  */

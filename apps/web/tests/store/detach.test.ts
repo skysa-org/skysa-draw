@@ -581,7 +581,7 @@ describe('connecting again after a source was detached', () => {
 		expect(copy?.remoteId).toBeUndefined();
 		expect(copy?.path).toMatch(/^edited \(conflict .*\)\.svg$/);
 		expect(movedRows.whereNow(edited)).toEqual([AGAIN.connectionId, copy?.id]);
-		// The rename and the delete held no text, and are dropped in favour of
+		// The rename and the delete held no text, and are dropped in favor of
 		// the file as it is; an editor on either lands on the pulled row.
 		expect(rows).toHaveLength(4);
 		expect(await opsUnder(db, AGAIN.connectionId)).toEqual([`write ${copy?.path ?? ''}`]);

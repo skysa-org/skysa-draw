@@ -12,7 +12,7 @@ import { type ChangeEntry, CursorResetError, type RemoteEntry } from './types.js
 // value for path … renaming a folder doesn't result in any descendants of the
 // folder being returned") and Google Drive's `changes.list` both do. So the
 // adapter has to know the tree to say where anything is, and that knowledge has
-// to outlive the page it was learnt from: a drawing edited today sits in a folder
+// to outlive the page it was learned from: a drawing edited today sits in a folder
 // the feed last mentioned a month ago.
 //
 // It travels in the cursor, which the engine already persists per connection
@@ -135,7 +135,7 @@ interface GoneChange {
 type Change = LiveChange | GoneChange;
 
 /**
- * The ids from `from` upwards, each the `up` of the one before, ending at the
+ * The ids from `from` upward, each the `up` of the one before, ending at the
  * first that has none — or `undefined` when the way up comes back on itself.
  *
  * A cycle is not a malformed feed. `A/B`, then B moved to the root and A moved

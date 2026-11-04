@@ -3,7 +3,7 @@
 Everything in this repository is meant to run on your own Cloudflare account.
 There is no hosted instance to fall back to and nothing withheld from the open
 source: `wrangler.toml` carries placeholders, `.dev.vars.example` lists every
-key, and no operator-specific behaviour exists outside the seams `docs/ARCHITECTURE.md`
+key, and no operator-specific behavior exists outside the seams `docs/ARCHITECTURE.md`
 §6 describes.
 
 Budget about fifteen minutes, plus however long the provider app registration
@@ -240,10 +240,10 @@ DRAW_BRAND="$PWD/../my-brand/brand.json" pnpm run deploy
 
 (The file itself is plain JSON; the comments are only for this page.)
 
-- `brand` fills buttons and colours links, `onBrand` is the text on it, and
-  `theme` colours the browser's and the installed app's title bar. The
-  installed app's navigation bar on Android takes one colour for both themes:
-  `background`, the splash's colour, on Android 15 and later, and the light
+- `brand` fills buttons and colors links, `onBrand` is the text on it, and
+  `theme` colors the browser's and the installed app's title bar. The
+  installed app's navigation bar on Android takes one color for both themes:
+  `background`, the splash's color, on Android 15 and later, and the light
   theme's `brand` on Android 14 and older. Give `background` the light
   `brand`'s value for one bar on every phone, or another that reads under the
   app in both themes; a light one is a pale strip in dark mode. Pick
@@ -253,7 +253,7 @@ DRAW_BRAND="$PWD/../my-brand/brand.json" pnpm run deploy
   `favicon-32x32.png`, `apple-touch-icon.png` (180), `pwa-192x192.png`,
   `pwa-512x512.png` and `pwa-maskable-512x512.png`, which keeps its artwork
   inside the central 80% circle. To put the default artwork on your own
-  colour, see `apps/web/brand/recolour.mjs`.
+  color, see `apps/web/brand/recolor.mjs`.
 - Fonts are `.woff2` files served from your instance, never from a font CDN,
   which the Content-Security-Policy would refuse.
 - A relative `DRAW_BRAND` is resolved from the directory the build runs in;

@@ -316,9 +316,9 @@ describe('what the sanitizer keeps', () => {
 
 	it('keeps <style> with its text, <title> and <desc>', () => {
 		const root = sanitized(
-			`<title>Harbour</title><desc>A boat</desc><style>.water { fill: #1d4ed8; }</style><g/>`
+			`<title>Harbor</title><desc>A boat</desc><style>.water { fill: #1d4ed8; }</style><g/>`
 		);
-		expect(root.querySelector('title')?.textContent).toBe('Harbour');
+		expect(root.querySelector('title')?.textContent).toBe('Harbor');
 		expect(root.querySelector('desc')?.textContent).toBe('A boat');
 		expect(root.querySelector('style')?.textContent).toBe('.water { fill: #1d4ed8; }');
 	});
@@ -417,9 +417,9 @@ describe('what the sanitizer keeps', () => {
 
 	it('keeps text and tspan, with xml:space', () => {
 		const root = sanitized(
-			`<text xml:space="preserve" x="1" y="2">Hello <tspan font-weight="bold">harbour</tspan></text>`
+			`<text xml:space="preserve" x="1" y="2">Hello <tspan font-weight="bold">harbor</tspan></text>`
 		);
-		expect(root.querySelector('text')?.textContent).toBe('Hello harbour');
+		expect(root.querySelector('text')?.textContent).toBe('Hello harbor');
 		expect(root.querySelector('text')?.getAttribute('xml:space')).toBe('preserve');
 		expect(root.querySelector('tspan')?.getAttribute('font-weight')).toBe('bold');
 	});

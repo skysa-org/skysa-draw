@@ -1,14 +1,14 @@
-// Recolours the background of the app icons, leaving the artwork on it as it
-// is: `node apps/web/brand/recolour.mjs <from dir> <to dir> <from #RRGGBB> <to #RRGGBB>`.
+// Recolors the background of the app icons, leaving the artwork on it as it
+// is: `node apps/web/brand/recolor.mjs <from dir> <to dir> <from #RRGGBB> <to #RRGGBB>`.
 //
-// The default icons in `icons/` are drawn by `icons.mjs` on whatever colour
+// The default icons in `icons/` are drawn by `icons.mjs` on whatever color
 // it is given, so they never need this; it is for a set of icons drawn by
-// hand on one colour that a deployment wants on another.
+// hand on one color that a deployment wants on another.
 //
-// Each pixel is read as some of the background colour over a grey (the page,
-// its ruled lines and its shadow are all greys), and only the background's
+// Each pixel is read as some of the background color over a gray (the page,
+// its ruled lines and its shadow are all grays), and only the background's
 // share is moved. A pixel the fit does not explain, such as the yellow of the
-// curl, keeps its colour. Plain Node, no dependencies: it reads and writes only
+// curl, keeps its color. Plain Node, no dependencies: it reads and writes only
 // the 8-bit, non-interlaced RGB and RGBA PNGs these icons are.
 
 import { Buffer } from 'node:buffer';
@@ -20,7 +20,7 @@ import { deflateSync, inflateSync } from 'node:zlib';
 const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 const hex = (text) => {
-	if (!/^#[0-9a-f]{6}$/i.test(text)) throw new Error(`not a #RRGGBB colour: ${text}`);
+	if (!/^#[0-9a-f]{6}$/i.test(text)) throw new Error(`not a #RRGGBB color: ${text}`);
 	return [1, 3, 5].map((at) => parseInt(text.slice(at, at + 2), 16));
 };
 
@@ -121,13 +121,13 @@ const share = (from, [r, g, b]) => {
 	const sp = from[0] * r + from[1] * g + from[2] * b;
 	const p1 = r + g + b;
 	const a = (3 * sp - s1 * p1) / (3 * ss - s1 * s1);
-	const grey = (p1 - a * s1) / 3;
-	const off = Math.hypot(r - a * from[0] - grey, g - a * from[1] - grey, b - a * from[2] - grey);
-	// Off the blue-to-grey plane by more than rounding: some other colour.
+	const gray = (p1 - a * s1) / 3;
+	const off = Math.hypot(r - a * from[0] - gray, g - a * from[1] - gray, b - a * from[2] - gray);
+	// Off the blue-to-gray plane by more than rounding: some other color.
 	return off > 24 ? 0 : Math.min(1, Math.max(0, a));
 };
 
-const recolour = (image, from, to) => {
+const recolor = (image, from, to) => {
 	const pixels = Buffer.from(image.pixels);
 	for (let at = 0; at < pixels.length; at += image.channels) {
 		const a = share(from, pixels.subarray(at, at + 3));
@@ -139,12 +139,12 @@ const recolour = (image, from, to) => {
 	return { ...image, pixels };
 };
 
-const [fromDir, toDir, fromColour, toColour] = process.argv.slice(2);
-if (toColour === undefined) {
-	throw new Error('usage: recolour.mjs <from dir> <to dir> <from #RRGGBB> <to #RRGGBB>');
+const [fromDir, toDir, fromColor, toColor] = process.argv.slice(2);
+if (toColor === undefined) {
+	throw new Error('usage: recolor.mjs <from dir> <to dir> <from #RRGGBB> <to #RRGGBB>');
 }
 mkdirSync(toDir, { recursive: true });
 for (const name of readdirSync(fromDir).filter((file) => file.endsWith('.png'))) {
 	const image = decode(readFileSync(join(fromDir, name)));
-	writeFileSync(join(toDir, name), encode(recolour(image, hex(fromColour), hex(toColour))));
+	writeFileSync(join(toDir, name), encode(recolor(image, hex(fromColor), hex(toColor))));
 }
