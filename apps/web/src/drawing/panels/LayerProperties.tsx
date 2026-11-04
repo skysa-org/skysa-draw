@@ -2,18 +2,22 @@ import { BLEND_MODES, type BlendMode } from '@skysa/draw-core';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
 import { Select } from '../../components/ui/Select.js';
-import { Slider } from '../../components/ui/Slider.js';
 import { t } from '../../i18n/t.js';
 import { renameLayer, setLayerBlend, setLayerOpacity } from '../document/commands.js';
 import type { EditorDocument, LayerInfo } from '../document/model.js';
 import { layerDisplayName } from '../layerName.js';
+import { AdjustmentsPanel } from './AdjustmentsPanel.js';
 import { blendKey } from './blendKey.js';
+import { LiveSlider } from './LiveSlider.js';
+import { usePreview } from './usePreview.js';
 
 /**
  * What can be set on a layer besides its place (docs/ARCHITECTURE.md §3,
- * "Layers"): its name, its opacity and its blend mode, each written by a
- * command, so each is undone as a stroke is. One component, under the list in
- * the layers sheet or drawer, and in the properties panel of the dock.
+ * "Layers"): its name, its opacity, its blend mode and its adjustments, each
+ * written by a command, so each is undone as a stroke is. One component,
+ * under the list in the layers sheet or drawer, and in the properties panel
+ * of the dock. The opacity shows live while it is dragged and is one change
+ * when it is let go (`LiveSlider`).
  */
 
 const BLEND_OPTIONS: readonly Readonly<{ value: BlendMode; label: string }>[] = BLEND_MODES.map(
@@ -109,30 +113,40 @@ export const LayerProperties = ({
 	layer: LayerInfo;
 	/** Where the layer is from the bottom, for the name of a layer that has none. */
 	indexFromBottom: number;
-}>) => (
-	<div className="layer-properties">
-		{/* Keyed by the layer and its name, so the draft is the layer's own and
-		    follows a rename made in the row or undone. */}
-		<LayerNameField
-			key={`${layer.id}/${layer.name ?? ''}`}
-			document={document}
-			layer={layer}
-			indexFromBottom={indexFromBottom}
-		/>
-		<Slider
-			label={t('layers.opacity')}
-			value={layer.opacity}
-			min={0}
-			max={1}
-			step={0.01}
-			format={percent}
-			onChange={(opacity) => document.execute(setLayerOpacity(layer.id, opacity))}
-		/>
-		<Select
-			label={t('layers.blend')}
-			value={layer.blend}
-			options={BLEND_OPTIONS}
-			onChange={(blend) => document.execute(setLayerBlend(layer.id, blend))}
-		/>
-	</div>
-);
+}>) => {
+	const preview = usePreview(document);
+	return (
+		<div className="layer-properties">
+			{/* Keyed by the layer and its name, so the draft is the layer's own and
+			    follows a rename made in the row or undone. */}
+			<LayerNameField
+				key={`${layer.id}/${layer.name ?? ''}`}
+				document={document}
+				layer={layer}
+				indexFromBottom={indexFromBottom}
+			/>
+			<LiveSlider
+				label={t('layers.opacity')}
+				value={layer.opacity}
+				min={0}
+				max={1}
+				step={0.01}
+				format={percent}
+				onPreview={(opacity) => preview.show(() => setLayerOpacity(layer.id, opacity))}
+				onCommit={(opacity) => {
+					preview.restore();
+					if (opacity !== layer.opacity)
+						document.execute(setLayerOpacity(layer.id, opacity));
+				}}
+			/>
+			<Select
+				label={t('layers.blend')}
+				value={layer.blend}
+				options={BLEND_OPTIONS}
+				onChange={(blend) => document.execute(setLayerBlend(layer.id, blend))}
+			/>
+			{/* Keyed by the layer, so a preview under way stays with the layer it was for. */}
+			<AdjustmentsPanel key={layer.id} document={document} layer={layer} />
+		</div>
+	);
+};

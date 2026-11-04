@@ -12,6 +12,7 @@ import {
 	type Tool,
 	TOOL_IDS,
 	type ToolBehaviour,
+	type ToolId,
 } from '../../src/drawing/tools/types.js';
 import { t } from '../../src/i18n/t.js';
 
@@ -128,11 +129,13 @@ describe('TOOLS', () => {
 		});
 	});
 
-	it('gives the hand and the zoom a behaviour for any layer, and none to the rest', () => {
-		expect(toolById('hand')?.behaviours.any).toBeDefined();
-		expect(toolById('zoom')?.behaviours.any).toBeDefined();
+	it('gives the hand, the zoom and the crop a behaviour for any layer, and none to the rest', () => {
+		const anyLayer: readonly ToolId[] = ['hand', 'zoom', 'crop'];
+		anyLayer.forEach((id) => {
+			expect(toolById(id)?.behaviours.any).toBeDefined();
+		});
 		expect(toolById('hand')?.behaviours.any).not.toBe(toolById('zoom')?.behaviours.any);
-		TOOLS.filter((tool) => tool.id !== 'hand' && tool.id !== 'zoom').forEach((tool) => {
+		TOOLS.filter((tool) => !anyLayer.includes(tool.id)).forEach((tool) => {
 			expect(tool.behaviours.any).toBeUndefined();
 		});
 	});

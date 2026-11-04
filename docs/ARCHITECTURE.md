@@ -276,9 +276,16 @@ prefs      key
 
 ### Sync engine
 
-Not yet ported; the plan (§10).
-What it will be is skysa-notes' engine (`packages/core/src/sync/`) behind a document-format seam: the two places it reads a note — the conflict copy patching a frontmatter `id`, and the pull batch reading a file's identity — become `readDrawingId`/`withDrawingId`, and everything else (the op queue drained in order, the pull batch with its cursor, the conflict rule, the `displace` of a file arriving on a taken path, the backoff, the lock every tab waits on) comes as it is.
-The provider factory with its request deadlines is already here (`apps/web/src/sync/providers.ts`).
+Ported from skysa-notes v2.1.1 (`b39c8e42`) into `packages/core/src/sync/`, with its tests in `packages/core/tests/sync/`; the Dexie `SyncStore` under it and the scheduler that runs it come next (§10).
+It is skysa-notes' engine behind a document-format seam, `sync/document.ts`, the one module of the engine that knows what a drawing's file holds: the id a file claims (`claimedId`, `readDrawingId`), a conflict copy's contents (`conflictContent`: the local text with a new `draw:id`, by `withDrawingId`), and every read that holds or compares a drawing (`readDrawingText`), which answers a `.svg` that is not an SVG document as `UnreadableError`, as §3 says.
+ESLint holds the seam: nothing else in `sync/` imports `drawing/`.
+Everything else comes as it is: the op queue drained in order, the pull batch committed with its cursor, the conflict rule, the `displace` of a drawing on a path a remote file arrives at, the backoff, files beside a drawing (`SyncFile`, mirrored and never read), folders and their deletions, `listsEverything` and `leaveFolder`, `writesAtOnce`, progress and the outcome.
+A file another tool made keeps its bytes when it is pulled: the engine gives it an id without writing it in, and the first save writes it.
+The engine's conflict copy keeps the drawing's `<title>` and takes a new `draw:id` only, where the editor's own copy (below, "Conflict rule") is retitled `<title> (conflict <stamp>)` in the catalog's words; making the two agree is a known gap (§10).
+Cut as notes-only: the outcome's `clipboard` and `encryption` flags (`metIn`, `metOf`), and the hidden folders notes synced at the root.
+The engine's comments cite skysa-notes' docs/ARCHITECTURE.md §7 by section, where its design is written down; they are left as they came, so a fix can be carried between the two (§12).
+Every store is held to one contract, `describeSyncStoreContract` from `@skysa/draw-core/testing`, over the in-memory store in core and the Dexie store in the web app.
+The provider factory with its request deadlines is already here (`apps/web/src/sync/providers.ts`), and the lock every tab waits on comes with the scheduler.
 
 ### Conflict rule (concrete)
 
@@ -321,7 +328,9 @@ Every command restores the attributes it touched in their order, and takes back 
 A loose element wrapped into a layer passes an id the app gave it on open (`layer-n`) to its new `<g>`, so the layer keeps its number; an id of the file's own stays on the element.
 Undo and redo are per open drawing, in memory, as long as the session, capped by bytes rather than by count (`HISTORY_BYTES`).
 
-**Layers**, as §3 defines them: add, delete, duplicate, reorder, hide, lock, rename, opacity and blend mode are built; grouping layers, merge down, which rasterizes where either side is raster, and rasterize, which turns a vector layer into a raster one by rendering it, are to come (§10).
+**Layers**, as §3 defines them: add, delete, duplicate, reorder, hide, lock, rename, opacity, blend mode, group and ungroup, clip to the layer below, merge down and rasterize, with the file's shape for each in `decisions/0003-layers.md`.
+Merge down of two vector layers stays vector; a merge that involves pixels, and rasterize, render the layers to pixels (`document/layerPixels.ts`, through the export's render) as a job the document waits for, dropped if the drawing changed while it rendered.
+Moving a layer into or out of a group is to come.
 One layer is active; tools act on it, and a tool that does nothing on its kind says so and is not available.
 
 **Tools.**
@@ -330,9 +339,20 @@ Pointer Events alone drive them, in user units through the viewport's inverse tr
 On a vector layer a stroke is a `<path>`, a brush stroke a filled path whose width follows pressure, a shape its own element, and selection, move, resize and rotate are `transform`s.
 On a raster layer a stroke is painted on a canvas the size of the layer's pixels, shown live, and written into the `<image>` when the stroke ends; the encoding is asynchronous and a save waits for it.
 Writes land in the order the strokes were made, whatever order their encodings finish in, and a stroke that changed no pixel writes nothing, so a picture keeps its bytes until a pixel of it changes (§3).
-Adjustments are filters on the layer; crop is the canvas's `viewBox`; a `transform` on a raster layer is a transform, never a resample, until the user flattens it.
+Adjustments are a stack of SVG filter primitives on the layer, each previewed live while its slider moves and made one command when it is let go, as opacity is.
+Crop is the canvas's `viewBox`, and `width` and `height` where the file has them, scaled in their own unit; nothing is resampled, and the viewport refits to the new box.
+A `transform` on a raster layer is a transform, never a resample, until the user rasterizes it.
+The pen draws a `<path>` of cubic segments, a click a corner and a drag a smooth point; a click on the first point closes it, a click on the last or Enter finishes it, and Escape keeps a path of two points or more, as Illustrator and Figma do.
+The node tool moves a path's anchors and handles and inserts a point where a segment is pressed, and turns a shape (`rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`) into a path on its first edit, keeping its id and its other attributes.
+Path data is read as a browser reads it, every command, with arcs as cubics, and written back as `M`, `L`, `C` and `Z` to two decimals (`tools/vector/path/`).
+The text tool types into a field over the canvas, opened as the pointer lifts so a pinch opens none, and writes one `<text>`, a `<tspan>` to a line, in one command; its face is named (`sans-serif`), so it is the same in the editor, in a thumbnail and in another tool.
+The marquee and the lasso make the area selection, a closed path in user units that outlives the tool: on a raster layer every painting tool paints inside it, the fill floods only inside it and Delete clears it; on a vector layer it selects the elements it touches and is dropped.
+Shift adds a subpath, a union under `nonzero`; subtracting is not built.
+Ctrl or ⌘ A selects all, the elements on a vector layer and the canvas elsewhere, and D drops both.
+Smudge pushes the layer's own pixels, each dab picking up what lies under the one before, in one command when the stroke ends.
 
-**Export** is a render of the SVG onto a canvas (`<img>` of a `blob:` URL drawn with `drawImage`) for PNG, JPEG and WebP at any scale, and the file itself for SVG.
+**Export** (`drawing/export/`) is a render of the SVG onto a canvas (`<img>` of a `blob:` URL drawn with `drawImage`, the root given the export's pixels as its size) for PNG, JPEG and WebP from 0.5× to 4×, the longer side kept to 16,384 px (`EXPORT_MAX_SIDE`), a JPEG on white unless another background is chosen; and the file itself for SVG.
+A picture placed from a file, a paste or a drop is a new raster layer holding the file's bytes as they came, of the type its header says, fitted inside the canvas and never enlarged (`placePicture`); an SVG is placed the same way, as `data:image/svg+xml`, which a browser draws as a picture with no script.
 
 **Still an image.**
 A drawing that is not open in the editor, in the list, as a thumbnail, or one the sanitizer could not parse at all, is shown through an `<img>` of a `blob:` URL (`DrawingView`), which renders any SVG with no script running and no reach into the page.
@@ -420,9 +440,8 @@ Carried over; the SVG-specific lines are new.
 [`history.md`](history.md), by phase.
 What comes next, in order:
 
-1. The sync engine ported from skysa-notes behind a document-format seam (§7, "Sync engine"), with the Dexie `SyncStore` over the schema in §7 and the connect flow's screens; with it a compare-and-set save, so a save in flight cannot land over a change from elsewhere.
-2. The rest of the tools (`decisions/0004-the-interface.md`): pen and node editing, text, marquee and lasso, smudge, crop, the adjustments, masks and clipping, merge down, rasterize, groups made from layers, and export.
-3. Attachments beside a drawing (§3), which the engine moves with it, and with them `INLINE_RASTER_BYTES`.
+1. The Dexie `SyncStore` over the schema in §7, held to the store contract, and the scheduler that runs the engine core now holds (§7, "Sync engine"), with the connect flow's screens; with it a compare-and-set save, so a save in flight cannot land over a change from elsewhere.
+2. Attachments beside a drawing (§3), which the engine moves with it, and with them `INLINE_RASTER_BYTES`.
 
 Known gaps in what is built, each for an issue:
 
@@ -432,6 +451,9 @@ Known gaps in what is built, each for an issue:
 - The library drawer's own rows (`Sidebar`, `DrawingList`) are below the 44 px target.
 - A stroke still under way when the editor reopens on a change from elsewhere is lost; an undo pressed while a raster stroke is encoding is overtaken when the stroke lands.
 - A drawing's `@font-face` does not apply inside the shadow root in Chromium, so its embedded fonts may not show in the editor.
+- Deleting a layer leaves the clips that name it, and those layers show nothing until their clip is released; a clipped layer moved by a `transform` moves its mask with it.
+- The pen finishes a path when the tool changes by watching the overlay being emptied, and listens for Enter and Escape on the document between clicks, since the viewport tells a tool only about strokes; a tool key pressed during a pen drag leaves the path open until Enter or Escape; a `finish` member of the tool contract, called by the viewport, would replace both.
+- A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.
 
 ## 11. Repo layout
 
@@ -448,20 +470,22 @@ apps/
                   scripts/bundleBudget.mjs, tests/
 packages/
   core/           src/drawing/ (the file), src/names/, src/paths.ts, src/providers/ (+ gdrive/),
+                  src/sync/ (the engine; document.ts is its seam),
                   src/marker.ts, src/entitlements.ts, src/relay.ts, src/api.ts, src/files/,
-                  tests/ (providers/contract.ts, stubs, drawing/), tests/testing.ts (test doubles entry)
+                  tests/ (providers/contract.ts, stubs, drawing/, sync/: the engine's tests,
+                  the store contract, the simulation kit), tests/testing.ts (test doubles entry)
 docs/             this file, history.md, decisions/, self-hosting.md, google-oauth.md
 .changeset/       one version for the three packages
 .github/          CI (verify, changeset check, generated files, size, minimum Node), release, CLA
 ```
 
-Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, and a provider never imports the engine; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
+Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
 Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
 
 ## 12. Carried over from skysa-notes
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
-The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling; not the sync engine, the markdown pipeline, the editors or any notes-only feature.
+The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, and the sync engine behind a document seam (§7, "Sync engine"); not the markdown pipeline, the editors or any notes-only feature.
 Until a shared package exists, a fix to a carried-over layer is a fix in both repositories; the first fix that has to be made twice is the trigger for the package.
 
 ## 13. Distribution and licensing

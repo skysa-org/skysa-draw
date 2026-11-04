@@ -406,7 +406,7 @@ export default tseslint.config(
 		},
 	},
 	{
-		// names/ sits below providers, sync and markdown, which all name files
+		// names/ sits below providers, sync and drawing, which all name files
 		// by it; reaching up into any of them would bring the cycle back.
 		files: ['packages/core/src/names/**/*.ts'],
 		rules: {
@@ -418,6 +418,45 @@ export default tseslint.config(
 						NOT_ABOVE(
 							['sync', 'providers', 'drawing'],
 							'names/ sits below sync, providers and drawing.'
+						),
+					],
+				},
+			],
+		},
+	},
+	{
+		// The drawing file sits below the engine and the providers, which read it;
+		// reaching up into either would bring the cycle back.
+		files: ['packages/core/src/drawing/**/*.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						...CORE_IMPORTS,
+						NOT_ABOVE(
+							['sync', 'providers'],
+							'the drawing file sits below the sync engine and the providers.'
+						),
+					],
+				},
+			],
+		},
+	},
+	{
+		// The engine meets the drawing file in one module, the document seam
+		// (docs/ARCHITECTURE.md §7, "Sync engine").
+		files: ['packages/core/src/sync/**/*.ts'],
+		ignores: ['packages/core/src/sync/document.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						...CORE_IMPORTS,
+						NOT_ABOVE(
+							['drawing'],
+							'the engine reads a drawing only through sync/document.ts, the document seam.'
 						),
 					],
 				},

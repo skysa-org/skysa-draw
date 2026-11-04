@@ -3,6 +3,7 @@ import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 import { replaceRasterImage } from '../../document/commands.js';
 import type { EditorDocument } from '../../document/model.js';
 import type { ToolContext } from '../types.js';
+import { type Area, clipToArea } from './area.js';
 import { type Bounds, type PixelGrid, pixelGrid, placePicture } from './pixels.js';
 import { toLocal } from './space.js';
 
@@ -40,18 +41,26 @@ export interface RasterSurface {
 	readonly stroke: HTMLCanvasElement;
 	/** The existing picture decoded onto `canvas`; at once for a layer without one. Never rejects. */
 	readonly ready: Promise<void>;
+	/** Whether `ready` has settled, for a tool that reads the pixels as it goes. */
+	readonly decoded: () => boolean;
 	/** The `href` the pixels came from, to tell when the file moved under the surface. */
 	readonly source: () => string | undefined;
 	/** The root's user units to `canvas`'s pixels, through the layer's own transform. Not rounded. */
 	readonly toPixel: (x: number, y: number) => readonly [number, number];
 	/**
 	 * The stroke composited onto the pixels in `mode` at `opacity`, once, so
-	 * overlapping stamps do not darken; then encoded and written, after every
-	 * write this surface began before it. Resolves after the command executed;
-	 * rejects with `UnreadablePictureError` for a picture that would not
-	 * decode or cannot be read, and nothing is written then.
+	 * overlapping stamps do not darken, and only inside `area` where one is
+	 * selected; then encoded and written, after every write this surface began
+	 * before it. Resolves after the command executed; rejects with
+	 * `UnreadablePictureError` for a picture that would not decode or cannot be
+	 * read, and nothing is written then.
 	 */
-	readonly commit: (label: string, mode: CompositeMode, opacity: number) => Promise<void>;
+	readonly commit: (
+		label: string,
+		mode: CompositeMode,
+		opacity: number,
+		area?: Area
+	) => Promise<void>;
 	/**
 	 * A change made straight to the layer's pixels once they are decoded, for
 	 * a fill: `painter` says whether it changed any, and only then are they
@@ -221,16 +230,19 @@ const createSurface = (
 	// way at once may finish in either order, and the later stroke's pixels
 	// hold the earlier's, so the later must be the one the file keeps.
 	const queue = cell<Promise<void>>(Promise.resolve());
+	const settled = cell(href === undefined || ctx === null);
 	const ready =
 		href === undefined || ctx === null
 			? Promise.resolve()
-			: decodeInto(ctx, href, image?.getAttribute('preserveAspectRatio') ?? null, grid).catch(
-					() => {
+			: decodeInto(ctx, href, image?.getAttribute('preserveAspectRatio') ?? null, grid)
+					.catch(() => {
 						failure.current = new UnreadablePictureError(
 							`the picture on ${layerId} could not be read`
 						);
-					}
-				);
+					})
+					.then(() => {
+						settled.current = true;
+					});
 
 	/**
 	 * The pixels as they are now, encoded, and written in turn. The encoding
@@ -255,7 +267,18 @@ const createSurface = (
 		return turn;
 	};
 
-	const commit = async (label: string, mode: CompositeMode, opacity: number): Promise<void> => {
+	const toPixel = (x: number, y: number): readonly [number, number] => {
+		const live = editor.layer(layerId) ?? layer;
+		const [lx, ly] = toLocal(live, editor.root, x, y);
+		return [(lx - bounds.x) * grid.ppu, (ly - bounds.y) * grid.ppu];
+	};
+
+	const commit = async (
+		label: string,
+		mode: CompositeMode,
+		opacity: number,
+		area?: Area
+	): Promise<void> => {
 		await ready;
 		if (failure.current !== undefined || ctx === null) {
 			clearCanvas(stroke);
@@ -263,6 +286,7 @@ const createSurface = (
 			return;
 		}
 		ctx.save();
+		if (area !== undefined) clipToArea(ctx, area, toPixel);
 		ctx.globalAlpha = opacity;
 		ctx.globalCompositeOperation = mode;
 		ctx.drawImage(stroke, 0, 0);
@@ -288,12 +312,9 @@ const createSurface = (
 		canvas,
 		stroke,
 		ready,
+		decoded: () => settled.current,
 		source: () => source.current,
-		toPixel: (x, y) => {
-			const live = editor.layer(layerId) ?? layer;
-			const [lx, ly] = toLocal(live, editor.root, x, y);
-			return [(lx - bounds.x) * grid.ppu, (ly - bounds.y) * grid.ppu];
-		},
+		toPixel,
 		commit,
 		paint,
 		discard: () => {

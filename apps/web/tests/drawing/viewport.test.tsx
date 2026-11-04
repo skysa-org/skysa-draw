@@ -1,4 +1,4 @@
-import { DEFAULT_DRAWING_SIZE, emptyDrawing } from '@skysa/draw-core';
+import { DEFAULT_DRAWING_SIZE, emptyDrawing, type LayerKind } from '@skysa/draw-core';
 import { act, render } from '@testing-library/react';
 import { createRef } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -32,12 +32,16 @@ import { t } from '../../src/i18n/t.js';
 // viewport and the registry carry themselves, stay real.
 const behaviours = vi.hoisted(() => ({
 	deleteSelection: vi.fn<(context: ToolContext) => void>(),
+	clearArea: vi.fn<(context: ToolContext) => boolean>(() => true),
 }));
 vi.mock('../../src/drawing/tools/vector/index.js', () => ({
 	vectorBehaviours: {},
 	deleteSelection: behaviours.deleteSelection,
 }));
-vi.mock('../../src/drawing/tools/raster/index.js', () => ({ rasterBehaviours: {} }));
+vi.mock('../../src/drawing/tools/raster/index.js', () => ({
+	rasterBehaviours: {},
+	clearArea: behaviours.clearArea,
+}));
 
 const ID = 'drawing-1';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -49,15 +53,17 @@ type FakeDocument = Readonly<{
 	changed: () => void;
 }>;
 
-/** A document with one vector layer, which records what is asked of it. */
-const fakeDocument = (): FakeDocument => {
+/** A document with two layers, vector unless asked otherwise, which records what is asked of it. */
+const fakeDocument = (
+	kinds: Readonly<[LayerKind, LayerKind]> = ['vector', 'vector']
+): FakeDocument => {
 	const parsed = new DOMParser().parseFromString(emptyDrawing({ id: ID }), 'image/svg+xml');
 	const root = parsed.documentElement as unknown as SVGSVGElement;
 	let snapshot: DocumentSnapshot = {
 		layers: [
 			{
 				id: 'layer-1',
-				kind: 'vector',
+				kind: kinds[0],
 				name: undefined,
 				hidden: false,
 				locked: false,
@@ -69,7 +75,7 @@ const fakeDocument = (): FakeDocument => {
 			},
 			{
 				id: 'layer-2',
-				kind: 'vector',
+				kind: kinds[1],
 				name: undefined,
 				hidden: false,
 				locked: false,
@@ -100,7 +106,9 @@ const fakeDocument = (): FakeDocument => {
 			size: DEFAULT_DRAWING_SIZE,
 			snapshot: () => snapshot,
 			text: () => '',
-			layer: () => undefined,
+			// By the root, not its document: mounted, the root is in a shadow
+			// root, which `getElementById` does not reach.
+			layer: (id) => root.querySelector<SVGGraphicsElement>(`[id="${id}"]`) ?? undefined,
 			execute: () => {
 				calls.push('execute');
 			},
@@ -195,6 +203,19 @@ const fire = (target: EventTarget, event: Event): Event => {
 
 const keyDown = (key: string, target: EventTarget = window): Event =>
 	fire(target, new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+/** A key with the primary key held: both Ctrl and ⌘, so it reads the same on any platform. */
+const primaryDown = (key: string, target: EventTarget = window): Event =>
+	fire(
+		target,
+		new KeyboardEvent('keydown', {
+			key,
+			ctrlKey: true,
+			metaKey: true,
+			bubbles: true,
+			cancelable: true,
+		})
+	);
 
 const keyUp = (key: string) => {
 	fire(window, new KeyboardEvent('keyup', { key, bubbles: true }));
@@ -300,6 +321,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 	behaviours.deleteSelection.mockClear();
+	behaviours.clearArea.mockClear();
 });
 
 describe('the viewport', () => {
@@ -883,5 +905,192 @@ describe('the viewport', () => {
 		expect(context.selection.elements).toEqual([mark]);
 		context.selection.clear();
 		expect(context.selection.elements).toEqual([]);
+	});
+});
+
+describe('the area and the selection keys', () => {
+	const AREA = 'M 10 10 L 50 10 L 50 30 L 10 30 Z';
+	const WHOLE = 'M 0 0 L 1600 0 L 1600 1000 L 0 1000 Z';
+
+	/** A tool that makes `AREA` when it begins, as the marquee does when it ends. */
+	const marking = () =>
+		recorder((context) => {
+			context.region.set(AREA);
+		});
+
+	const ants = (container: HTMLElement) =>
+		Array.from(container.querySelectorAll('.viewport-area path'));
+
+	const rasterSetup = (tool: Tool, overrides: Partial<ViewportProps> = {}) =>
+		setup(tool, { document: fakeDocument(['raster', 'vector']).document, ...overrides });
+
+	it('shows the area as marching ants, in a layer of its own that a change of tool or layer leaves', () => {
+		const { behaviour } = marking();
+		const { region, container, overlay, rerender, props } = setup(
+			fakeTool('marquee', { vector: behaviour })
+		);
+		expect(ants(container)).toEqual([]);
+		click(region, 10, 20);
+		const drawn = ants(container);
+		expect(drawn.map((path) => path.getAttribute('d'))).toEqual([AREA, AREA]);
+		expect(drawn.map((path) => path.getAttribute('class'))).toEqual([
+			'viewport-ants viewport-ants-under',
+			'viewport-ants viewport-ants-over',
+		]);
+		expect(drawn[1]?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+		expect(container.querySelector('.viewport-area')?.getAttribute('viewBox')).toBe(
+			'0 0 1600 1000'
+		);
+
+		rerender(
+			<Viewport {...props} tool={fakeTool('brush', { vector: recorder().behaviour })} />
+		);
+		expect(overlay.childElementCount).toBe(0);
+		expect(ants(container)).toHaveLength(2);
+		rerender(<Viewport {...props} layerId="layer-2" />);
+		expect(ants(container)).toHaveLength(2);
+	});
+
+	it('drops the area for another drawing', () => {
+		const { behaviour } = marking();
+		const { region, container, rerender, props } = setup(
+			fakeTool('marquee', { vector: behaviour })
+		);
+		click(region, 10, 20);
+		expect(ants(container)).toHaveLength(2);
+		rerender(<Viewport {...props} document={fakeDocument().document} />);
+		expect(ants(container)).toEqual([]);
+	});
+
+	it('selects the whole canvas with Ctrl or ⌘ A on a raster layer, and drops it with D', () => {
+		const { container } = rasterSetup(fakeTool('brush', { raster: recorder().behaviour }));
+		expect(primaryDown('a').defaultPrevented).toBe(true);
+		expect(ants(container)[0]?.getAttribute('d')).toBe(WHOLE);
+		expect(primaryDown('d').defaultPrevented).toBe(true);
+		expect(ants(container)).toEqual([]);
+	});
+
+	it('drops the area on Escape with no stroke under way, and only the stroke with one', () => {
+		const { behaviour, names } = recorder();
+		const { region, container } = rasterSetup(fakeTool('brush', { raster: behaviour }));
+		primaryDown('a');
+		fire(region, pointer('pointerdown', { clientX: 10, clientY: 20 }));
+		keyDown('Escape');
+		expect(names()).toEqual(['begin', 'cancel']);
+		expect(ants(container)).toHaveLength(2);
+		keyDown('Escape');
+		expect(ants(container)).toEqual([]);
+	});
+
+	it('leaves Ctrl or ⌘ A and Escape to a field, which selects its own text', () => {
+		const { container } = rasterSetup(fakeTool('brush', { raster: recorder().behaviour }));
+		const field = document.createElement('input');
+		document.body.appendChild(field);
+		expect(primaryDown('a', field).defaultPrevented).toBe(false);
+		expect(ants(container)).toEqual([]);
+		primaryDown('a');
+		keyDown('Escape', field);
+		expect(ants(container)).toHaveLength(2);
+		field.remove();
+	});
+
+	it('selects every element of a vector layer with Ctrl or ⌘ A, outlined, and lets go with D', () => {
+		const fake = fakeDocument();
+		const layer = fake.document.root.ownerDocument.getElementById('layer-1');
+		const shapes = ['0', '50'].map((x) => {
+			const rect = document.createElementNS(SVG_NS, 'rect');
+			['x', 'y', 'width', 'height'].forEach((name, i) =>
+				rect.setAttribute(name, i < 2 ? x : '10')
+			);
+			layer?.appendChild(rect);
+			return rect;
+		});
+		const { behaviour, calls } = recorder();
+		const { region, container, overlay } = setup(fakeTool('pencil', { vector: behaviour }), {
+			document: fake.document,
+		});
+		click(region, 10, 20);
+		const selected = () => calls[0]?.context?.selection.elements;
+
+		primaryDown('a');
+		expect(selected()).toEqual(shapes);
+		expect(ants(container)).toEqual([]);
+		expect(overlay.querySelectorAll('[data-draw-region-outline] rect')).toHaveLength(2);
+
+		// What a tool keeps on the overlay between strokes is not the selection's.
+		const kept = document.createElementNS(SVG_NS, 'g');
+		overlay.appendChild(kept);
+		primaryDown('d');
+		expect(selected()).toEqual([]);
+		expect(overlay.querySelector('[data-draw-region-outline]')).toBeNull();
+		expect(kept.isConnected).toBe(true);
+	});
+
+	it('shows a select-all under the select tool as that tool’s own box and handles', () => {
+		const fake = fakeDocument();
+		const rect = document.createElementNS(SVG_NS, 'rect');
+		rect.setAttribute('width', '10');
+		rect.setAttribute('height', '10');
+		fake.document.root.ownerDocument.getElementById('layer-1')?.appendChild(rect);
+		const { overlay } = setup(fakeTool('select', { vector: recorder().behaviour }), {
+			document: fake.document,
+		});
+		primaryDown('a');
+		expect(overlay.querySelector('[data-draw-selection]')).not.toBeNull();
+		expect(overlay.querySelector('[data-draw-region-outline]')).toBeNull();
+		primaryDown('d');
+		expect(overlay.childElementCount).toBe(0);
+	});
+
+	it('clears the area’s pixels on Delete on a raster layer, and not on a vector one', () => {
+		const raster = rasterSetup(fakeTool('brush', { raster: recorder().behaviour }));
+		expect(keyDown('Delete').defaultPrevented).toBe(false);
+		expect(behaviours.clearArea).not.toHaveBeenCalled();
+		primaryDown('a');
+		expect(keyDown('Delete').defaultPrevented).toBe(true);
+		expect(behaviours.clearArea).toHaveBeenCalledTimes(1);
+		const context = behaviours.clearArea.mock.calls[0]?.[0];
+		expect(context?.region.path).toBe(WHOLE);
+		expect(context?.layer?.kind).toBe('raster');
+		raster.unmount();
+
+		const { behaviour } = marking();
+		const { region } = setup(fakeTool('marquee', { vector: behaviour }));
+		click(region, 10, 20);
+		expect(keyDown('Delete').defaultPrevented).toBe(false);
+		expect(behaviours.clearArea).toHaveBeenCalledTimes(1);
+	});
+
+	it('keeps the element selection for the marquee and the lasso, which work on it', () => {
+		const mark = document.createElementNS(SVG_NS, 'rect');
+		const select = recorder((context) => {
+			context.selection.set([mark]);
+		});
+		const { region, rerender, props } = setup(fakeTool('select', { vector: select.behaviour }));
+		click(region, 10, 20);
+		const selected = () => select.calls[0]?.context?.selection.elements;
+		rerender(
+			<Viewport {...props} tool={fakeTool('marquee', { vector: recorder().behaviour })} />
+		);
+		expect(selected()).toEqual([mark]);
+		rerender(
+			<Viewport {...props} tool={fakeTool('lasso', { vector: recorder().behaviour })} />
+		);
+		expect(selected()).toEqual([mark]);
+	});
+
+	it('tells a tool it is put down once, after its stroke has ended as well as during one', () => {
+		const first = recorder();
+		const { region, rerender, props } = setup(fakeTool('text', { vector: first.behaviour }));
+		click(region, 10, 20);
+		expect(first.names()).toEqual(['begin', 'end']);
+		rerender(
+			<Viewport {...props} tool={fakeTool('pencil', { vector: recorder().behaviour })} />
+		);
+		expect(first.names()).toEqual(['begin', 'end', 'cancel']);
+		rerender(
+			<Viewport {...props} tool={fakeTool('brush', { vector: recorder().behaviour })} />
+		);
+		expect(first.names()).toEqual(['begin', 'end', 'cancel']);
 	});
 });

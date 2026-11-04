@@ -21,11 +21,34 @@ What came across, from skysa-notes v2.1.1 (`b39c8e42f542bdc9f222d5d536bb490710ec
 | `packages/core/src/{paths,marker,hash,json,cell,api,relay,entitlements,files}` | Paths, the marker file, hashing, the API's shared constants, the relay protocol, the operator seams' types, media types and picture headers | The hidden-folder rule lost the two root exceptions notes made for its scratchpad and vault |
 | `apps/web` build | `brand.ts`, `pwa.ts`, `vite.config.ts`, `_headers`, the bundle budget, the PWA, CSP and brand tests | No share target and no second page |
 | `apps/web/src/i18n` | The catalog machinery and its tests | An English catalog of this app's own words |
+| `packages/core/src/sync`, `tests/sync` | The sync engine, its store port, the store contract, the in-memory store, the simulation kit, the two-device and random-remote tests (2026-11-04) | The rename below; `sync/conflicts.ts` became `sync/document.ts`, the document seam; the clipboard and key-file flags cut; `messageOf` from `errors.ts`; fixtures are SVG (`tests/sync/kit/drawings.ts`) |
 | `apps/web/src/sync/providers.ts` | The provider factory with its request deadlines | Nothing |
 | Root | ESLint, Prettier, knip, tsconfig, Changesets, CI, the legal texts | Lint layers for this app's folders; no bookmarklet |
 
+The sync engine came across a day after the rest, once the drawing's own identity rules existed (`readDrawingId`, `withDrawingId`): notes' engine read a note in two places, the conflict copy patching a frontmatter `id` and the pull batch reading a note's identity with `parseNoteFile`, and both now go through one module, the document seam (§7, "Sync engine").
+
+A file carried from skysa-notes is renamed by two scripts, run in order, so a fix made in one repository is carried to the other by the same.
+They are perl, not sed, since BSD sed has no lookarounds.
+The first renames the domain word, "notebook" to "folder" before "note" to "drawing", so a notebook does not become a drawingbook:
+
+```sh
+perl -pi -e 's/skysa-notes/\x01/g; s/(?<![A-Za-z])notebooks(?![a-z])/folders/g; s/(?<![A-Za-z])notebook(?![a-z])/folder/g; s/(?<![A-Z])Notebooks(?![a-z])/Folders/g; s/(?<![A-Z])Notebook(?![a-z])/Folder/g; s/(?<![A-Za-z])NOTEBOOKS(?![A-Z])/FOLDERS/g; s/(?<![A-Za-z])notes(?![a-z])/drawings/g; s/(?<![A-Za-z])note(?![a-z])/drawing/g; s/(?<![A-Z])Notes(?![a-z])/Drawings/g; s/(?<![A-Z])Note(?![a-z])/Drawing/g; s/(?<![A-Za-z])NOTES(?![A-Z])/DRAWINGS/g; s/(?<![A-Za-z])NOTE(?![A-Z])/DRAWING/g; s/\x01/skysa-notes/g'
+```
+
+The second renames the file format and the package:
+
+```sh
+perl -pi -e 's/(?<![A-Z])(ARCHITECTURE|CLAUDE|README)\.md/$1\x01/g; s/\.md(?![A-Za-z0-9])/.svg/g; s/\.MD(?![A-Za-z0-9])/.SVG/g; s/\x01/.md/g; s{text/markdown}{image/svg+xml}g; s/\.notesapp\.json/.drawapp.json/g; s{\@skysa/core}{\@skysa/draw-core}g'
+```
+
+The engine's test fixtures take a third, which makes each string or template literal ending in a line break, other than a bare one or one inside `encode(`, an SVG, `svg(…)` from `tests/sync/kit/drawings.ts`; as a perl script, since it quotes both quote marks:
+
+```perl
+s/(?<!encode\()(?<!svg\()'((?:[^'\\\n]|\\.)+?\\n)'/svg('$1')/g;
+s/(?<!encode\()(?<!svg\()`((?:[^`\\\n]|\\.)+?\\n)`/svg(`$1`)/g;
+```
+
 What did not come across, and why:
-the sync engine (`packages/core/src/sync`), because it is coupled to notes in two places — the conflict copy patches a frontmatter `id`, and the pull batch reads a note's identity with `parseNoteFile` — and the right move is to port it behind a document-format seam once the drawing's own identity rules exist, which they now do (`readDrawingId`, `withDrawingId`; §10);
 the markdown pipeline, the editors, the clipboard, the scratchpad, the vault, secrets and the bookmarklet, which are the notes app;
 the web app's store, sync runtime and screens, which read notes' rows, and are written afresh here over the same shape of database so the engine port finds what it expects (§7).
 

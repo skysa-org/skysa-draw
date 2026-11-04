@@ -1,1 +1,46 @@
-/* The area the marquee and the lasso select, shown as marching ants over the drawing. */
+/* The area the marquee and the lasso select, shown as marching ants over the
+   drawing (docs/ARCHITECTURE.md §7, "Tools"): two strokes on the same path, a
+   light one under and a dark one dashed over it, so the edge shows on any
+   picture, and the dashes march. The layer is the viewport's own and is not
+   emptied when the tool changes, since the area outlives the tool that made
+   it. The march is a `stroke-dashoffset` over a duration from the tokens,
+   which are nothing when the system asks for less motion, so the ants then
+   stand still. One CSS pixel wide at any zoom. */
+.viewport-area {
+	position: absolute;
+	inset: 0;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.viewport-ants {
+	fill: none;
+	stroke-width: 1px;
+	vector-effect: non-scaling-stroke;
+}
+
+.viewport-ants-under {
+	stroke: #ffffff;
+}
+
+.viewport-ants-over {
+	stroke: #000000;
+	stroke-dasharray: 4 4;
+	animation: viewport-ants calc(var(--duration-xl) * 2) linear infinite;
+}
+
+/* One whole dash and gap a period, so the march has no seam. */
+@keyframes viewport-ants {
+	to {
+		stroke-dashoffset: -8;
+	}
+}
+
+/* The area a marquee or a lasso drag is making, on the overlay until it ends. */
+.viewport-area-drag {
+	fill: color-mix(in srgb, var(--accent) 8%, transparent);
+	stroke: var(--accent);
+	stroke-width: 1px;
+	stroke-dasharray: 4 4;
+	vector-effect: non-scaling-stroke;
+}

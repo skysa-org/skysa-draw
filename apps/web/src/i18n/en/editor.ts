@@ -32,7 +32,15 @@ export const editor = {
 	units: {
 		px: '{n} px',
 		percent: '{n}%',
+		degrees: '{n}°',
 	},
+	/** The top bar's More: export the drawing as a picture or as the SVG file. */
+	export: 'Export…',
+	/** The top bar's More: a picture from a file, as a new raster layer. */
+	placePicture: 'Place picture…',
+	/** The hidden file field "Place picture…" opens. */
+	pictureFile: 'Picture to place',
+
 	colour: {
 		title: 'Colour',
 		fill: 'Fill',

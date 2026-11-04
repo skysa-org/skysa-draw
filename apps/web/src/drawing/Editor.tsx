@@ -10,9 +10,6 @@ import {
 } from 'react';
 
 import { DrawingView } from '../components/drawing/DrawingView.js';
-import { classes } from '../components/ui/classes.js';
-import { isNone } from '../components/ui/colour.js';
-import { ColourIcon, ICONS, LayersIcon } from '../components/ui/icons.js';
 import type { MenuItem } from '../components/ui/Menu.js';
 import { Notice } from '../components/ui/Notice.js';
 import { Panel } from '../components/ui/Panel.js';
@@ -24,13 +21,13 @@ import {
 	useSizeClass,
 } from '../components/ui/sizeClass.js';
 import { ToolBar } from '../components/ui/ToolBar.js';
-import { ToolButton } from '../components/ui/ToolButton.js';
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
 import { renameDrawing } from '../store/drawings.js';
 import { addLayer, duplicateLayer } from './document/commands.js';
 import type { DocumentSnapshot, EditorDocument } from './document/model.js';
 import { useDocumentSnapshot } from './document/useDocument.js';
+import { type Placing, usePlacePicture } from './document/usePlacePicture.js';
 import {
 	activeLayerIn,
 	type ColourSlot,
@@ -41,19 +38,14 @@ import {
 	type PanelId,
 	setOption,
 } from './editorState.js';
-import {
-	type EditAction,
-	editActionFor,
-	isTyping,
-	primaryKeyLabel,
-	shortcutLabel,
-	toolFor,
-} from './keys.js';
+import { ExportDialog } from './export/ExportDialog.js';
+import { type EditAction, editActionFor, isTyping, primaryKeyLabel, toolFor } from './keys.js';
 import { ColourPanel } from './panels/ColourPanel.js';
 import { LayersPanel } from './panels/LayersPanel.js';
 import { OptionsStrip } from './panels/OptionsStrip.js';
 import { PropertiesPanel } from './panels/PropertiesPanel.js';
-import { toolById, TOOLS } from './tools/index.js';
+import { ToolButtons } from './panels/ToolButtons.js';
+import { toolById } from './tools/index.js';
 import type { Tool } from './tools/types.js';
 import { TopBar } from './TopBar.js';
 import type { ViewportHandle } from './types.js';
@@ -117,8 +109,8 @@ const always = (act: () => void): boolean => {
  * The editing keys (`keys.ts`), each saying whether it did anything, so only a
  * handled key is kept from the browser. Escape is not the frame's: what a tool
  * has begun is the viewport's to cancel, and a sheet or a drawer closes itself
- * (`PanelHost`). Delete is not yet either: the selection is the viewport's,
- * and it has no command for it.
+ * (`PanelHost`). Delete, select-all and deselect are the viewport's, as the
+ * selection and the area are.
  */
 const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean>> = {
 	undo: ({ document }) => withDocument(document, (open) => open.undo()),
@@ -192,69 +184,6 @@ const useNoticeTimeout = (notice: EditorState['notice'], dispatch: Dispatch<Edit
 		return () => clearTimeout(timer);
 	}, [notice, dispatch]);
 };
-
-/** The fill as a mark on the colour button; none is a struck-through one. */
-const Swatch = ({ colour }: Readonly<{ colour: string }>) => (
-	<span
-		className={classes('swatch', isNone(colour) && 'swatch-none')}
-		// The swatch is drawn in `currentColor` (`ui.css`), so the colour is the one style set here.
-		style={isNone(colour) ? undefined : { color: colour }}
-		aria-hidden="true"
-	/>
-);
-
-type ToolButtonsProps = Readonly<{
-	tool: Tool;
-	fill: string;
-	colourOpen: boolean;
-	layersOpen: boolean;
-	dispatch: Dispatch<EditorAction>;
-	onLayers: () => void;
-}>;
-
-/**
- * The tools, then the colour and the layers, which stay at the bar's far end
- * while the tools scroll past them on a narrow bar (`editor.css`).
- */
-const ToolButtons = ({
-	tool,
-	fill,
-	colourOpen,
-	layersOpen,
-	dispatch,
-	onLayers,
-}: ToolButtonsProps) => (
-	<>
-		{TOOLS.map((each) => {
-			const Icon = ICONS[each.id];
-			return (
-				<ToolButton
-					key={each.id}
-					icon={<Icon />}
-					label={t(`tools.${each.id}`)}
-					shortcut={shortcutLabel(each.id)}
-					pressed={each.id === tool.id}
-					onClick={() => dispatch({ type: 'setTool', toolId: each.id })}
-				/>
-			);
-		})}
-		<span className="tool-group-end">
-			<ToolButton
-				icon={<ColourIcon />}
-				label={t('editor.colour.title')}
-				pressed={colourOpen}
-				badge={<Swatch colour={fill} />}
-				onClick={() => dispatch({ type: 'togglePanel', panel: 'colour' })}
-			/>
-			<ToolButton
-				icon={<LayersIcon />}
-				label={t('layers.title')}
-				pressed={layersOpen}
-				onClick={onLayers}
-			/>
-		</span>
-	</>
-);
 
 type FramePanelsProps = Readonly<{
 	sizeClass: SizeClass;
@@ -335,6 +264,8 @@ type FrameProps = Readonly<{
 	topBar: ReactNode;
 	viewport: RefObject<ViewportHandle | null>;
 	onScale: (scale: number) => void;
+	/** A picture dropped on the canvas is placed as a new layer. */
+	placing: Placing;
 }>;
 
 /** The frame with a drawing open in it. */
@@ -350,6 +281,7 @@ const Frame = ({
 	topBar,
 	viewport,
 	onScale,
+	placing,
 }: FrameProps) => {
 	const wide = useMinWidth(LARGE_MIN_WIDTH);
 	const compact = sizeClass === 'compact';
@@ -358,6 +290,7 @@ const Frame = ({
 	const setColour = (which: ColourSlot, value: string) =>
 		dispatch({ type: 'setColour', which, value });
 	const closePanel = () => dispatch({ type: 'closePanel' });
+	const notify = (message: string) => dispatch({ type: 'notify', message });
 	const closeDock = () => dispatch({ type: 'setDockOpen', open: false });
 	const toggleLayers = () =>
 		dispatch(
@@ -391,6 +324,7 @@ const Frame = ({
 			onActivate={(id) => dispatch({ type: 'setActiveLayer', id })}
 			withProperties={!expanded}
 			onClose={onClose}
+			onNotify={notify}
 		/>
 	);
 
@@ -409,7 +343,7 @@ const Frame = ({
 				</ToolBar>
 			)}
 			{!compact && options}
-			<div className="editor-canvas">
+			<div className="editor-canvas" onDragOver={placing.onDragOver} onDrop={placing.onDrop}>
 				<Viewport
 					ref={viewport}
 					document={document}
@@ -417,7 +351,7 @@ const Frame = ({
 					options={state.options}
 					layerId={activeLayerId}
 					onColour={setColour}
-					onNotify={(message) => dispatch({ type: 'notify', message })}
+					onNotify={notify}
 					onScale={onScale}
 				/>
 				<Notice message={notice} />
@@ -523,8 +457,16 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 	const snapshot = useDocumentSnapshot(document);
 	const [state, dispatch] = useReducer(editorReducer, initialEditorState);
 	const [scale, setScale] = useState(1);
+	const [exporting, setExporting] = useState(false);
 	const viewport = useRef<ViewportHandle>(null);
+	const pictureField = useRef<HTMLInputElement>(null);
 	const activeLayerId = activeLayerIn(snapshot?.layers ?? [], state.activeLayerId);
+	const placing = usePlacePicture(
+		document,
+		activeLayerId,
+		(placed) => dispatch({ type: 'setActiveLayer', id: placed }),
+		(message) => dispatch({ type: 'notify', message })
+	);
 
 	useEditorKeys(document, viewport, activeLayerId, dispatch);
 	useNoticeTimeout(state.notice, dispatch);
@@ -555,6 +497,14 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 	}, [replacement]);
 
 	const title = row?.title ?? '';
+	// Placing a picture and exporting need a drawing open to work on.
+	const fileActions =
+		document === undefined
+			? {}
+			: {
+					onExport: () => setExporting(true),
+					onPlacePicture: () => pictureField.current?.click(),
+				};
 	const closeLibrary = () => dispatch({ type: 'setLibraryOpen', open: false });
 	const zoomItems: readonly MenuItem[] = [
 		{
@@ -608,6 +558,7 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 				await remove();
 				onBack();
 			}}
+			{...fileActions}
 		/>
 	);
 	const libraryDrawer = sizeClass !== 'compact' && (
@@ -661,8 +612,30 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 				topBar={topBar}
 				viewport={viewport}
 				onScale={setScale}
+				placing={placing}
 			/>
 			{libraryDrawer}
+			<ExportDialog
+				document={document}
+				title={title}
+				open={exporting}
+				onClose={() => setExporting(false)}
+			/>
+			{/* "Place picture…" opens this; the picture becomes a layer above the active one. */}
+			<input
+				ref={pictureField}
+				type="file"
+				accept="image/*"
+				hidden
+				tabIndex={-1}
+				aria-label={t('editor.pictureFile')}
+				onChange={(event) => {
+					const file = event.target.files?.[0];
+					// Emptied, so the same file chosen again is a change again.
+					event.target.value = '';
+					if (file !== undefined) placing.place(file);
+				}}
+			/>
 		</>
 	);
 };

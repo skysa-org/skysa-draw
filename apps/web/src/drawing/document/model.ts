@@ -1,5 +1,7 @@
 import type { BlendMode, DrawingSize, LayerKind } from '@skysa/draw-core';
 
+import type { LayerAdjustments } from './adjustments.js';
+
 /**
  * The editor's document (docs/ARCHITECTURE.md §7, "The editor"): the drawing's
  * SVG, sanitized and live in the page, and the commands that change it. The
@@ -28,6 +30,17 @@ export interface LayerInfo {
 	readonly parentId: string | undefined;
 	/** A graphics element at the root that is not a `<g>`: wrapped in one the first time it is edited. */
 	readonly loose: boolean;
+	/**
+	 * `true` for a layer clipped to the one below it, the app's own clip
+	 * (`document/clip.ts`); absent otherwise, a mask of the file's own included.
+	 */
+	readonly clipped?: boolean;
+	/**
+	 * The layer's filter: its adjustments, where it is the app's own
+	 * (`document/adjustments.ts`), or one from another tool, which is left
+	 * alone; absent where it has none.
+	 */
+	readonly adjustments?: LayerAdjustments;
 }
 
 /**

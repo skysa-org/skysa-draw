@@ -13,7 +13,8 @@ import type { SavingState } from './useOpenDrawing.js';
  * rest under More; on medium and expanded the zoom and whether the drawing is
  * saved as well, which on compact are under More and nowhere, so that back,
  * title, undo, redo and More fit a phone. Renaming and deleting happen here,
- * in the bar, where the title is.
+ * in the bar, where the title is; placing a picture and exporting are under
+ * More, as a File menu has them.
  */
 
 type TopBarProps = Readonly<{
@@ -35,6 +36,10 @@ type TopBarProps = Readonly<{
 	onRename: (title: string) => Promise<void>;
 	/** Deletes the drawing; the frame leaves the editor after it. */
 	onDelete: () => Promise<void>;
+	/** Opens the export dialog; absent while there is no drawing to export. */
+	onExport?: () => void;
+	/** Asks for a picture to place as a new layer; absent while there is no drawing to place it in. */
+	onPlacePicture?: () => void;
 }>;
 
 type Asking = 'nothing' | 'rename' | 'delete';
@@ -134,12 +139,26 @@ export const TopBar = ({
 	zoomItems,
 	onRename,
 	onDelete,
+	onExport,
+	onPlacePicture,
 }: TopBarProps) => {
 	const [asking, setAsking] = useState<Asking>('nothing');
 	const compact = sizeClass === 'compact';
 	const done = () => setAsking('nothing');
 
 	const items: readonly MenuItem[] = [
+		{
+			id: 'place',
+			label: t('editor.placePicture'),
+			disabled: onPlacePicture === undefined,
+			onSelect: () => onPlacePicture?.(),
+		},
+		{
+			id: 'export',
+			label: t('editor.export'),
+			disabled: onExport === undefined,
+			onSelect: () => onExport?.(),
+		},
 		{ id: 'rename', label: t('drawings.rename'), onSelect: () => setAsking('rename') },
 		{
 			id: 'delete',

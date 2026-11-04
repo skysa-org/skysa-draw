@@ -133,3 +133,24 @@ export {
 	RELAY_PUSHED,
 	RELAY_PUSHED_INTERVAL_MS,
 } from './relay.js';
+// The sync engine, and what a store under it is written against: the web
+// app's Dexie store implements `SyncStore`, and its scheduler runs the engine.
+export { conflictContent } from './sync/document.js';
+export { createSyncEngine, type SyncEngine } from './sync/engine.js';
+export type { SyncOutcome } from './sync/outcome.js';
+export type { SyncProgress } from './sync/progress.js';
+export {
+	type ConflictResolution,
+	isFileChange,
+	type NewSyncOp,
+	type OpOutcome,
+	type PullBatch,
+	type PullChange,
+	type SyncDrawing,
+	type SyncFile,
+	type SyncFolder,
+	type SyncOp,
+	type SyncOperation,
+	type SyncStore,
+	type UnreadableFile,
+} from './sync/store.js';

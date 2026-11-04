@@ -1,3 +1,5 @@
+import { cell } from '@skysa/draw-core';
+
 import { t } from '../../../i18n/t.js';
 import type { LayerInfo } from '../../document/model.js';
 import { layerDisplayName } from '../../layerName.js';
@@ -33,6 +35,24 @@ export const guardedSurface = (context: ToolContext): RasterSurface | undefined 
 export const clearScreen = (target: ScreenCanvas): void => {
 	clearCanvas(target.canvas);
 	target.canvas.style.removeProperty('opacity');
+};
+
+/**
+ * Strokes begun on the screen canvas, by any raster tool: one canvas shows
+ * them all, so a stroke that lands clears it only when no stroke has begun
+ * since, and a later one still under way keeps what it drew.
+ */
+const begun = cell(0);
+
+/** A stroke's turn on the screen canvas: which it is among all begun. */
+export const claimScreen = (): number => {
+	begun.current += 1;
+	return begun.current;
+};
+
+/** The screen cleared for a stroke that landed, unless another has begun since. */
+export const releaseScreen = (target: ScreenCanvas, serial: number): void => {
+	if (begun.current === serial) clearScreen(target);
 };
 
 /**

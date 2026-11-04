@@ -13,11 +13,14 @@ import {
 
 import { t } from '../i18n/t.js';
 import type { EditorDocument } from './document/model.js';
-import { editActionFor, isHandKey } from './keys.js';
+import { editActionFor, isHandKey, isTyping } from './keys.js';
 import { handBehaviour } from './tools/common/hand.js';
 import { behaviourFor, notAvailableMessage } from './tools/index.js';
-import type { ToolBehaviour, ToolContext } from './tools/types.js';
+import { rectPath } from './tools/raster/area.js';
+import { clearArea } from './tools/raster/index.js';
+import type { ToolBehaviour, ToolContext, ToolId } from './tools/types.js';
 import { deleteSelection } from './tools/vector/index.js';
+import { hideSelection, selectEveryElement } from './tools/vector/region.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
 import { createToolContext, NO_SELECTION } from './viewport/context.js';
 import {
@@ -50,8 +53,15 @@ import {
  * go out as samples in user units to the active tool's behaviour for the
  * active layer's kind, or to the gesture reducer when they are fingers
  * navigating. The document is mounted, never copied and never changed by
- * being shown. The selection is the viewport's, and so is the key that
- * deletes it; the frame has the other keys (`keys.ts`).
+ * being shown. The selection is the viewport's, and so are the keys that
+ * make it, drop it and delete what it holds; the frame has the other keys
+ * (`keys.ts`).
+ *
+ * The area selection is the viewport's too (`ToolContext.region`): the
+ * marquee and the lasso set it, the raster tools paint inside it, and it is
+ * shown as marching ants in a layer of its own that a change of tool or of
+ * layer leaves alone, since the area outlives the tool that made it and
+ * every layer is painted inside it, as in Photoshop. A new document drops it.
  */
 
 /** How many screen pixels of wheel multiply the scale by e, with Ctrl or ⌘ held. */
@@ -60,6 +70,9 @@ const WHEEL_ZOOM = 0.002;
 const LINE_PX = 16;
 
 const MAC = isMac();
+
+/** The tools that work on the element selection, so picking one keeps it. */
+const SELECTING: ReadonlySet<ToolId> = new Set(['select', 'marquee', 'lasso']);
 
 type Stroke = Readonly<{ pointerId: number; behaviour: ToolBehaviour; context: ToolContext }>;
 
@@ -170,6 +183,10 @@ export const Viewport = ({
 	const overlay = useRef<SVGSVGElement>(null);
 	const screen = useRef<HTMLCanvasElement>(null);
 	const stroke = useRef<Stroke | undefined>(undefined);
+	// The last stroke begun, ended or not: its tool is told when it is put
+	// down, so what it left open after its stroke (the text tool's field)
+	// closes with it.
+	const lastStroke = useRef<Stroke | undefined>(undefined);
 	const gesture = useRef<GestureState>(INITIAL_GESTURE);
 	const fitted = useRef<Fitted | undefined>(undefined);
 	const [views] = useState(() => observable(IDENTITY_VIEW));
@@ -177,6 +194,7 @@ export const Viewport = ({
 	const [regions] = useState(() => observable<string | undefined>(undefined));
 	const [spaceHeld, setSpaceHeld] = useState(false);
 	const view = useSyncExternalStore(views.subscribe, views.get);
+	const area = useSyncExternalStore(regions.subscribe, regions.get);
 	const snapshot = useSyncExternalStore(document.subscribe, document.snapshot);
 
 	// The drawing's user units: the root's `viewBox`, whose origin need not be
@@ -246,6 +264,11 @@ export const Viewport = ({
 		};
 	}, [document]);
 
+	// An area is the drawing's it was made on: another drawing starts with none.
+	useEffect(() => {
+		regions.set(undefined);
+	}, [document, regions]);
+
 	// Fitted to the window for each document and each change of its user
 	// units, as soon as the viewport measures something: now, or at the first
 	// size the resize observer reports, if layout had not given it one yet.
@@ -263,13 +286,19 @@ export const Viewport = ({
 		onScale?.(view.scale);
 	}, [onScale, view.scale]);
 
-	// A tool put down leaves nothing behind: not a stroke, not a preview, and
-	// not a selection unless the new tool is the one that works on it.
+	// A tool put down leaves nothing behind: not a stroke, not a preview, not
+	// what it left open after its last stroke, and not a selection unless the
+	// new tool is one that works on it. Its `cancel` is told once, whether a
+	// stroke is under way or one has ended. The area stays: it is in a layer
+	// of its own.
 	const toolId = tool.id;
 	useEffect(() => {
+		const last = lastStroke.current;
+		lastStroke.current = undefined;
+		if (stroke.current === undefined) last?.behaviour.cancel(last.context);
 		cancelStroke();
 		overlay.current?.replaceChildren();
-		if (toolId !== 'select') selections.set(NO_SELECTION);
+		if (!SELECTING.has(toolId)) selections.set(NO_SELECTION);
 	}, [toolId, cancelStroke, selections]);
 
 	// What is selected is on the active layer, and a key that deletes it acts
@@ -375,20 +404,62 @@ export const Viewport = ({
 		const context = toolContext();
 		if (context === undefined) return false;
 		deleteSelection(context);
+		hideSelection(context.overlay);
 		return true;
 	};
 
-	// Escape abandons the stroke under way; the frame has Escape too, for what
-	// it has open. Delete removes the selection, which the frame cannot see.
-	// Space held makes the next stroke the hand's.
+	/** Delete, with an area selected on a raster layer and no stroke under way: its pixels cleared. */
+	const clearSelectedArea = (): boolean => {
+		if (regions.get() === undefined || stroke.current !== undefined) return false;
+		if (activeLayer()?.kind !== 'raster') return false;
+		const context = toolContext();
+		return context !== undefined && clearArea(context);
+	};
+
+	/**
+	 * Ctrl or ⌘ A: everything there is to select. On a vector layer, its
+	 * elements, as in Illustrator and Figma, since nothing paints inside an
+	 * area there; on any other, the whole canvas as the area, as in Photoshop.
+	 */
+	const selectAll = (): void => {
+		const context = toolContext();
+		if (activeLayer()?.kind === 'vector' && context !== undefined) {
+			selectEveryElement(context, toolId === 'select');
+			return;
+		}
+		regions.set(rectPath(box));
+	};
+
+	/** Ctrl or ⌘ D: the area and the element selection both dropped, and what showed them. */
+	const deselect = (): void => {
+		regions.set(undefined);
+		selections.set(NO_SELECTION);
+		if (overlay.current !== null) hideSelection(overlay.current);
+	};
+
+	// Escape abandons the stroke under way, and with none drops the area; the
+	// frame has Escape too, for what it has open, and a field keeps its own.
+	// Delete removes what is selected, which the frame cannot see, and so do
+	// select-all and deselect. Space held makes the next stroke the hand's.
 	const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
 		const action = editActionFor(event, MAC);
 		if (action === 'escape') {
-			cancelStroke();
+			if (stroke.current !== undefined) {
+				cancelStroke();
+				return;
+			}
+			if (!event.defaultPrevented && !isTyping(event.target)) regions.set(undefined);
 			return;
 		}
 		if (action === 'delete') {
-			if (deleteSelected()) event.preventDefault();
+			if (deleteSelected() || clearSelectedArea()) event.preventDefault();
+			return;
+		}
+		if (action === 'selectAll' || action === 'deselect') {
+			if (event.defaultPrevented) return;
+			event.preventDefault();
+			if (action === 'selectAll') selectAll();
+			else deselect();
 			return;
 		}
 		if (!isHandKey(event)) return;
@@ -466,6 +537,7 @@ export const Viewport = ({
 		capture(event.currentTarget, native.pointerId);
 		behaviour.begin(context, sample(native));
 		stroke.current = { pointerId: native.pointerId, behaviour, context };
+		lastStroke.current = stroke.current;
 	};
 
 	// A pointer moving with nothing down is a hover: a mouse's or a pen's, a
@@ -547,6 +619,30 @@ export const Viewport = ({
 			>
 				<div className="viewport-paper" />
 				<div className="viewport-mount" ref={mount} />
+				<svg
+					className="viewport-area"
+					viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
+					width={box.width}
+					height={box.height}
+					aria-hidden="true"
+				>
+					{area === undefined ? null : (
+						<>
+							<path
+								className="viewport-ants viewport-ants-under"
+								d={area}
+								fillRule="nonzero"
+								vectorEffect="non-scaling-stroke"
+							/>
+							<path
+								className="viewport-ants viewport-ants-over"
+								d={area}
+								fillRule="nonzero"
+								vectorEffect="non-scaling-stroke"
+							/>
+						</>
+					)}
+				</svg>
 				<svg
 					className="viewport-overlay"
 					ref={overlay}

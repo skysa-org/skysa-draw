@@ -1,1 +1,35 @@
-/* The text tool's field over the canvas (docs/decisions/0004-the-interface.md). */
+/* The text tool's field over the canvas (docs/decisions/0004-the-interface.md;
+   `drawing/tools/vector/textField.ts`): a textarea that is the live preview
+   of the `<text>` it will make. Where it is, its size, its colour and its
+   line height are set on it from code, since they follow the view and the
+   text; this is the rest. Nothing of a field's own look is left, so the words
+   are seen as they will be drawn: no box, no padding, no wrapping, since an
+   SVG text never wraps, and the face the drawing's text inherits from the
+   page, as the field does here. */
+.text-field {
+	position: absolute;
+	box-sizing: content-box;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	font: inherit;
+	letter-spacing: inherit;
+	word-spacing: inherit;
+	white-space: pre;
+	overflow: hidden;
+	resize: none;
+	/* As big as what is typed, where the browser can; elsewhere its rows and
+	   columns, which the field sets as it is typed in. */
+	field-sizing: content;
+	min-width: 1ch;
+	/* Scaled about its corner when it is set larger than the text, for Safari
+	   (`FIELD_FLOOR_PX`), so the corner stays where it was placed. */
+	transform-origin: 0 0;
+	/* The canvas takes no selection; the field's words are selected as any field's. */
+	user-select: text;
+	-webkit-user-select: text;
+	outline: 1px dashed var(--ring);
+	outline-offset: 2px;
+}

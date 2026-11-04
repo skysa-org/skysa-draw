@@ -1,10 +1,11 @@
 import { cell } from '@skysa/draw-core';
 
 import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
-import { distance, pressureWidth } from '../vector/geometry.js';
+import { type Box, distance, pressureWidth } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
+import { type Area, areaOf, reachesArea } from './area.js';
 import { type Brush, paintSegment, paintStamp, targetsOf } from './brushEngine.js';
-import { clearScreen, guardedSurface, reportFailure } from './guard.js';
+import { claimScreen, clearScreen, guardedSurface, releaseScreen, reportFailure } from './guard.js';
 import type { Point } from './pixels.js';
 import { clearCanvas, type CompositeMode, type RasterSurface } from './surface.js';
 
@@ -15,7 +16,8 @@ import { clearCanvas, type CompositeMode, type RasterSurface } from './surface.j
  * and paints in the fill colour; the pencil is hard, does not follow pressure
  * and draws in the stroke colour, as both do on a vector layer; the eraser is
  * the brush committed as `destination-out`, so what it stamps is taken away
- * instead of put down.
+ * instead of put down. Where an area is selected (`ToolContext.region`) all
+ * three paint inside it, and a stroke that never reaches it writes nothing.
  */
 
 type BrushKind = 'brush' | 'pencil' | 'eraser';
@@ -28,6 +30,10 @@ interface Stroke {
 	readonly carry: number;
 	/** Which stroke this is among all begun, so only the latest clears the screen. */
 	readonly serial: number;
+	/** The area selected when the stroke began; none for anywhere. */
+	readonly area: Area | undefined;
+	/** Whether any stamp reached the area, so the stroke may have changed a pixel. */
+	readonly reached: boolean;
 }
 
 /** The screen cannot show pixels going away, so the eraser's live stroke is a neutral veil. */
@@ -38,11 +44,13 @@ const BLACK = '#000000';
 /** How far behind the pointer a stroke at full smoothing is drawn, in screen pixels. */
 const SLACK_PX = 24;
 
-/**
- * Strokes begun, by any of the three: one screen canvas shows them all, so a
- * stroke that lands clears it only when no stroke has begun since.
- */
-const begun = cell(0);
+/** What a segment's stamps cover, in user units: the box round its two ends, grown by the radius. */
+const segmentBox = (from: Point, to: Point, radius: number): Box => ({
+	x: Math.min(from.x, to.x) - radius,
+	y: Math.min(from.y, to.y) - radius,
+	width: Math.abs(to.x - from.x) + 2 * radius,
+	height: Math.abs(to.y - from.y) + 2 * radius,
+});
 
 /**
  * The brush for one sample. The width is a diameter; on the brush, pressure
@@ -96,12 +104,16 @@ export const brushBehaviour = (kind: BrushKind): ToolBehaviour => {
 	// The stroke stays on the screen canvas until the new href has landed, and
 	// is cleared then, unless a later stroke is on the canvas too: that one
 	// clears it when its own pixels land. A save waits for the whole of it.
+	// One that never reached the area changed nothing, and writes nothing.
 	const finish = (context: ToolContext, stroke: Stroke): void => {
-		const clear = (): void => {
-			if (begun.current === stroke.serial) clearScreen(context.screen);
-		};
+		const clear = (): void => releaseScreen(context.screen, stroke.serial);
+		if (!stroke.reached) {
+			clearCanvas(stroke.surface.stroke);
+			clear();
+			return;
+		}
 		const work = stroke.surface
-			.commit(label, mode, opacityOf(kind, context.options))
+			.commit(label, mode, opacityOf(kind, context.options), stroke.area)
 			.then(clear, (error: unknown) => {
 				clear();
 				reportFailure(context, stroke.surface, error);
@@ -113,38 +125,42 @@ export const brushBehaviour = (kind: BrushKind): ToolBehaviour => {
 		begin: (context, sample) => {
 			const surface = guardedSurface(context);
 			if (surface === undefined) return;
-			begun.current += 1;
+			const serial = claimScreen();
+			const area = areaOf(context);
+			const brush = brushOf(kind, context.options, sample);
 			// The live stroke's opacity, applied to the whole stroke at once as
 			// the commit will, rather than to each stamp.
 			context.screen.canvas.style.setProperty(
 				'opacity',
 				String(opacityOf(kind, context.options))
 			);
-			paintStamp(
-				targetsOf(context, surface),
-				sample.x,
-				sample.y,
-				brushOf(kind, context.options, sample)
-			);
+			paintStamp(targetsOf(context, surface, area), sample.x, sample.y, brush);
+			const last = { x: sample.x, y: sample.y };
 			active.current = {
 				surface,
-				last: { x: sample.x, y: sample.y },
+				last,
 				carry: 0,
-				serial: begun.current,
+				serial,
+				area,
+				reached: reachesArea(area, segmentBox(last, last, brush.radius)),
 			};
 		},
 		move: (context, sample) => {
 			const stroke = active.current;
 			if (stroke === undefined) return;
 			const to = pulled(stroke.last, sample, slackOf(kind, context));
+			const brush = brushOf(kind, context.options, sample);
 			const carry = paintSegment(
-				targetsOf(context, stroke.surface),
+				targetsOf(context, stroke.surface, stroke.area),
 				stroke.last,
 				to,
-				brushOf(kind, context.options, sample),
+				brush,
 				stroke.carry
 			);
-			active.current = { ...stroke, last: to, carry };
+			const reached =
+				stroke.reached ||
+				reachesArea(stroke.area, segmentBox(stroke.last, to, brush.radius));
+			active.current = { ...stroke, last: to, carry, reached };
 		},
 		end: (context, sample) => {
 			const stroke = active.current;
@@ -152,14 +168,18 @@ export const brushBehaviour = (kind: BrushKind): ToolBehaviour => {
 			active.current = undefined;
 			// To where the pointer lifted, however far behind the smoothing left
 			// the stroke: it keeps its reach, as a smoothed vector stroke does.
+			const brush = brushOf(kind, context.options, sample);
 			paintSegment(
-				targetsOf(context, stroke.surface),
+				targetsOf(context, stroke.surface, stroke.area),
 				stroke.last,
 				sample,
-				brushOf(kind, context.options, sample),
+				brush,
 				stroke.carry
 			);
-			finish(context, stroke);
+			const reached =
+				stroke.reached ||
+				reachesArea(stroke.area, segmentBox(stroke.last, sample, brush.radius));
+			finish(context, { ...stroke, reached });
 		},
 		cancel: (context) => {
 			const stroke = active.current;

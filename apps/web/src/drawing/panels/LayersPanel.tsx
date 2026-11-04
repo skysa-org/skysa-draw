@@ -28,12 +28,15 @@ import {
 } from '../document/commands.js';
 import type { DocumentSnapshot, EditorDocument, LayerInfo } from '../document/model.js';
 import { layerDisplayName } from '../layerName.js';
+import { LayerMenu } from './LayerMenu.js';
 import { LayerNameField, LayerProperties } from './LayerProperties.js';
 
 /**
  * The layers panel (docs/ARCHITECTURE.md §3, "Layers"; §7, "The interface"):
  * the layers top first, as every layers panel shows them, each with its eye
- * and its lock, and the actions on the active one. Every change is a command
+ * and its lock, a group's layers under it and a clipped layer marked, and the
+ * actions on the active one, the rarer of them in a menu (`LayerMenu`).
+ * Every change is a command
  * on the document, so it is undone the same way as a stroke; the panel reads
  * the snapshot the frame gives it and re-renders through it.
  *
@@ -73,16 +76,20 @@ const ROW_STEPS: Readonly<Record<string, number>> = { ArrowDown: 1, ArrowUp: -1 
 
 const LayerActions = ({
 	document,
+	snapshot,
 	active,
 	canMoveUp,
 	canMoveDown,
 	onActivate,
+	onNotify,
 }: Readonly<{
 	document: EditorDocument;
+	snapshot: DocumentSnapshot;
 	active: LayerInfo | undefined;
 	canMoveUp: boolean;
 	canMoveDown: boolean;
 	onActivate: (id: string) => void;
+	onNotify: (message: string) => void;
 }>) => {
 	const add = (kind: LayerKind) => {
 		const made = addLayer(document.root, kind, { above: active?.id });
@@ -131,6 +138,13 @@ const LayerActions = ({
 				onClick={() => {
 					if (active !== undefined) document.execute(removeLayer(active.id));
 				}}
+			/>
+			<LayerMenu
+				document={document}
+				snapshot={snapshot}
+				active={active}
+				onActivate={onActivate}
+				onNotify={onNotify}
 			/>
 		</>
 	);
@@ -197,8 +211,16 @@ const LayerRow = ({
 					onDoubleClick={onRename}
 					onKeyDown={onKeyDown}
 				>
+					{layer.clipped === true && (
+						<span className="layer-clip-mark" aria-hidden="true">
+							↳
+						</span>
+					)}
 					<KindIcon className="layer-kind-icon" />
 					<span className="layer-name">{layerDisplayName(layer, index)}</span>
+					{layer.clipped === true && (
+						<span className="visually-hidden">{t('layers.clipped')}</span>
+					)}
 				</button>
 			)}
 			<IconButton
@@ -217,6 +239,7 @@ export const LayersPanel = ({
 	onActivate,
 	withProperties,
 	onClose,
+	onNotify = () => undefined,
 }: Readonly<{
 	document: EditorDocument;
 	snapshot: DocumentSnapshot;
@@ -225,6 +248,8 @@ export const LayersPanel = ({
 	/** The active layer's properties under the list: in the sheet and the drawer, where there is no properties panel. */
 	withProperties: boolean;
 	onClose?: () => void;
+	/** A line to the user, already in their words: why a merge or a clip did nothing. */
+	onNotify?: (message: string) => void;
 }>) => {
 	const [renaming, setRenaming] = useState<string | undefined>(undefined);
 	const layers = snapshot.layers;
@@ -265,10 +290,12 @@ export const LayersPanel = ({
 			actions={
 				<LayerActions
 					document={document}
+					snapshot={snapshot}
 					active={active}
 					canMoveUp={active !== undefined && place < siblings.length - 1}
 					canMoveDown={active !== undefined && place > 0}
 					onActivate={onActivate}
+					onNotify={onNotify}
 				/>
 			}
 			onClose={onClose}

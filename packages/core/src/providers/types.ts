@@ -55,7 +55,7 @@ export type EntryRef = Pick<RemoteEntry, 'remoteId' | 'path'>;
  * has no path to give. Dropping that deletion would leave the drawing here for
  * ever, since the cursor moves on and nothing mentions the file again.
  */
-type DeletedEntry =
+export type DeletedEntry =
 	| { path: string; deleted: true; remoteId?: string }
 	| { path?: undefined; deleted: true; remoteId: string };
 

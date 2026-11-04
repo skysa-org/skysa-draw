@@ -194,6 +194,17 @@ describe('editActionFor', () => {
 		}
 	);
 
+	it.each([true, false])(
+		'leaves select-all and deselect to a field, which selects its own text (mac: %s)',
+		(isMac) => {
+			const target = field();
+			const held = { ...primary(isMac), target };
+			expect(editActionFor(key('a', held), isMac)).toBeUndefined();
+			expect(editActionFor(key('d', held), isMac)).toBeUndefined();
+			expect(editActionFor(key('a', primary(isMac)), isMac)).toBe('selectAll');
+		}
+	);
+
 	it('does nothing while typing, except Escape, which always means stop', () => {
 		const target = field();
 		expect(editActionFor(key('z', { ctrlKey: true, target }), false)).toBeUndefined();

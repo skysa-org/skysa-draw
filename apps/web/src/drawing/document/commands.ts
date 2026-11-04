@@ -1,7 +1,18 @@
 import { type BlendMode, cell, type LayerKind, layerNumber, SVG_NAMESPACE } from '@skysa/draw-core';
 
 import {
-	boundDrawingPrefix,
+	attributesOf,
+	declaring,
+	markupSize,
+	placeAfter,
+	resetAttributes,
+	type SavedAttribute,
+	savedBytes,
+	SMALL_COMMAND_BYTES,
+	spaceBefore,
+	undeclare,
+} from './dom.js';
+import {
 	freeLayerId,
 	freeLayerIdAmong,
 	idsIn,
@@ -16,7 +27,7 @@ import {
 	writeLayerOpacity,
 } from './layers.js';
 import type { Command } from './model.js';
-import { XLINK_NAMESPACE, XMLNS_NAMESPACE } from './namespaces.js';
+import { XLINK_NAMESPACE } from './namespaces.js';
 
 /**
  * The commands (docs/ARCHITECTURE.md §7, "Commands and history"): every change
@@ -31,67 +42,6 @@ import { XLINK_NAMESPACE, XMLNS_NAMESPACE } from './namespaces.js';
  * A command that finds nothing to do, a layer gone or a move past the end,
  * costs nothing (`bytes` is 0), and the document does not record it.
  */
-
-type SavedAttribute = Readonly<{ namespace: string | null; name: string; value: string }>;
-
-const attributesOf = (element: Element): readonly SavedAttribute[] =>
-	[...element.attributes].map((attribute) => ({
-		namespace: attribute.namespaceURI,
-		name: attribute.name,
-		value: attribute.value,
-	}));
-
-/** The element's attributes as they were, in the order they were: an attribute set anew goes last. */
-const resetAttributes = (element: Element, saved: readonly SavedAttribute[]): void => {
-	[...element.attributes].forEach((attribute) => element.removeAttributeNode(attribute));
-	saved.forEach(({ namespace, name, value }) => element.setAttributeNS(namespace, name, value));
-};
-
-const savedBytes = (saved: readonly SavedAttribute[]): number =>
-	saved.reduce((total, { name, value }) => total + name.length + value.length, 0);
-
-/**
- * Roughly what an element and everything in it hold, in characters: its
- * attributes' values and its text, which is where a drawing's bytes are, without
- * serializing it to find out.
- */
-const markupSize = (element: Element): number =>
-	[element, ...element.querySelectorAll('*')].reduce(
-		(total, each) => total + savedBytes(attributesOf(each)),
-		element.textContent.length
-	);
-
-/**
- * Runs a write that may declare the app's namespace on the root, and says
- * which prefix it declared, so the revert can take the declaration away again
- * and leave the root as it was.
- */
-const declaring = (root: Element, write: () => void): string | undefined => {
-	const before = boundDrawingPrefix(root);
-	write();
-	return before === undefined ? boundDrawingPrefix(root) : undefined;
-};
-
-const undeclare = (root: Element, prefix: string | undefined): void => {
-	if (prefix !== undefined) root.removeAttributeNS(XMLNS_NAMESPACE, prefix);
-};
-
-const isSpace = (node: Node | null): node is Text =>
-	node instanceof Text && node.data.trim() === '';
-
-/** The indentation before an element, to give a new sibling the same. */
-const spaceBefore = (element: Element): Text | undefined => {
-	const previous = element.previousSibling;
-	return isSpace(previous) ? previous : undefined;
-};
-
-/** `element` after `anchor`, indented as `anchor` is; returns the indentation it added. */
-const placeAfter = (anchor: Element, element: Element): Text | undefined => {
-	const space = spaceBefore(anchor)?.cloneNode() as Text | undefined;
-	if (space === undefined) anchor.after(element);
-	else anchor.after(space, element);
-	return space;
-};
 
 /**
  * A change to one layer's markup, by a tool (§7: "a vector command keeps the
@@ -209,9 +159,6 @@ const ADD_LABELS: Readonly<Record<LayerKind, string>> = {
 	group: 'layers.addGroup',
 };
 
-/** What a command that keeps only a few attributes costs, at least. */
-const SMALL_COMMAND_BYTES = 64;
-
 /**
  * A new, empty layer of `kind`: a `<g>` with the smallest free `layer-n` and
  * `draw:kind`, above the layer named, in its parent, or on top of everything.
@@ -302,7 +249,7 @@ const nextLayerSibling = (element: Element | null): Element | undefined => {
 	return isLayerElement(next) ? next : nextLayerSibling(next);
 };
 
-const previousLayerSibling = (element: Element | null): Element | undefined => {
+export const previousLayerSibling = (element: Element | null): Element | undefined => {
 	const previous = element?.previousElementSibling ?? null;
 	if (previous === null) return undefined;
 	return isLayerElement(previous) ? previous : previousLayerSibling(previous);
@@ -354,7 +301,7 @@ export const moveLayer = (id: string, direction: 'up' | 'down'): Command => {
  * order, so undo gives back the very attributes it had, and a namespace the
  * writer declared on the root is taken away again.
  */
-const attributeCommand = (
+export const attributeCommand = (
 	id: string,
 	label: string,
 	write: (root: SVGSVGElement, layer: SVGGraphicsElement) => void

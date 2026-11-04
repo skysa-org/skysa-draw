@@ -314,3 +314,96 @@
 	border: 0;
 	padding-inline: 0;
 }
+
+/* A layer clipped to the one below: an arrow before its kind, as Photoshop draws it. */
+.layer-clip-mark {
+	color: var(--muted);
+	flex: none;
+	font-size: var(--text-s);
+}
+
+/* A slider that previews while dragged: only a box to hear its release, laid out as the slider. */
+.live-slider {
+	display: contents;
+}
+
+/* The layer's adjustments, under its blend mode: a heading with the add menu, then each one. */
+.adjustments {
+	border-block-start: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-s);
+	padding-block-start: var(--space-s);
+}
+
+.adjustments-header,
+.adjustment-header {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2xs);
+}
+
+.adjustments-title {
+	flex: 1;
+	font-size: var(--text-m);
+	margin: 0;
+}
+
+.adjustments-foreign {
+	margin: 0;
+}
+
+.adjustment-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-m);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.adjustment {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2xs);
+}
+
+.adjustment-name {
+	flex: 1;
+	font-size: var(--text-s);
+	font-weight: 600;
+	min-width: 0;
+}
+
+/* The crop's box over the drawing, in its user units (`tools/common/crop.ts`):
+   the outside darkened, the box outlined, its thirds, and its handles, drawn
+   the same width on screen at any zoom. Light lines on a dark edge, so they
+   show over any picture. */
+.crop-shade {
+	fill: rgb(0 0 0 / 0.5);
+}
+
+.crop-frame,
+.crop-thirds,
+.crop-handle {
+	vector-effect: non-scaling-stroke;
+}
+
+.crop-frame {
+	fill: none;
+	stroke: #ffffff;
+	stroke-width: 1.5px;
+	filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.8));
+}
+
+.crop-thirds {
+	fill: none;
+	stroke: rgb(255 255 255 / 0.5);
+	stroke-width: 1px;
+}
+
+.crop-handle {
+	fill: #ffffff;
+	stroke: #111827;
+	stroke-width: 1px;
+}

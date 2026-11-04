@@ -1,1 +1,59 @@
 /* The export dialog (docs/ARCHITECTURE.md §7, "Export"). */
+
+.export-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-s);
+}
+
+/* What the choices make: the pixels, or why an SVG has none. */
+.export-size,
+.export-note {
+	color: var(--muted);
+	font-size: var(--text-s);
+	margin: 0;
+}
+
+.export-size {
+	font-variant-numeric: tabular-nums;
+}
+
+.export-name {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	min-height: var(--target);
+	min-width: 0;
+}
+
+.export-name input {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: 1;
+	font: inherit;
+	/* What Safari on a phone needs of a field, or it zooms in on focus. */
+	font-size: var(--text-field-floor);
+	min-height: var(--target);
+	min-width: 0;
+	padding: 0 var(--space-s);
+}
+
+.export-extension {
+	color: var(--muted);
+	font-family: var(--font-mono);
+}
+
+.export-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-s);
+	justify-content: flex-end;
+	margin-block-start: var(--space-s);
+}
+
+.export-actions button {
+	min-height: var(--target);
+	min-width: 6rem;
+}

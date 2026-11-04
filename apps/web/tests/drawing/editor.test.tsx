@@ -101,6 +101,27 @@ const fake = vi.hoisted(() => {
 
 vi.mock('../../src/drawing/document/openDocument.js', () => ({ openDocument: fake.open }));
 
+/** The export module's, mocked to what the frame asks of it: placing a picture, and the dialog. */
+const exporting = vi.hoisted(() => ({ placePicture: vi.fn() }));
+
+vi.mock('../../src/drawing/export/place.js', () => ({ placePicture: exporting.placePicture }));
+
+vi.mock('../../src/drawing/export/ExportDialog.js', () => ({
+	ExportDialog: ({
+		open,
+		title,
+		onClose,
+	}: Readonly<{ open: boolean; title: string; onClose: () => void }>) =>
+		open ? (
+			<div role="dialog" aria-label="Export">
+				<p>{title}</p>
+				<button type="button" onClick={onClose}>
+					Close the export
+				</button>
+			</div>
+		) : null,
+}));
+
 /** The document the editor opened last. */
 const lastOpened = () => {
 	const document = fake.opened.at(-1);
@@ -608,5 +629,91 @@ describe('the drawing open deleted under unsaved edits', () => {
 		expect(await db.drawings.count()).toBe(0);
 		expect(await db.opQueue.toArray()).toEqual([]);
 		expect(onReplaced).not.toHaveBeenCalled();
+	});
+});
+
+describe('placing a picture and exporting', () => {
+	const PICTURE = new File(['png'], 'boat.png', { type: 'image/png' });
+	const placed = {
+		id: 'layer-2',
+		label: 'exporting.place',
+		apply: () => undefined,
+		revert: () => undefined,
+		bytes: 10,
+	};
+
+	beforeEach(() => {
+		exporting.placePicture.mockReset();
+		exporting.placePicture.mockResolvedValue(placed);
+	});
+
+	it('places a picture chosen from More above the active layer, as one step', async () => {
+		const user = userEvent.setup();
+		await renderEditor('expanded');
+		const execute = vi.spyOn(lastOpened(), 'execute');
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Place picture…' }));
+		fireEvent.change(screen.getByLabelText('Picture to place'), {
+			target: { files: [PICTURE] },
+		});
+		await waitFor(() => expect(execute).toHaveBeenCalledWith(placed));
+		expect(exporting.placePicture).toHaveBeenCalledWith(lastOpened(), PICTURE, 'layer-1');
+	});
+
+	it('places a picture pasted, but not one pasted into a field', async () => {
+		await renderEditor('expanded');
+		const paste = (target: EventTarget) => {
+			const event = new Event('paste', { bubbles: true, cancelable: true });
+			Object.defineProperty(event, 'clipboardData', { value: { files: [PICTURE] } });
+			target.dispatchEvent(event);
+			return event;
+		};
+		const field = window.document.createElement('input');
+		window.document.body.appendChild(field);
+		paste(field);
+		expect(exporting.placePicture).not.toHaveBeenCalled();
+		expect(paste(window.document.body).defaultPrevented).toBe(true);
+		await waitFor(() => expect(exporting.placePicture).toHaveBeenCalledTimes(1));
+		field.remove();
+	});
+
+	it('places a picture dropped on the canvas, and says so of a file that is not one', async () => {
+		await renderEditor('expanded');
+		const canvas = screen.getByRole('region', { name: 'Canvas' }).parentElement;
+		if (canvas === null) throw new Error('the canvas is in a frame');
+		fireEvent.drop(canvas, { dataTransfer: { files: [PICTURE], types: ['Files'] } });
+		await waitFor(() => expect(exporting.placePicture).toHaveBeenCalledTimes(1));
+		const text = new File(['words'], 'notes.txt', { type: 'text/plain' });
+		fireEvent.drop(canvas, { dataTransfer: { files: [text], types: ['Files'] } });
+		expect(
+			await screen.findByText(
+				'This file cannot be placed. A picture in PNG, JPEG, GIF, WebP or SVG can.'
+			)
+		).toBeDefined();
+		expect(exporting.placePicture).toHaveBeenCalledTimes(1);
+	});
+
+	it('says so when the picture could not be read', async () => {
+		exporting.placePicture.mockResolvedValue(undefined);
+		await renderEditor('expanded');
+		const canvas = screen.getByRole('region', { name: 'Canvas' }).parentElement;
+		if (canvas === null) throw new Error('the canvas is in a frame');
+		fireEvent.drop(canvas, { dataTransfer: { files: [PICTURE], types: ['Files'] } });
+		expect(
+			await screen.findByText(
+				'This file cannot be placed. A picture in PNG, JPEG, GIF, WebP or SVG can.'
+			)
+		).toBeDefined();
+	});
+
+	it('opens the export dialog from More, with the drawing’s title', async () => {
+		const user = userEvent.setup();
+		await renderEditor('compact');
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Export…' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Export' });
+		expect(within(dialog).getByText('Harbour')).toBeDefined();
+		await user.click(within(dialog).getByRole('button', { name: 'Close the export' }));
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Export' })).toBeNull());
 	});
 });

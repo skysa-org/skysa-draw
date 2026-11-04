@@ -30,9 +30,11 @@ const open = (text = emptyDrawing({ id: DRAWING_ID })): EditorDocument => {
 const Harness = ({
 	document,
 	onActivate = () => undefined,
+	onNotify = () => undefined,
 }: Readonly<{
 	document: EditorDocument;
 	onActivate?: (id: string) => void;
+	onNotify?: (message: string) => void;
 }>) => {
 	const snapshot = useDocumentSnapshot(document);
 	const [chosen, setChosen] = useState<string | undefined>(undefined);
@@ -47,6 +49,7 @@ const Harness = ({
 				onActivate(id);
 			}}
 			withProperties
+			onNotify={onNotify}
 		/>
 	);
 };
@@ -263,6 +266,88 @@ describe('the layers panel', () => {
 		);
 		render(<Harness document={open(text)} />);
 		expect(rows()).toEqual(['Layer 3', 'Layer 1', 'Layer 2']);
+	});
+});
+
+describe('the layer actions menu', () => {
+	const choose = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+		await user.click(screen.getByRole('button', { name: 'Layer actions' }));
+		await user.click(await screen.findByRole('menuitem', { name }));
+	};
+
+	const item = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+		await user.click(screen.getByRole('button', { name: 'Layer actions' }));
+		const found = await screen.findByRole('menuitem', { name });
+		await user.keyboard('{Escape}');
+		return found;
+	};
+
+	it('groups the active layer and ungroups it again', async () => {
+		const user = userEvent.setup();
+		const document = open();
+		render(<Harness document={document} />);
+		expect((await item(user, 'Ungroup')).getAttribute('aria-disabled')).toBe('true');
+
+		await choose(user, 'Group layer');
+		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
+		expect(pick('Layer 2').getAttribute('aria-current')).toBe('true');
+		expect(document.text()).toMatch(/<g id="layer-2" draw:kind="group"><g id="layer-1"/);
+
+		await choose(user, 'Ungroup');
+		await waitFor(() => expect(rows()).toEqual(['Layer 1']));
+		expect(pick('Layer 1').getAttribute('aria-current')).toBe('true');
+	});
+
+	it('merges the active layer down, which is not offered at the bottom', async () => {
+		const user = userEvent.setup();
+		const document = open();
+		render(<Harness document={document} />);
+		expect((await item(user, 'Merge down')).getAttribute('aria-disabled')).toBe('true');
+
+		await add(user);
+		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
+		await choose(user, 'Merge down');
+		await waitFor(() => expect(rows()).toEqual(['Layer 1']));
+		document.undo();
+		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
+	});
+
+	it('clips the active layer to the one below, marks it, and releases it', async () => {
+		const user = userEvent.setup();
+		const document = open();
+		render(<Harness document={document} />);
+		await add(user);
+		await choose(user, 'Clip to layer below');
+		await waitFor(() =>
+			expect(pick(/Layer 2/).textContent).toBe('↳Layer 2Clipped to the layer below')
+		);
+		expect(document.text()).toContain('mask="url(#clip-layer-2)"');
+
+		await choose(user, 'Release clip');
+		await waitFor(() => expect(pick(/Layer 2/).textContent).toBe('Layer 2'));
+		expect(document.text()).not.toContain('<mask');
+	});
+
+	it('says why a merge of a hidden layer, or a rasterize the browser cannot draw, did nothing', async () => {
+		const user = userEvent.setup();
+		const document = open();
+		const onNotify = vi.fn();
+		render(<Harness document={document} onNotify={onNotify} />);
+		await add(user);
+		await user.click(screen.getAllByRole('button', { name: 'Hide layer' })[0] as HTMLElement);
+		await choose(user, 'Merge down');
+		expect(onNotify).toHaveBeenLastCalledWith(
+			'Hidden layers cannot be merged. Show both layers first.'
+		);
+
+		// jsdom draws nothing on a canvas.
+		await choose(user, 'Rasterize layer');
+		await waitFor(() =>
+			expect(onNotify).toHaveBeenLastCalledWith(
+				'This browser could not draw the layer as pixels, so nothing was changed.'
+			)
+		);
+		expect(rows()).toEqual(['Layer 2', 'Layer 1']);
 	});
 });
 

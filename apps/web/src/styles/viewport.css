@@ -1,15 +1,19 @@
 /* The viewport (docs/ARCHITECTURE.md §7, "The interface"): the stage the
    drawing is mounted on, the overlay over it, the screen canvas for a live
-   raster stroke, and the paper behind the drawing. */
+   raster stroke, and the paper behind the drawing. The area selection's
+   layer, between the drawing and the overlay, is `regions.css`'s. */
 
 /* `touch-action: none` so every finger reaches the pointer events and none
    scrolls the page; no text selection, since a drag over a `<text>` would
    otherwise select it; and no callout on a long press, which on iOS would
-   open over a finger that is drawing. */
+   open over a finger that is drawing. `clip` rather than `hidden`, where the
+   browser has it, so the viewport cannot be scrolled at all, not even by the
+   browser bringing the text tool's caret into view. */
 .viewport {
 	position: relative;
 	height: 100%;
 	overflow: hidden;
+	overflow: clip;
 	background: var(--surface);
 	outline: none;
 	touch-action: none;

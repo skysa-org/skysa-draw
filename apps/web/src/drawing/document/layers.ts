@@ -89,7 +89,7 @@ const declarationsOf = (element: Element): readonly Declaration[] =>
 		});
 
 /** A property's value in `style`, the last one where it is given twice, as CSS has it. */
-const styleValue = (element: Element, property: string): string | undefined =>
+export const styleValue = (element: Element, property: string): string | undefined =>
 	declarationsOf(element)
 		.filter((declaration) => declaration.property === property)
 		.at(-1)?.value;

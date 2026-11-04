@@ -1,7 +1,15 @@
-import { cell, DEFAULT_DRAWING_SIZE, readDrawingProlog, readDrawingSize } from '@skysa/draw-core';
+import {
+	cell,
+	DEFAULT_DRAWING_SIZE,
+	type DrawingSize,
+	readDrawingProlog,
+	readDrawingSize,
+} from '@skysa/draw-core';
 
+import { canvasBoxOf } from './crop.js';
+import { describeLayers } from './describe.js';
 import { createHistory } from './history.js';
-import { giveLayerIds, layerById, layersOf } from './layers.js';
+import { giveLayerIds, layerById } from './layers.js';
 import type { Command, DocumentSnapshot, EditorDocument } from './model.js';
 import { parseDrawing, sanitizeDrawing } from './sanitize.js';
 import { serializeDrawing } from './serialize.js';
@@ -47,6 +55,16 @@ export const openDocument = (text: string): EditorDocument | undefined => {
 	const snapshotMemo = cell<DocumentSnapshot | undefined>(undefined);
 	const textMemo = cell<Readonly<{ version: number; text: string }> | undefined>(undefined);
 
+	// The canvas's size as it is now: a crop changes the `viewBox`
+	// (`document/crop.ts`), and the tools that size a new raster layer by the
+	// canvas read it here.
+	const currentSize = (): DrawingSize => {
+		const box = canvasBoxOf(root, size);
+		return box.width === size.width && box.height === size.height
+			? size
+			: { width: box.width, height: box.height };
+	};
+
 	const changed = (): void => {
 		version.current += 1;
 		listeners.forEach((listener) => listener());
@@ -57,8 +75,8 @@ export const openDocument = (text: string): EditorDocument | undefined => {
 		const known = snapshotMemo.current;
 		if (known?.version === version.current) return known;
 		const made: DocumentSnapshot = {
-			layers: layersOf(root),
-			size,
+			layers: describeLayers(root),
+			size: currentSize(),
 			canUndo: history.canUndo(),
 			canRedo: history.canRedo(),
 			dirty: !history.atOrigin(),
@@ -121,7 +139,9 @@ export const openDocument = (text: string): EditorDocument | undefined => {
 	return {
 		root,
 		prolog,
-		size,
+		get size() {
+			return currentSize();
+		},
 		snapshot,
 		text: currentText,
 		layer: (id) => layerById(root, id),

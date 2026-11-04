@@ -105,6 +105,18 @@ const distanceAt = (data: Uint8ClampedArray, index: number, seed: Rgba): number 
 	);
 };
 
+/**
+ * How much a dab lays down at `distance` from its centre, 0 to 1: all of it
+ * inside the hard core, `hardness` of the radius, and fading to nothing at
+ * the edge.
+ */
+const dabFalloff = (distance: number, radius: number, hardness: number): number => {
+	if (distance >= radius) return 0;
+	const core = radius * Math.min(1, Math.max(0, hardness));
+	if (distance <= core) return 1;
+	return (radius - distance) / (radius - core);
+};
+
 /* eslint-disable functional/immutable-data -- pixels are written in place; a copy per pixel would be the whole picture */
 /**
  * The 4-connected region around pixel `seedIndex` whose colours are within
@@ -119,7 +131,8 @@ const fillRegion = (
 	height: number,
 	seedIndex: number,
 	rgba: Rgba,
-	tolerance: number
+	tolerance: number,
+	inside: (index: number) => boolean
 ): number => {
 	const count = width * height;
 	const seed: Rgba = [
@@ -135,7 +148,7 @@ const fillRegion = (
 	const consider = (index: number): void => {
 		if (tested[index] === 1) return;
 		tested[index] = 1;
-		if (distanceAt(data, index, seed) > tolerance) return;
+		if (!inside(index) || distanceAt(data, index, seed) > tolerance) return;
 		queue[tally[0] ?? 0] = index;
 		tally[0] = (tally[0] ?? 0) + 1;
 	};
@@ -156,13 +169,107 @@ const fillRegion = (
 	});
 	return tally[1] ?? 0;
 };
+
+/** One dab of the smudge, in pixels: the region it covers and how it lays down what it carries. */
+interface Dab {
+	/** The region `picked` and `under` both cover. */
+	readonly width: number;
+	readonly height: number;
+	/** The dab's centre, from the region's corner. */
+	readonly cx: number;
+	readonly cy: number;
+	readonly radius: number;
+	/** 0 soft to 1 hard. */
+	readonly hardness: number;
+	/** How much of what it carries one dab lays down at its centre, 0 to 1 (`dabStrength`). */
+	readonly strength: number;
+}
+
+/** The new value of one channel, premultiplied by its alpha, mixed by `weight` and divided out again. */
+const mixed = (
+	under: number,
+	underAlpha: number,
+	picked: number,
+	pickedAlpha: number,
+	weight: number,
+	alpha: number
+): number => {
+	if (alpha <= 0) return 0;
+	const premultiplied = under * underAlpha + (picked * pickedAlpha - under * underAlpha) * weight;
+	return Math.min(255, Math.max(0, Math.round(premultiplied / alpha)));
+};
+
+/**
+ * The smudge's dab (docs/decisions/0004-the-interface.md: "Push pixels"): the
+ * pixels `picked` up under the previous dab laid over `under`, the ones where
+ * this dab lands, in place, by the dab's weight at each pixel: its strength,
+ * its edge, and `coverage` where an area is selected (the alpha of a mask of
+ * the same region). Mixed premultiplied, so a transparent pixel pushed over a
+ * colour thins it rather than darkening it. Whether any pixel changed comes back.
+ */
+export const smudgeDab = (
+	picked: Uint8ClampedArray,
+	under: Uint8ClampedArray,
+	dab: Dab,
+	coverage?: Uint8ClampedArray
+): boolean => {
+	// [the pixels changed]
+	const tally = new Uint32Array(1);
+	new Uint8Array(dab.width * dab.height).forEach((_, index) => {
+		const x = (index % dab.width) + 0.5;
+		const y = Math.floor(index / dab.width) + 0.5;
+		const reach = dabFalloff(Math.hypot(x - dab.cx, y - dab.cy), dab.radius, dab.hardness);
+		const covered = coverage === undefined ? 1 : channel(coverage, index * 4 + 3) / 255;
+		const weight = dab.strength * reach * covered;
+		if (weight <= 0) return;
+		const offset = index * 4;
+		const pickedAlpha = channel(picked, offset + 3) / 255;
+		const underAlpha = channel(under, offset + 3) / 255;
+		const alpha = underAlpha + (pickedAlpha - underAlpha) * weight;
+		const next = [0, 1, 2].map((c) =>
+			mixed(
+				channel(under, offset + c),
+				underAlpha,
+				channel(picked, offset + c),
+				pickedAlpha,
+				weight,
+				alpha
+			)
+		);
+		const nextAlpha = Math.round(alpha * 255);
+		const same =
+			next.every((value, c) => value === channel(under, offset + c)) &&
+			nextAlpha === channel(under, offset + 3);
+		if (same) return;
+		tally[0] = (tally[0] ?? 0) + 1;
+		next.forEach((value, c) => {
+			under[offset + c] = value;
+		});
+		under[offset + 3] = nextAlpha;
+	});
+	return (tally[0] ?? 0) > 0;
+};
 /* eslint-enable functional/immutable-data */
+
+/**
+ * One dab's strength, from the smudge's: chosen so that what the smudge
+ * carries keeps `strength` of itself over a distance of one radius, however
+ * many dabs it takes to get there. So the option says how far colour is
+ * dragged, and a brush whose dabs are closer together drags no further.
+ */
+export const dabStrength = (strength: number, spacing: number, radius: number): number => {
+	const clamped = Math.min(1, Math.max(0, strength));
+	if (clamped === 0 || !(radius > 0)) return 0;
+	return clamped ** (spacing / radius);
+};
 
 /**
  * Flood fill: the pixels connected to `(x, y)` by sides whose colour is within
  * `tolerance` (0 to 1, `colourDistance`) of the one there, set to `rgba`, in
  * place. How many pixels changed colour comes back, so a fill that changed
- * none writes nothing; a point outside the picture fills nothing.
+ * none writes nothing; a point outside the picture fills nothing. `inside`
+ * says which pixels the fill may reach, by index, for an area selected: one
+ * outside it is a wall, and a seed outside it fills nothing.
  */
 export const floodFill = (
 	data: Uint8ClampedArray,
@@ -171,12 +278,13 @@ export const floodFill = (
 	x: number,
 	y: number,
 	rgba: Rgba,
-	tolerance: number
+	tolerance: number,
+	inside: (index: number) => boolean = () => true
 ): number => {
 	const px = Math.floor(x);
 	const py = Math.floor(y);
 	if (px < 0 || py < 0 || px >= width || py >= height) return 0;
-	return fillRegion(data, width, height, py * width + px, rgba, Math.max(0, tolerance));
+	return fillRegion(data, width, height, py * width + px, rgba, Math.max(0, tolerance), inside);
 };
 
 const HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;

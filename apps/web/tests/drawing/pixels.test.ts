@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	colourDistance,
+	dabStrength,
 	floodFill,
 	parseColour,
 	pixelGrid,
 	placePicture,
 	type Rgba,
+	smudgeDab,
 	stampsAlong,
 	stampSpacing,
 	toCss,
@@ -15,7 +17,7 @@ import {
 /**
  * The arithmetic of a raster layer (docs/ARCHITECTURE.md §3, "Layers"), which
  * needs no canvas: the pixel grid, the brush's stamps, the flood fill, the
- * colours, and where a picture from elsewhere sits in its box.
+ * smudge's dab, the colours, and where a picture from elsewhere sits in its box.
  */
 
 describe('pixelGrid', () => {
@@ -202,6 +204,96 @@ describe('floodFill', () => {
 		floodFill(data, 4, 4, 3.9, 2.2, BLUE, 0);
 		expect(pixelAt(data, 3, 0)).toEqual(BLUE);
 		expect(pixelAt(data, 0, 0)).toEqual(CLEAR);
+	});
+
+	it('takes a pixel outside the area as a wall, and fills nothing from a seed outside it', () => {
+		// The area is the first column.
+		const inFirstColumn = (index: number) => index % 4 === 0;
+		const data = walled();
+		expect(floodFill(data, 4, 4, 0, 0, BLUE, 0, inFirstColumn)).toBe(4);
+		expect(pixelAt(data, 0, 3)).toEqual(BLUE);
+		expect(pixelAt(data, 1, 0)).toEqual(CLEAR);
+
+		const outside = walled();
+		const before = Array.from(outside);
+		expect(floodFill(outside, 4, 4, 1, 0, BLUE, 1, inFirstColumn)).toBe(0);
+		expect(Array.from(outside)).toEqual(before);
+	});
+});
+
+describe('smudgeDab', () => {
+	/** A 3×3 region, every pixel one colour. */
+	const filled = (rgba: Rgba): Uint8ClampedArray => {
+		const data = new Uint8ClampedArray(9 * 4);
+		for (let i = 0; i < 9; i += 1) data.set(rgba, i * 4);
+		return data;
+	};
+	const at3 = (data: Uint8ClampedArray, x: number, y: number): Rgba => {
+		const i = (y * 3 + x) * 4;
+		return [data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0, data[i + 3] ?? 0];
+	};
+	/** A hard dab of radius 1 about the middle pixel's centre: that pixel alone is inside it. */
+	const dab = { width: 3, height: 3, cx: 1.5, cy: 1.5, radius: 1, hardness: 1, strength: 0.5 };
+
+	it('lays what it picked up over what it lands on, by its strength, inside its radius only', () => {
+		const under = filled(BLUE);
+		expect(smudgeDab(filled(RED), under, dab)).toBe(true);
+		expect(at3(under, 1, 1)).toEqual([128, 0, 128, 255]);
+		expect(at3(under, 0, 0)).toEqual(BLUE);
+		expect(at3(under, 1, 0)).toEqual(BLUE);
+	});
+
+	it('thins a colour that transparency is pushed over, rather than darkening it', () => {
+		const half = filled(RED);
+		smudgeDab(filled(CLEAR), half, dab);
+		expect(at3(half, 1, 1)).toEqual([255, 0, 0, 128]);
+
+		const whole = filled(RED);
+		smudgeDab(filled(CLEAR), whole, { ...dab, strength: 1 });
+		expect(at3(whole, 1, 1)).toEqual(CLEAR);
+	});
+
+	it('fades toward a soft edge', () => {
+		const under = filled(BLUE);
+		smudgeDab(filled(RED), under, { ...dab, radius: 2, hardness: 0, strength: 1 });
+		const middle = at3(under, 1, 1);
+		const side = at3(under, 1, 0);
+		const corner = at3(under, 0, 0);
+		expect(middle[0]).toBe(255);
+		expect(side[0]).toBeGreaterThan(corner[0]);
+		expect(corner[0]).toBeGreaterThan(0);
+		expect(corner[0]).toBeLessThan(255);
+	});
+
+	it('changes nothing the coverage leaves out, and says so', () => {
+		const under = filled(BLUE);
+		const before = Array.from(under);
+		expect(smudgeDab(filled(RED), under, dab, filled(CLEAR))).toBe(false);
+		expect(Array.from(under)).toEqual(before);
+		expect(smudgeDab(filled(RED), under, dab, filled(RED))).toBe(true);
+	});
+
+	it('changes nothing at a strength of nothing, or where it carries the colour it lands on', () => {
+		const under = filled(BLUE);
+		expect(smudgeDab(filled(RED), under, { ...dab, strength: 0 })).toBe(false);
+		expect(smudgeDab(filled(BLUE), under, { ...dab, strength: 1 })).toBe(false);
+		expect(at3(under, 1, 1)).toEqual(BLUE);
+	});
+});
+
+describe('dabStrength', () => {
+	it('keeps the strength over a radius, however many dabs it takes', () => {
+		expect(dabStrength(0.5, 4, 4)).toBeCloseTo(0.5);
+		expect(dabStrength(0.5, 1, 4) ** 4).toBeCloseTo(0.5);
+		expect(dabStrength(0.25, 0.6, 4) ** (4 / 0.6)).toBeCloseTo(0.25);
+	});
+
+	it('is nothing at nothing and everything at full, and stays between', () => {
+		expect(dabStrength(0, 1, 4)).toBe(0);
+		expect(dabStrength(-1, 1, 4)).toBe(0);
+		expect(dabStrength(1, 1, 4)).toBe(1);
+		expect(dabStrength(2, 1, 4)).toBe(1);
+		expect(dabStrength(0.5, 1, 0)).toBe(0);
 	});
 });
 

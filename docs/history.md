@@ -25,3 +25,11 @@ For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` her
 - Learned on the way: `outerHTML` of an SVG in the page is HTML serialization and not always XML, so commands keep clones; the DOM Parsing serializer writes an Inkscape root as `<svg:svg>`, which DOMPurify then refuses, so the serializer writes `<svg>`; an SVG `<style>` styles the whole page, so the drawing is mounted in a shadow root; browsers keep Ctrl+Shift+N for a private window, so a new layer is Insert.
 - The conflict rule applied in the editor: a drawing changed or deleted elsewhere under unsaved edits keeps the edits as a drawing of their own.
 - Tests: core 1016, web over 840, API 423, all under jsdom; nothing yet run in a real browser.
+
+## Phase 2 — The rest of the tools, and the sync engine (2026-11-04)
+- The sync engine ported from skysa-notes v2.1.1 into `packages/core/src/sync/` behind a document seam, `sync/document.ts`, with its tests, the store contract and the simulation kit; renamed by two perl scripts written into `decisions/0002-carried-over-from-skysa-notes.md`, so a fix carries both ways; the clipboard and key-file flags and notes' hidden root folders cut.
+- The rest of the tools, by six agents against contracts committed first (`RegionControl`, the text host, a stub for each tool and its place in the registry): pen and node over a path-data module of their own (`tools/vector/path/`), text typed in place, the marquee and the lasso and the area every raster tool paints inside, smudge, and crop.
+- The layer operations: group and ungroup, clip to the layer below, merge down, rasterize, and an adjustment stack on each layer as SVG filter primitives named in the app's namespace (`decisions/0003-layers.md`, amended).
+- Export to PNG, JPEG, WebP and SVG through an `<img>` of a `blob:` URL, and a picture placed from a file, a paste or a drop.
+- Learned on the way: the viewport told a tool only about strokes, so a tool with state between strokes (the pen, the text field) watches for itself; `putImageData` ignores a clip, so the fill floods through a coverage mask; no fill rule subtracts one arbitrary path from another, so the area adds and does not subtract.
+- Tests: core 7128 (6103 of them the engine's), web 1187, API 423, all under jsdom; nothing yet run in a real browser.

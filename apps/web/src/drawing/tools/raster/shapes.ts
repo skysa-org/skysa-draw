@@ -1,8 +1,9 @@
 import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 
 import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../types.js';
-import { constrainLine, constrainRect, distance, rectFrom } from '../vector/geometry.js';
+import { type Box, constrainLine, constrainRect, distance, rectFrom } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
+import { type Area, areaOf, reachesArea } from './area.js';
 import { guardedSurface, reportFailure } from './guard.js';
 import type { Point } from './pixels.js';
 import type { RasterSurface } from './surface.js';
@@ -15,7 +16,8 @@ import type { RasterSurface } from './surface.js';
  * the same way: Shift or the constrain option keeps a rectangle square, an
  * ellipse round and a line to 45°; a drag shorter than a user unit is a click
  * and makes nothing. The preview stays until the new href has landed, as a
- * brush stroke stays on the screen canvas.
+ * brush stroke stays on the screen canvas. Where an area is selected the
+ * shape is drawn inside it, and one that misses it makes nothing.
  */
 
 type ShapeKind = 'rectangle' | 'ellipse' | 'line';
@@ -24,6 +26,8 @@ interface Drag {
 	readonly surface: RasterSurface;
 	readonly start: Point;
 	readonly preview: Element;
+	/** The area selected when the drag began; none for anywhere. */
+	readonly area: Area | undefined;
 }
 
 const TAGS: Readonly<Record<ShapeKind, string>> = {
@@ -95,6 +99,18 @@ const makePreview = (kind: ShapeKind, context: ToolContext): Element => {
 	preview.setAttribute('pointer-events', 'none');
 	overlay.appendChild(preview);
 	return preview;
+};
+
+/** What the shape covers in user units: the box between its corners, grown by half its outline. */
+const shapeBox = (start: Point, end: Point, options: ToolOptions): Box => {
+	const box = rectFrom(start, end);
+	const half = options.strokeWidth / 2;
+	return {
+		x: box.x - half,
+		y: box.y - half,
+		width: box.width + 2 * half,
+		height: box.height + 2 * half,
+	};
 };
 
 /** Whether the shape leaves a mark: a line always has ink; a rectangle or an ellipse needs a fill or a stroke. */
@@ -181,7 +197,7 @@ export const shapeBehaviour = (kind: ShapeKind): ToolBehaviour => {
 			const start = { x: sample.x, y: sample.y };
 			const preview = makePreview(kind, context);
 			setGeometry(kind, preview, start, start, context.options);
-			active.current = { surface, start, preview };
+			active.current = { surface, start, preview, area: areaOf(context) };
 		},
 		move: (context, sample) => {
 			const drag = active.current;
@@ -194,21 +210,31 @@ export const shapeBehaviour = (kind: ShapeKind): ToolBehaviour => {
 			if (drag === undefined) return;
 			active.current = undefined;
 			const end = endOf(kind, context, drag.start, sample);
-			if (distance(drag.start, end) < LEAST_DRAG || !marks(kind, context.options)) {
+			if (
+				distance(drag.start, end) < LEAST_DRAG ||
+				!marks(kind, context.options) ||
+				!reachesArea(drag.area, shapeBox(drag.start, end, context.options))
+			) {
 				drag.preview.remove();
 				return;
 			}
 			// What stays on screen is what will land.
 			setGeometry(kind, drag.preview, drag.start, end, context.options);
 			drawShape(kind, drag.surface, drag.start, end, context.options);
-			const work = drag.surface.commit(label, 'source-over', context.options.opacity).then(
+			const work = drag.surface.commit(
+				label,
+				'source-over',
+				context.options.opacity,
+				drag.area
+			);
+			const landed = work.then(
 				() => drag.preview.remove(),
 				(error: unknown) => {
 					drag.preview.remove();
 					reportFailure(context, drag.surface, error);
 				}
 			);
-			context.document.pending(work);
+			context.document.pending(landed);
 		},
 		cancel: () => {
 			const drag = active.current;

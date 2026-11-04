@@ -1,4 +1,5 @@
 import type { ScreenCanvas, ToolContext } from '../types.js';
+import { type Area, clipToArea } from './area.js';
 import { parseColour, type Point, stampsAlong, stampSpacing } from './pixels.js';
 import type { RasterSurface } from './surface.js';
 
@@ -9,7 +10,8 @@ import type { RasterSurface } from './surface.js';
  * path. Every stamp goes to two places at once: the layer's stroke canvas in
  * pixels, which is what will be written, and the screen canvas over the
  * viewport in device pixels, which is what the user sees until the encoding
- * lands.
+ * lands. Where an area is selected the screen shows the stamps clipped to it,
+ * as the commit will clip the stroke (`RasterSurface.commit`).
  */
 
 /** A brush as a stroke holds it: the radius in user units, and the rest as the options say. */
@@ -73,12 +75,19 @@ export interface StrokeTargets {
 	readonly screen: ScreenCanvas;
 	/** Screen-canvas pixels per user unit: the viewport's scale times its pixel ratio. */
 	readonly screenScale: number;
+	/** The area the stroke paints inside, as it was when the stroke began; none for anywhere. */
+	readonly area: Area | undefined;
 }
 
-export const targetsOf = (context: ToolContext, surface: RasterSurface): StrokeTargets => ({
+export const targetsOf = (
+	context: ToolContext,
+	surface: RasterSurface,
+	area: Area | undefined
+): StrokeTargets => ({
 	surface,
 	screen: context.screen,
 	screenScale: context.viewport.scale * context.screen.pixelRatio,
+	area,
 });
 
 /**
@@ -95,10 +104,12 @@ export const paintStamp = (targets: StrokeTargets, x: number, y: number, brush: 
 		stamp(pixelCtx, px, py, brush.radius * surface.ppu, brush.hardness, brush.colour, 1);
 	}
 	const screenCtx = screen.canvas.getContext('2d');
-	if (screenCtx !== null) {
-		const [sx, sy] = screen.toScreen(x, y);
-		stamp(screenCtx, sx, sy, brush.radius * screenScale, brush.hardness, brush.mirror, 1);
-	}
+	if (screenCtx === null) return;
+	const [sx, sy] = screen.toScreen(x, y);
+	screenCtx.save();
+	if (targets.area !== undefined) clipToArea(screenCtx, targets.area, screen.toScreen);
+	stamp(screenCtx, sx, sy, brush.radius * screenScale, brush.hardness, brush.mirror, 1);
+	screenCtx.restore();
 };
 
 /**

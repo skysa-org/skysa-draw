@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
-import { rasterBehaviours } from '../../src/drawing/tools/raster/index.js';
+import { clearArea, rasterBehaviours } from '../../src/drawing/tools/raster/index.js';
 import { type RasterSurface, surfaceFor } from '../../src/drawing/tools/raster/surface.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
@@ -30,9 +30,11 @@ import { t } from '../../src/i18n/t.js';
  * and is mocked to the contract the tools rely on.
  *
  * What this cannot show is the real canvas: how a stamp looks, what a PNG
- * holds, the decoding of a picture, and a layer's `transform` read through
- * the SVG DOM, which jsdom does not have (so every layer is at the root's
- * units here).
+ * holds, the decoding of a picture, a clip's effect on the pixels, and a
+ * layer's `transform` read through the SVG DOM, which jsdom does not have (so
+ * every layer is at the root's units here). jsdom has no `Path2D` either: a
+ * test of the area stubs one that keeps its path, and the fake context draws
+ * a rectangle's path into a mask, which is enough for the area's own shape.
  */
 
 vi.mock('../../src/drawing/document/commands.js', () => {
@@ -93,6 +95,24 @@ vi.mock('../../src/drawing/document/commands.js', () => {
 
 // ---- A recording 2D context --------------------------------------------------
 
+/** `Path2D` as a test of the area stubs it: the path, kept to be read back. */
+class FakePath2D {
+	constructor(readonly d: string) {}
+}
+
+/** The box round a path's numbers, read in pairs: a rectangle's own, for the areas tested. */
+const pathBox = (d: string) => {
+	const numbers = (d.match(/-?[\d.]+/g) ?? []).map(Number);
+	const xs = numbers.filter((_, i) => i % 2 === 0);
+	const ys = numbers.filter((_, i) => i % 2 === 1);
+	return {
+		left: Math.min(...xs),
+		top: Math.min(...ys),
+		right: Math.max(...xs),
+		bottom: Math.max(...ys),
+	};
+};
+
 type Call = Readonly<{
 	name: string;
 	args: readonly unknown[];
@@ -108,6 +128,8 @@ type State = {
 	fillStyle: unknown;
 	strokeStyle: unknown;
 	lineWidth: number;
+	/** `setTransform`'s six numbers. */
+	transform: number[];
 };
 
 type FakeContext = State &
@@ -129,6 +151,7 @@ const createFakeContext = (canvas: HTMLCanvasElement): FakeContext => {
 		fillStyle: '#000000',
 		strokeStyle: '#000000',
 		lineWidth: 1,
+		transform: [1, 0, 0, 1, 0, 0],
 	};
 	const calls: Call[] = [];
 	const saved: State[] = [];
@@ -172,7 +195,29 @@ const createFakeContext = (canvas: HTMLCanvasElement): FakeContext => {
 		arc: recorder('arc'),
 		arcTo: recorder('arcTo'),
 		ellipse: recorder('ellipse'),
-		fill: recorder('fill'),
+		// A fill of a stubbed `Path2D` is drawn as a rectangle, opaque, through
+		// the transform, so a mask of the area has pixels; any other fill only
+		// records.
+		fill: (...args: unknown[]) => {
+			record('fill', args);
+			const [path] = args;
+			if (!(path instanceof FakePath2D)) return;
+			const [a = 1, , , d = 1, e = 0, f = 0] = state.transform;
+			const box = pathBox(path.d);
+			const all = pixels();
+			for (let i = 0; i < canvas.width * canvas.height; i += 1) {
+				const ux = ((i % canvas.width) + 0.5 - e) / a;
+				const uy = (Math.floor(i / canvas.width) + 0.5 - f) / d;
+				if (ux > box.left && ux < box.right && uy > box.top && uy < box.bottom) {
+					all[i * 4 + 3] = 255;
+				}
+			}
+		},
+		clip: recorder('clip'),
+		setTransform: (...args: number[]) => {
+			record('setTransform', args);
+			state.transform = args;
+		},
 		stroke: recorder('stroke'),
 		fillRect: recorder('fillRect'),
 		strokeRect: recorder('strokeRect'),
@@ -263,6 +308,7 @@ beforeEach(installCanvas);
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 	Reflect.deleteProperty(HTMLImageElement.prototype, 'decode');
 });
 
@@ -313,6 +359,8 @@ type Setup = Readonly<{
 	/** An `<image>` the layer already holds. */
 	image?: Readonly<Record<string, string>>;
 	scale?: number;
+	/** The area selected, as the marquee writes it. */
+	area?: string;
 }>;
 
 const imageOf = (layer: Element): Element | undefined =>
@@ -391,7 +439,7 @@ const createFake = (setup: Setup = {}): Fake => {
 			actualSize: noop,
 		},
 		selection: { elements: [], set: noop, clear: noop },
-		region: { path: undefined, set: noop },
+		region: { path: setup.area, set: noop },
 		host: document.createElement('div'),
 		setColour: (which, value) => colours.push([which, value]),
 		notify: (message) => notices.push(message),
@@ -770,7 +818,15 @@ describe('select', () => {
 });
 
 describe('what may not be drawn on', () => {
-	const DRAWING_TOOLS: ToolId[] = ['brush', 'pencil', 'eraser', 'fill', 'rectangle', 'select'];
+	const DRAWING_TOOLS: ToolId[] = [
+		'brush',
+		'pencil',
+		'eraser',
+		'smudge',
+		'fill',
+		'rectangle',
+		'select',
+	];
 
 	it.each([
 		['a locked layer', { locked: true }, t('layers.locked', { name: 'Layer 2' })],
@@ -976,5 +1032,143 @@ describe('the surface', () => {
 		expect(fake.labels).toEqual([]);
 		expect(fake.notices).toEqual([]);
 		expect(imageOf(fake.layer)).toBeUndefined();
+	});
+});
+
+describe('the area', () => {
+	/** A square from the canvas's corner, 20 units a side, as the marquee writes it. */
+	const AREA = 'M 0 0 L 20 0 L 20 20 L 0 20 Z';
+	const SMALL = { width: 40, height: 30 };
+
+	/** The calls that place and clip a composite, in order. */
+	const clipping = (ctx: FakeContext): string[] =>
+		ctx.calls
+			.map((call) => call.name)
+			.filter((name) =>
+				['save', 'setTransform', 'clip', 'drawImage', 'restore'].includes(name)
+			);
+
+	const pixelOf = (surface: RasterSurface, x: number, y: number): number[] => {
+		const offset = (y * surface.canvas.width + x) * 4;
+		return Array.from(
+			fakeOf(surface.canvas)
+				.pixels()
+				.subarray(offset, offset + 4)
+		);
+	};
+
+	it('clips a brush stroke to it, on the screen and in the commit', async () => {
+		vi.stubGlobal('Path2D', FakePath2D);
+		const fake = createFake({ area: AREA });
+		const surface = surfaceOf(fake);
+		stroke(tool('brush'), fake.context, LINE);
+		const screenCtx = fakeOf(fake.screen);
+		const screenClips = screenCtx.named('clip');
+		expect(screenClips).toHaveLength(screenCtx.named('arc').length);
+		expect((screenClips[0]?.args[0] as FakePath2D).d).toBe(AREA);
+
+		await Promise.all(fake.pending);
+		const layerCtx = fakeOf(surface.canvas);
+		expect(clipping(layerCtx)).toEqual([
+			'save',
+			'setTransform',
+			'clip',
+			'setTransform',
+			'drawImage',
+			'restore',
+		]);
+		// The layer's pixels are the drawing's units here, so the path goes in as it is.
+		expect(layerCtx.named('setTransform')[0]?.args).toEqual([1, 0, 0, 1, 0, 0]);
+		expect((layerCtx.named('clip')[0]?.args[0] as FakePath2D).d).toBe(AREA);
+		expect(fake.labels).toEqual(['tools.brush']);
+	});
+
+	it('paints anywhere with no area', async () => {
+		vi.stubGlobal('Path2D', FakePath2D);
+		const fake = createFake();
+		const surface = surfaceOf(fake);
+		stroke(tool('eraser'), fake.context, LINE);
+		await Promise.all(fake.pending);
+		expect(fakeOf(surface.canvas).named('clip')).toEqual([]);
+		expect(fakeOf(fake.screen).named('clip')).toEqual([]);
+		expect(fake.labels).toEqual(['tools.eraser']);
+	});
+
+	it('writes nothing for a stroke that never reaches it', async () => {
+		const fake = createFake({ area: 'M 500 500 L 600 500 L 600 600 L 500 600 Z' });
+		stroke(tool('pencil'), fake.context, LINE);
+		await tick();
+		expect([fake.labels, fake.pending]).toEqual([[], []]);
+		expect(fakeOf(fake.screen).named('clearRect').length).toBeGreaterThan(0);
+	});
+
+	it('floods only inside it, and nothing from outside it', async () => {
+		vi.stubGlobal('Path2D', FakePath2D);
+		const fake = createFake({ size: SMALL, area: AREA, options: { fill: '#ff0000' } });
+		const surface = surfaceOf(fake);
+		tool('fill').begin(fake.context, at(30, 25));
+		await Promise.all(fake.pending);
+		expect(fake.labels).toEqual([]);
+
+		tool('fill').begin(fake.context, at(5, 5));
+		await Promise.all(fake.pending);
+		expect(fake.labels).toEqual(['tools.fill']);
+		expect(pixelOf(surface, 5, 5)).toEqual([255, 0, 0, 255]);
+		expect(pixelOf(surface, 19, 19)).toEqual([255, 0, 0, 255]);
+		expect(pixelOf(surface, 20, 5)).toEqual([0, 0, 0, 0]);
+		expect(pixelOf(surface, 5, 25)).toEqual([0, 0, 0, 0]);
+	});
+
+	it('clips a shape to it, and makes nothing of one that misses it', async () => {
+		vi.stubGlobal('Path2D', FakePath2D);
+		const fake = createFake({ area: AREA });
+		const surface = surfaceOf(fake);
+		stroke(tool('rectangle'), fake.context, [
+			{ x: 5, y: 5 },
+			{ x: 30, y: 30 },
+		]);
+		stroke(tool('rectangle'), fake.context, [
+			{ x: 30, y: 30 },
+			{ x: 50, y: 40 },
+		]);
+		await Promise.all(fake.pending);
+		expect(fake.labels).toEqual(['tools.rectangle']);
+		expect(fakeOf(surface.canvas).named('clip')).toHaveLength(1);
+		expect(fake.context.overlay.childElementCount).toBe(0);
+	});
+});
+
+describe('Delete with an area', () => {
+	const AREA = 'M 0 0 L 20 0 L 20 20 L 0 20 Z';
+
+	it('clears the layer’s pixels inside it, by one command', async () => {
+		vi.stubGlobal('Path2D', FakePath2D);
+		const fake = createFake({ size: { width: 40, height: 30 }, area: AREA });
+		const surface = surfaceOf(fake);
+		await surface.ready;
+		fakeOf(surface.canvas).pixels().fill(255);
+		expect(clearArea(fake.context)).toBe(true);
+		await Promise.all(fake.pending);
+		expect(fake.labels).toEqual(['regions.clear']);
+		const ctx = fakeOf(surface.canvas);
+		expect((ctx.named('clip')[0]?.args[0] as FakePath2D).d).toBe(AREA);
+		expect(ctx.named('clearRect').map((call) => call.args)).toEqual([[0, 0, 20, 20]]);
+	});
+
+	it('writes nothing where the area holds no colour', async () => {
+		vi.stubGlobal('Path2D', FakePath2D);
+		const fake = createFake({ size: { width: 40, height: 30 }, area: AREA });
+		expect(clearArea(fake.context)).toBe(true);
+		await Promise.all(fake.pending);
+		expect(fake.labels).toEqual([]);
+	});
+
+	it('is not Delete’s with no area, and says so on a locked layer', async () => {
+		expect(clearArea(createFake().context)).toBe(false);
+		const locked = createFake({ area: AREA, active: { locked: true } });
+		expect(clearArea(locked.context)).toBe(true);
+		await tick();
+		expect(locked.notices).toEqual([t('layers.locked', { name: 'Layer 2' })]);
+		expect([locked.labels, locked.pending]).toEqual([[], []]);
 	});
 });

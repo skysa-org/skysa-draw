@@ -1,9 +1,10 @@
 import { t } from '../../../i18n/t.js';
 import type { ToolBehaviour } from '../types.js';
 import { inkOf } from '../vector/svg.js';
+import { type Area, areaMask, areaOf } from './area.js';
 import { guardedSurface, reportFailure } from './guard.js';
 import { floodFill, parseColour, type Rgba, toCss } from './pixels.js';
-import { surfaceFor } from './surface.js';
+import { type RasterSurface, surfaceFor } from './surface.js';
 
 /**
  * The fill and the eyedropper on a raster layer
@@ -17,15 +18,40 @@ const BLACK: Rgba = [0, 0, 0, 255];
 
 const nothing = (): void => undefined;
 
+/** A pixel at least half inside the area is in it, for a fill, which has no soft edge. */
+const HALF = 128;
+
+/**
+ * Which pixels a fill may reach, by index: every one with no area selected;
+ * with one, those it covers, which makes its edge a wall. Where the browser
+ * cannot draw the area's mask (jsdom), every one.
+ */
+const insideOf = (
+	surface: RasterSurface,
+	area: Area | undefined
+): ((index: number) => boolean) | undefined => {
+	if (area === undefined) return undefined;
+	const mask = areaMask(surface, area);
+	const data = mask
+		?.getContext('2d')
+		?.getImageData(0, 0, surface.canvas.width, surface.canvas.height).data;
+	if (data === undefined) return undefined;
+	return (index) => (data[index * 4 + 3] ?? 0) >= HALF;
+};
+
 export const fill: ToolBehaviour = {
 	begin: (context, sample) => {
 		const surface = guardedSurface(context);
 		if (surface === undefined) return;
 		const colour = parseColour(inkOf(context.options, 'fill')) ?? BLACK;
 		const { tolerance } = context.options;
+		const area = areaOf(context);
+		// An area with no inside takes no paint.
+		if (area !== undefined && area.bounds === undefined) return;
 		// On the layer's pixels themselves, not the stroke canvas: a fill
 		// replaces what is there rather than compositing over it. A fill that
-		// changed no pixel writes nothing.
+		// changed no pixel writes nothing, and one from outside the area
+		// changes none.
 		const work = surface
 			.paint('tools.fill', (ctx) => {
 				const [px, py] = surface.toPixel(sample.x, sample.y);
@@ -37,7 +63,8 @@ export const fill: ToolBehaviour = {
 					px,
 					py,
 					colour,
-					tolerance
+					tolerance,
+					insideOf(surface, area)
 				);
 				if (changed > 0) ctx.putImageData(image, 0, 0);
 				return changed > 0;
