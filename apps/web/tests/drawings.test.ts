@@ -1,7 +1,14 @@
 import { emptyDrawing, readDrawingId, readDrawingTitle, withDrawingId } from '@skysa/draw-core';
 import { describe, expect, it } from 'vitest';
 
-import { createDrawing, deleteDrawing, renameDrawing, saveDrawing } from '../src/store/drawings.js';
+import { LOCAL_CONNECTION_ID } from '../src/store/db.js';
+import {
+	createDrawing,
+	deleteDrawing,
+	getDrawing,
+	renameDrawing,
+	saveDrawing,
+} from '../src/store/drawings.js';
 import { createFolder, foldersOf } from '../src/store/folders.js';
 import { freshDatabase } from './support/db.js';
 
@@ -24,8 +31,9 @@ describe('createDrawing', () => {
 		expect(readDrawingId(made.text)).toBe(made.id);
 		expect(readDrawingTitle(made.text)).toBe('Floor Plan');
 		expect(made.dirty).toBe(1);
+		expect(made.connectionId).toBe(LOCAL_CONNECTION_ID);
 		expect(await db.opQueue.toArray()).toMatchObject([
-			{ op: 'create', drawingId: made.id, path: 'floor-plan.svg' },
+			{ op: 'write', drawingId: made.id, path: 'floor-plan.svg' },
 		]);
 	});
 
@@ -83,10 +91,10 @@ describe('saveDrawing', () => {
 		await db.opQueue.clear();
 
 		const edited = emptyDrawing({ id: made.id, title: 'A', size: { width: 10, height: 10 } });
-		await saveDrawing(db, made.id, edited, now);
-		await saveDrawing(db, made.id, `${edited}\n`, now);
+		expect(await saveDrawing(db, made.id, edited, now)).toBe('saved');
+		expect(await saveDrawing(db, made.id, `${edited}\n`, { now })).toBe('saved');
 
-		const row = await db.drawings.get(made.id);
+		const row = await getDrawing(db, made.id);
 		expect(row?.text).toBe(`${edited}\n`);
 		expect(row?.dirty).toBe(1);
 		expect(row?.updatedAt).toBeGreaterThan(made.updatedAt);
@@ -96,12 +104,59 @@ describe('saveDrawing', () => {
 	it('writes the drawing’s own id into text that carries another, and ignores a save of the same text', async () => {
 		const db = freshDatabase();
 		const made = await createDrawing(db, { title: 'A' });
-		const before = await db.drawings.get(made.id);
-		await saveDrawing(db, made.id, made.text);
-		expect(await db.drawings.get(made.id)).toEqual(before);
+		const before = await getDrawing(db, made.id);
+		expect(await saveDrawing(db, made.id, made.text)).toBe('unchanged');
+		expect(await getDrawing(db, made.id)).toEqual(before);
 
 		await saveDrawing(db, made.id, emptyDrawing({ id: 'other-id' }));
-		expect(readDrawingId((await db.drawings.get(made.id))?.text ?? '')).toBe(made.id);
+		expect(readDrawingId((await getDrawing(db, made.id))?.text ?? '')).toBe(made.id);
+	});
+
+	it('refuses a save made against text the row no longer holds, and writes nothing', async () => {
+		const db = freshDatabase();
+		const made = await createDrawing(db, { title: 'A' });
+		const theirs = emptyDrawing({ id: made.id, title: 'Theirs' });
+		const mine = emptyDrawing({ id: made.id, title: 'Mine' });
+		// Another tab, or a pull, changed the row since the editor loaded it.
+		expect(await saveDrawing(db, made.id, theirs)).toBe('saved');
+		const before = await getDrawing(db, made.id);
+		const queued = await db.opQueue.toArray();
+
+		expect(await saveDrawing(db, made.id, mine, { expected: made.text })).toBe('changed');
+		expect(await saveDrawing(db, made.id, mine, { expected: made.contentHash })).toBe(
+			'changed'
+		);
+		expect(await getDrawing(db, made.id)).toEqual(before);
+		expect(await db.opQueue.toArray()).toEqual(queued);
+	});
+
+	it('takes a save made against the text the row holds, by text or by hash, or any of several', async () => {
+		const db = freshDatabase();
+		const made = await createDrawing(db, { title: 'A' });
+		const first = emptyDrawing({ id: made.id, title: 'One' });
+		const second = emptyDrawing({ id: made.id, title: 'Two' });
+		const third = emptyDrawing({ id: made.id, title: 'Three' });
+
+		expect(await saveDrawing(db, made.id, first, { expected: made.text })).toBe('saved');
+		const saved = await getDrawing(db, made.id);
+		expect(await saveDrawing(db, made.id, second, { expected: saved?.contentHash })).toBe(
+			'saved'
+		);
+		// A save of the editor's own still on its way when the next was made.
+		expect(await saveDrawing(db, made.id, third, { expected: [first, second] })).toBe('saved');
+		expect((await getDrawing(db, made.id))?.text).toBe(third);
+		// The same text is no change, whatever it was expected against.
+		expect(await saveDrawing(db, made.id, third, { expected: 'nothing like it' })).toBe(
+			'unchanged'
+		);
+	});
+
+	it('throws for a drawing that is gone or deleted', async () => {
+		const db = freshDatabase();
+		const made = await createDrawing(db, { title: 'A' });
+		await deleteDrawing(db, made.id);
+		await expect(saveDrawing(db, made.id, emptyDrawing({ id: made.id }))).rejects.toThrow();
+		await expect(saveDrawing(db, 'no-such', emptyDrawing({ id: 'no-such' }))).rejects.toThrow();
 	});
 });
 
@@ -110,17 +165,19 @@ describe('renameDrawing', () => {
 		const db = freshDatabase();
 		const made = await createDrawing(db, { title: 'Old' });
 		await createDrawing(db, { title: 'New' });
+		// As the provider has it, so a move is owed to it.
+		await db.drawings.update([LOCAL_CONNECTION_ID, made.id], { remoteId: 'r1', dirty: 0 });
 		await db.opQueue.clear();
 
 		await renameDrawing(db, made.id, 'New');
 
-		const row = await db.drawings.get(made.id);
+		const row = await getDrawing(db, made.id);
 		expect(row?.title).toBe('New');
 		expect(row?.path).toBe('new-2.svg');
 		expect(readDrawingTitle(row?.text ?? '')).toBe('New');
 		expect(readDrawingId(row?.text ?? '')).toBe(made.id);
 		expect(await db.opQueue.toArray()).toMatchObject([
-			{ op: 'move', drawingId: made.id, path: 'old.svg', toPath: 'new-2.svg' },
+			{ op: 'move', drawingId: made.id, path: 'old.svg', targetPath: 'new-2.svg' },
 			{ op: 'write', drawingId: made.id, path: 'new-2.svg' },
 		]);
 	});
@@ -130,27 +187,28 @@ describe('renameDrawing', () => {
 		const made = await createDrawing(db, { title: 'Plan' });
 		await db.opQueue.clear();
 		await renameDrawing(db, made.id, 'PLAN');
-		expect((await db.drawings.get(made.id))?.path).toBe('plan.svg');
+		expect((await getDrawing(db, made.id))?.path).toBe('plan.svg');
 		expect((await db.opQueue.toArray()).map((op) => op.op)).toEqual(['write']);
 
 		await renameDrawing(db, made.id, '   ');
-		expect((await db.drawings.get(made.id))?.title).toBe('PLAN');
+		expect((await getDrawing(db, made.id))?.title).toBe('PLAN');
 	});
 });
 
 describe('deleteDrawing', () => {
-	it('drops a drawing the provider never saw with everything queued for it', async () => {
+	it('keeps a tombstone until the delete is pushed, its write withdrawn', async () => {
 		const db = freshDatabase();
 		const made = await createDrawing(db, { title: 'Gone' });
 		await deleteDrawing(db, made.id);
-		expect(await db.drawings.get(made.id)).toBeUndefined();
-		expect(await db.opQueue.toArray()).toEqual([]);
+		expect(await getDrawing(db, made.id)).toMatchObject({ deletedLocally: 1, dirty: 1 });
+		// One the provider never had is purged by that push, with nothing sent.
+		expect(await db.opQueue.toArray()).toMatchObject([{ op: 'delete', drawingId: made.id }]);
 	});
 
 	it('queues a delete for one the provider holds', async () => {
 		const db = freshDatabase();
 		const made = await createDrawing(db, { title: 'Synced' });
-		await db.drawings.update(made.id, { remoteId: 'r1', dirty: 0 });
+		await db.drawings.update([LOCAL_CONNECTION_ID, made.id], { remoteId: 'r1', dirty: 0 });
 		await db.opQueue.clear();
 		await deleteDrawing(db, made.id);
 		expect(await db.opQueue.toArray()).toMatchObject([{ op: 'delete', path: 'synced.svg' }]);
@@ -173,9 +231,9 @@ describe('createFolder', () => {
 			'Work Q3/Inside',
 		]);
 		expect((await db.opQueue.toArray()).map((op) => op.op)).toEqual([
-			'createFolder',
-			'createFolder',
-			'createFolder',
+			'mkdir',
+			'mkdir',
+			'mkdir',
 		]);
 	});
 });

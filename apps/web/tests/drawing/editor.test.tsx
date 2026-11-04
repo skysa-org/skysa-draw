@@ -16,7 +16,8 @@ import { Editor } from '../../src/drawing/Editor.js';
 import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
 import { DatabaseProvider } from '../../src/store/database.js';
 import type { DrawDatabase } from '../../src/store/db.js';
-import { createDrawing, deleteDrawing, saveDrawing } from '../../src/store/drawings.js';
+import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../../src/store/drawings.js';
+import { isLive } from '../../src/store/rowStates.js';
 import { freshDatabase } from '../support/db.js';
 import { stubWindowWidth, type Width } from './support.js';
 
@@ -178,7 +179,9 @@ const pastTheSave = () => new Promise((resolve) => setTimeout(resolve, AUTOSAVE_
 const precedes = (a: Element, b: Element): boolean =>
 	(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
-const rowText = async (db: DrawDatabase, id: string) => (await db.drawings.get(id))?.text;
+const rowText = async (db: DrawDatabase, id: string) => (await getDrawing(db, id))?.text;
+/** The rows a user can see: a delete leaves a tombstone until the push sends it. */
+const liveRows = async (db: DrawDatabase) => (await db.drawings.toArray()).filter(isLive);
 
 describe('the editor frame, by size class', () => {
 	beforeEach(() => {
@@ -413,14 +416,14 @@ describe('the editor saving', () => {
 
 		const notice = await screen.findByText(/your edits were kept in a copy/);
 		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(theirs));
-		const rows = await db.drawings.toArray();
+		const rows = await liveRows(db);
 		expect(rows).toHaveLength(2);
 		const copy = rows.find((row) => row.id !== made.id);
 		if (copy === undefined) throw new Error('no copy was kept');
 
 		// The other change keeps the drawing, its path and its id.
 		expect(await rowText(db, made.id)).toBe(theirs);
-		expect((await db.drawings.get(made.id))?.path).toBe(made.path);
+		expect((await getDrawing(db, made.id))?.path).toBe(made.path);
 		// The edits are a drawing of their own: a new id, a conflict name and a
 		// title that says what it is, the editor's text otherwise.
 		expect(readDrawingId(copy.text)).toBe(copy.id);
@@ -430,7 +433,7 @@ describe('the editor saving', () => {
 		expect(copy.text).toBe(withDrawingId(withDrawingTitle(mine, copy.title), copy.id));
 		expect(notice.textContent).toContain(`“${copy.title}”`);
 		expect(await db.opQueue.where('drawingId').equals(copy.id).toArray()).toEqual([
-			expect.objectContaining({ op: 'create', path: copy.path }),
+			expect.objectContaining({ op: 'write', path: copy.path }),
 		]);
 
 		// And nothing of the edits is saved over the change after the pause.
@@ -458,7 +461,7 @@ describe('the editor saving', () => {
 
 		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(theirs));
 		expect(settle).toHaveBeenCalled();
-		const copy = (await db.drawings.toArray()).find((row) => row.id !== made.id);
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
 		expect(copy?.text).toBe(
 			withDrawingId(withDrawingTitle(later, copy?.title ?? ''), copy?.id ?? '')
 		);
@@ -509,10 +512,10 @@ describe('a link to a drawing that is not here', () => {
 
 	it('says so when the drawing open is deleted elsewhere with nothing here unsaved, and keeps nothing', async () => {
 		const { db, made, onReplaced } = await renderEditor('expanded');
-		await db.drawings.delete(made.id);
+		await db.drawings.delete([made.connectionId, made.id]);
 		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
 		await pastTheSave();
-		expect(await db.drawings.count()).toBe(0);
+		expect((await liveRows(db)).length).toBe(0);
 		expect(onReplaced).not.toHaveBeenCalled();
 	});
 
@@ -526,7 +529,7 @@ describe('a link to a drawing that is not here', () => {
 		await deleteDrawing(db, made.id);
 
 		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
-		expect(await db.drawings.count()).toBe(0);
+		expect((await liveRows(db)).length).toBe(0);
 		expect(onReplaced).not.toHaveBeenCalled();
 	});
 });
@@ -541,7 +544,7 @@ describe('the drawing open deleted under unsaved edits', () => {
 		await deleteDrawing(db, made.id);
 
 		const notice = await screen.findByText(/This drawing was deleted elsewhere/);
-		const rows = await db.drawings.toArray();
+		const rows = await liveRows(db);
 		expect(rows).toHaveLength(1);
 		const [kept] = rows;
 		if (kept === undefined) throw new Error('nothing was kept');
@@ -551,14 +554,14 @@ describe('the drawing open deleted under unsaved edits', () => {
 		// old one now means deleted; the same folder, connection and title, and
 		// a name by the folder's usual rule, which nothing else holds now.
 		expect(kept.id).not.toBe(made.id);
-		expect(await db.drawings.get(made.id)).toBeUndefined();
+		expect((await getDrawing(db, made.id))?.deletedLocally).toBe(1);
 		expect(readDrawingId(kept.text)).toBe(kept.id);
 		expect(kept.text).toBe(withDrawingId(mine, kept.id));
 		expect(kept.title).toBe('Harbour');
 		expect(kept.path).toBe('Work/harbour.svg');
 		expect(kept.connectionId).toBe(made.connectionId);
 		expect(await db.opQueue.where('drawingId').equals(kept.id).toArray()).toEqual([
-			expect.objectContaining({ op: 'create', path: kept.path }),
+			expect.objectContaining({ op: 'write', path: kept.path }),
 		]);
 		expect(notice.textContent).toContain('“Harbour”');
 
@@ -566,7 +569,7 @@ describe('the drawing open deleted under unsaved edits', () => {
 		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(kept.text));
 		expect(screen.queryByText(/This drawing is not on this device/)).toBeNull();
 		await pastTheSave();
-		expect(await db.drawings.count()).toBe(1);
+		expect((await liveRows(db)).length).toBe(1);
 		expect(onReplaced).toHaveBeenCalledTimes(1);
 	});
 
@@ -582,7 +585,7 @@ describe('the drawing open deleted under unsaved edits', () => {
 		await deleteDrawing(db, made.id);
 
 		await waitFor(() => expect(onReplaced).toHaveBeenCalledTimes(1));
-		const [kept] = await db.drawings.toArray();
+		const [kept] = await liveRows(db);
 		expect(kept?.text).toBe(withDrawingId(stroke, kept?.id ?? ''));
 	});
 
@@ -602,7 +605,7 @@ describe('the drawing open deleted under unsaved edits', () => {
 		await saveDrawing(db, made.id, theirs);
 
 		expect(await screen.findByText(/This drawing was deleted elsewhere/)).toBeDefined();
-		const rows = await db.drawings.toArray();
+		const rows = await liveRows(db);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.title).toMatch(/^Harbour \(conflict /);
 		expect(onReplaced).toHaveBeenCalledExactlyOnceWith(rows[0]?.id);
@@ -626,8 +629,10 @@ describe('the drawing open deleted under unsaved edits', () => {
 		// moves: the row's going is the user's, and says not found.
 		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
 		await pastTheSave();
-		expect(await db.drawings.count()).toBe(0);
-		expect(await db.opQueue.toArray()).toEqual([]);
+		expect((await liveRows(db)).length).toBe(0);
+		expect(await db.opQueue.toArray()).toEqual([
+			expect.objectContaining({ op: 'delete', drawingId: made.id }),
+		]);
 		expect(onReplaced).not.toHaveBeenCalled();
 	});
 });

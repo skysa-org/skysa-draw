@@ -1,0 +1,277 @@
+import { useEffect, useRef, useState } from 'react';
+
+import { t } from '../../i18n/t.js';
+import type { ConnectedSource } from '../../store/connection.js';
+import { LOCAL_CONNECTION_ID } from '../../store/db.js';
+import { isLiveSource } from '../../store/rowStates.js';
+import { countedFolders, movable, type Unsynced } from '../../store/unsynced.js';
+import { connectedName, sourceName } from '../../sync/account.js';
+import { Question, QuestionActions } from './Question.js';
+
+/**
+ * Taking what one source never sent into another connected source.
+ *
+ * The one place in the app where a user's writing crosses from one storage
+ * account into another, so it is two steps and both of them name the account it
+ * is going to (docs/ARCHITECTURE.md §10). The first offers it; the second says exactly
+ * what will be in each account afterwards, including the two things people are
+ * entitled to be surprised by — a drawing that was pushed once is left behind in
+ * an older version as well as copied, and an unsent rename or delete is not
+ * carried at all, because it is about a file only the old account has.
+ *
+ * Shared by the dialog before a disconnect and by a detached source's panel:
+ * the same act, reached from either side of the same decision.
+ */
+
+interface MoveUnsentProps {
+	/** What the source holds, as the user was shown it. */
+	readonly listed: Unsynced;
+	/** What the source being left is called, for the sentences about it. */
+	readonly from: string;
+	/** The live sources it could go to. Nothing is offered where there are none. */
+	readonly targets: readonly ConnectedSource[];
+	/** Something is already under way; nothing here may start a second one. */
+	readonly busy: boolean;
+	/** The user cannot answer for this source yet — text the store would not take. */
+	readonly disabled: boolean;
+	/**
+	 * The list handed back is the one the second step was about, held still while
+	 * it was read: a caller whose `listed` comes from a live query would otherwise
+	 * act on whatever another tab had made of it by the time the button was
+	 * pressed, which is not what the user said yes to.
+	 */
+	readonly onMove: (target: string, shown: Unsynced) => void;
+}
+
+/**
+ * Where one source's unsent work could go: every *other* source that is
+ * connected. Not a detached one, which cannot send what it is handed either,
+ * and not the device's own pile, which nothing shows while a source is
+ * connected — a drawing put there would be one the user cannot find.
+ */
+export const otherLiveSources = (
+	sources: readonly ConnectedSource[] | undefined,
+	connectionId: string
+): ConnectedSource[] =>
+	(sources ?? []).filter(
+		(source) =>
+			source.connectionId !== connectionId &&
+			source.connectionId !== LOCAL_CONNECTION_ID &&
+			isLiveSource(source)
+	);
+
+/**
+ * Whether moving is a thing to offer at all.
+ *
+ * Nowhere to put it; nothing of the kind a move takes, where all that is unsent
+ * is a rename or a delete that belongs to the account being left — "Move 0
+ * drawings" would be a discard reached through a button that says Move; or a
+ * source whose files nobody has checked against its remote yet, where
+ * everything it holds is listed and a move would copy a whole synced library
+ * into another account on a count known to be wrong (`Unsynced.unverified`).
+ * `moveUnsyncedTo` refuses each of these too: this is what keeps the user from
+ * being offered it in the first place.
+ */
+export const canMove = (listed: Unsynced, targets: readonly ConnectedSource[]): boolean =>
+	targets.length > 0 && !listed.unverified && movable(listed) > 0;
+
+/**
+ * The account a move writes into, as the user knows it: the name the server
+ * last gave it, and the provider's id for it only where there is no name.
+ *
+ * Live sources are named by their id everywhere else (`connectedName`), because
+ * a name is written onto a row only while its source is the one in front and a
+ * list would call a source one thing before it had been shown and another
+ * after. That trade is about a switcher. This is the one confirm in the app
+ * that writes a user's drawings into another storage account, and "Dropbox ·
+ * dbid:AAAA…" is not an account anybody can recognise.
+ */
+const targetName = (source: ConnectedSource): string => sourceName(source) ?? connectedName(source);
+
+/**
+ * What is *not* moved, and where it stays. An unsent rename and an unsent
+ * delete are each about a file that only the account being left has: the rename
+ * leaves it under its old name, in full, and the delete can never be sent at
+ * all once the account is disconnected. Neither means anything in another
+ * account, so neither is carried — and a user who is not told that will find
+ * the file still there and think something went wrong.
+ */
+export const leftBehind = (listed: Unsynced, from: string): string | null => {
+	const [deletes, renames] = [listed.deletes.length, listed.renames.length];
+	if (deletes > 0 && renames > 0) {
+		// Two counts in one sentence: chosen by the renames, with the deletes said.
+		return t('unsent.move.left.both', {
+			deletes: t('unsent.counted.deletes', { count: deletes }),
+			count: renames,
+			source: from,
+		});
+	}
+	if (deletes > 0) return t('unsent.move.left.deletes', { count: deletes, source: from });
+	if (renames > 0) return t('unsent.move.left.renames', { count: renames, source: from });
+	return null;
+};
+
+/**
+ * What is going, in the user's terms: "2 drawings", or "2 drawings and 1 folder"
+ * where a folder is going that is not simply one of those drawings' own, and
+ * "1 file" for each not uploaded yet that can go (`portable`). Both steps say
+ * it the same way — the button that offers the move and the sentence that
+ * confirms it, which `step` picks — and it is the same count the panel's
+ * headline uses (`countedFolders`), so nothing the user is shown disagrees
+ * with anything else. The drawings are said even at none
+ * where nothing else is going either, which `canMove` never offers.
+ *
+ * A message counts one thing, so where more than one kind is going it is
+ * chosen by the last one named, and given the others already said.
+ */
+const going = (listed: Unsynced, step: 'offer' | 'going', target: string): string => {
+	const drawings = listed.drawings.length;
+	const folders = countedFolders(listed).length;
+	const files = listed.portable.length;
+	const saidDrawings = () => t('unsent.counted.drawings', { count: drawings });
+	const saidFolders = () => t('unsent.counted.folders', { count: folders });
+	if (drawings === 0 && folders + files > 0) {
+		if (folders === 0) return t(`unsent.move.${step}.files`, { count: files, target });
+		if (files === 0) return t(`unsent.move.${step}.folders`, { count: folders, target });
+		return t(`unsent.move.${step}.foldersFiles`, {
+			folders: saidFolders(),
+			count: files,
+			target,
+		});
+	}
+	if (folders > 0 && files > 0) {
+		return t(`unsent.move.${step}.all`, {
+			drawings: saidDrawings(),
+			folders: saidFolders(),
+			count: files,
+			target,
+		});
+	}
+	if (folders > 0) {
+		return t(`unsent.move.${step}.drawingsFolders`, {
+			drawings: saidDrawings(),
+			count: folders,
+			target,
+		});
+	}
+	if (files > 0) {
+		return t(`unsent.move.${step}.drawingsFiles`, {
+			drawings: saidDrawings(),
+			count: files,
+			target,
+		});
+	}
+	return t(`unsent.move.${step}.drawings`, { count: drawings, target });
+};
+
+/**
+ * Said where the drawings going link files the account being left has (#187),
+ * or a copy is owed of one there (`portable`): the ones this device holds go
+ * with them, and the rest cannot, so the drawings arrive without those pictures
+ * and the files stay where they are.
+ */
+const linkedDrawing = (listed: Unsynced, from: string): string | null =>
+	listed.linked.length === 0 && listed.portable.length === listed.files.length
+		? null
+		: t('unsent.move.linked', { source: from });
+
+/**
+ * Drawings the account being left already has a file for, in an older version. The
+ * copy is an edit to that file that was never sent, so moving it leaves the old
+ * version where it is and writes the new one into the other account: the same
+ * drawing, in two accounts, and said so rather than quietly done.
+ */
+const alsoThere = (listed: Unsynced): number =>
+	listed.drawings.filter((drawing) => drawing.remoteId !== undefined).length;
+
+export const MoveUnsent = ({ listed, from, targets, busy, disabled, onMove }: MoveUnsentProps) => {
+	const [chosen, setChosen] = useState<string | undefined>(targets[0]?.connectionId);
+	/** The list the second step is about, as it stood when the user asked for it. */
+	const [shown, setShown] = useState<Unsynced | null>(null);
+	const confirming = shown !== null;
+	const openButton = useRef<HTMLButtonElement>(null);
+	const asked = useRef(false);
+	useEffect(() => {
+		// The second step takes the focus as every question does (`Question`);
+		// cancelled, it gives it back to the button that asked, rather than let
+		// it fall to the page, where Escape reaches nothing.
+		const was = asked.current;
+		asked.current = confirming;
+		if (was && !confirming) openButton.current?.focus();
+	}, [confirming]);
+
+	const target = targets.find((source) => source.connectionId === chosen) ?? targets[0];
+	if (target === undefined || !canMove(listed, targets)) return null;
+	const into = targetName(target);
+
+	if (shown === null) {
+		return (
+			<>
+				{targets.length > 1 && (
+					<fieldset className="account-targets">
+						<legend>{t('unsent.move.which')}</legend>
+						{targets.map((source) => (
+							<label key={source.connectionId}>
+								<input
+									type="radio"
+									name="move-target"
+									value={source.connectionId}
+									checked={source.connectionId === target.connectionId}
+									onChange={() => {
+										setChosen(source.connectionId);
+									}}
+								/>
+								{targetName(source)}
+							</label>
+						))}
+					</fieldset>
+				)}
+				<button
+					ref={openButton}
+					type="button"
+					disabled={busy || disabled}
+					onClick={() => {
+						setShown(listed);
+					}}
+				>
+					{going(listed, 'offer', into)}
+				</button>
+			</>
+		);
+	}
+
+	const older = alsoThere(shown);
+	const also = leftBehind(shown, from);
+	const linked = linkedDrawing(shown, from);
+	return (
+		<Question
+			className="account-confirm"
+			label={t('unsent.move.group')}
+			onClose={() => {
+				setShown(null);
+			}}
+			busy={busy}
+		>
+			<p>
+				{going(shown, 'going', into)}
+				{older > 0 && ` ${t('unsent.move.alsoThere', { count: older, source: from })}`}
+				{also !== null && ` ${also}`}
+				{linked !== null && ` ${linked}`}
+			</p>
+			<QuestionActions
+				primary={
+					<button
+						type="button"
+						className="primary"
+						disabled={busy}
+						onClick={() => {
+							onMove(target.connectionId, shown);
+						}}
+					>
+						{t('unsent.move.confirm')}
+					</button>
+				}
+			/>
+		</Question>
+	);
+};

@@ -1,0 +1,209 @@
+import type Dexie from 'dexie';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { createDatabase } from '../../src/store/db.js';
+import { holdsTextFor } from '../../src/store/detached.js';
+import {
+	beforeClosing,
+	flushEditors,
+	settleAfter,
+	settleEditors,
+	UNDERWAY_WAIT_MS,
+} from '../../src/store/heldEdits.js';
+import { tabState } from '../../src/store/staleTab.js';
+import { deleteAfterTest, watchedDatabase } from '../support/db.js';
+
+/**
+ * The editors' held edits, written on request. The stale-tab case comes last:
+ * out of date is for good, in the module as in the tab.
+ */
+
+const registered: (() => void)[] = [];
+afterEach(() => {
+	registered.splice(0).forEach((release) => {
+		release();
+	});
+});
+
+const register = (finish: () => Promise<unknown>) => {
+	registered.push(beforeClosing(finish));
+};
+
+/** A flush the test finishes by hand. */
+const manualFlush = <T>() => {
+	const ends: { resolve: (value: T) => void } = { resolve: () => undefined };
+	const finish = vi.fn(
+		() =>
+			new Promise<T>((resolve) => {
+				ends.resolve = resolve;
+			})
+	);
+	return { finish, ends };
+};
+
+describe('settling what the editors hold', () => {
+	it('waits first for work that will leave an edit, such as a file being added', async () => {
+		const order: string[] = [];
+		register(() => {
+			order.push('written');
+			return Promise.resolve();
+		});
+		const adding = { finish: (): void => undefined };
+		settleAfter(
+			new Promise<void>((resolve) => {
+				adding.finish = resolve;
+			}).then(() => {
+				order.push('added');
+			})
+		);
+
+		const settled = settleEditors();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(order).toEqual([]);
+		adding.finish();
+		await settled;
+
+		expect(order).toEqual(['added', 'written']);
+	});
+
+	it('goes on without such work once it has waited long enough', async () => {
+		vi.useFakeTimers();
+		const stuck = { release: (): void => undefined };
+		try {
+			settleAfter(
+				new Promise<void>((resolve) => {
+					stuck.release = resolve;
+				})
+			);
+			const settled = vi.fn();
+
+			void settleEditors().then(settled);
+			await vi.advanceTimersByTimeAsync(UNDERWAY_WAIT_MS - 1);
+			expect(settled).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+
+			expect(settled).toHaveBeenCalledWith({ failing: [], rejected: 0 });
+		} finally {
+			// Registered for the module's life otherwise, and every test after
+			// this would wait on it.
+			stuck.release();
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not wait on such work once it has failed', async () => {
+		settleAfter(Promise.reject(new Error('the add failed')));
+
+		await expect(settleEditors()).resolves.toEqual({ failing: [], rejected: 0 });
+	});
+
+	it('has nothing to wait for when no editor is open', async () => {
+		expect(flushEditors()).toEqual([]);
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+	});
+
+	it('starts every flush at once, and answers only when all of them have', async () => {
+		const first = manualFlush<string[]>();
+		const second = manualFlush<string[]>();
+		register(first.finish);
+		register(second.finish);
+		const settled = vi.fn();
+
+		void settleEditors().then(settled);
+		expect(first.finish).toHaveBeenCalledTimes(1);
+		expect(second.finish).toHaveBeenCalledTimes(1);
+
+		first.ends.resolve([]);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(settled).not.toHaveBeenCalled();
+
+		second.ends.resolve([]);
+		await vi.waitFor(() => {
+			expect(settled).toHaveBeenCalledWith({ failing: [], rejected: 0 });
+		});
+	});
+
+	it('names the drawings the editors say they could not save, each once', async () => {
+		register(() => Promise.resolve(['["c1","a"]', '["c1","b"]']));
+		register(() => Promise.resolve([]));
+		register(() => Promise.resolve(['["c2","c"]', '["c1","a"]']));
+
+		expect(await settleEditors()).toEqual({
+			failing: ['["c1","a"]', '["c1","b"]', '["c2","c"]'],
+			rejected: 0,
+		});
+	});
+
+	it('takes a flush that says nothing as having claimed nothing', async () => {
+		register(() => Promise.resolve());
+		register(() => Promise.resolve('done'));
+		register(() => Promise.resolve(3));
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+	});
+
+	it('survives a flush that rejects, waits for the rest, and counts it as not saved', async () => {
+		const slow = manualFlush<string[]>();
+		register(() => Promise.reject(new Error('the database is closed')));
+		register(slow.finish);
+		const settled = vi.fn();
+
+		void settleEditors().then(settled);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(settled).not.toHaveBeenCalled();
+
+		slow.ends.resolve([]);
+		await vi.waitFor(() => {
+			expect(settled).toHaveBeenCalledWith({ failing: [], rejected: 1 });
+		});
+	});
+
+	it('survives a flush that throws before it has made a promise at all', async () => {
+		const after = vi.fn(() => Promise.resolve([]));
+		register(() => {
+			throw new Error('not even a promise');
+		});
+		register(after);
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 1 });
+		expect(after).toHaveBeenCalledTimes(1);
+	});
+
+	it('no longer asks an editor that has gone', async () => {
+		const finish = vi.fn(() => Promise.resolve(['["c1","a"]']));
+		const release = beforeClosing(finish);
+		release();
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(finish).not.toHaveBeenCalled();
+	});
+
+	it('says whether a source has text held for it, and cannot say for a flush that rejected', () => {
+		const settled = { failing: ['["c1","a"]'], rejected: 0 };
+		expect(holdsTextFor(settled, 'c1')).toBe(true);
+		expect(holdsTextFor(settled, 'c2')).toBe(false);
+		// A prefix is not a connection: `c1` is not `c10`.
+		expect(holdsTextFor(settled, 'c')).toBe(false);
+		expect(holdsTextFor({ failing: [], rejected: 1 }, 'c2')).toBe(true);
+	});
+
+	it('is still what a tab closing for a newer build writes first', async () => {
+		const db = watchedDatabase();
+		await db.prefs.put({ key: 'before', value: 'kept' });
+		register(() => db.prefs.put({ key: 'typed', value: 'just now' }));
+
+		const newer = createDatabase(db.name) as Dexie;
+		newer.version(99).stores({ somethingNew: 'id' });
+		deleteAfterTest(newer);
+		await newer.open();
+
+		expect(tabState()).toBe('stale');
+		expect(db.isOpen()).toBe(false);
+		expect(await newer.table('prefs').get('typed')).toEqual({
+			key: 'typed',
+			value: 'just now',
+		});
+	});
+});

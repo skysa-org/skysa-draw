@@ -1,0 +1,1410 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { contentHash, createSyncEngine, isHidden } from '@skysa/draw-core';
+import { createFakeProvider } from '@skysa/draw-core/testing';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { bindConnection } from '../../src/store/connection.js';
+import {
+	type DrawDatabase,
+	type DrawingRecord,
+	drawingRef,
+	LOCAL_CONNECTION_ID,
+} from '../../src/store/db.js';
+import {
+	createDrawing,
+	deleteDrawing,
+	drawingRecordFromFile,
+	saveDrawing,
+} from '../../src/store/drawings.js';
+import {
+	ArchiveLimitError,
+	crc32,
+	DOWNLOAD_GRACE_MS,
+	downloadLibrary,
+	downloadNotice,
+	downloadProblem,
+	downloadSource,
+	downloadUnsent,
+	entryName,
+	filesOf,
+	hasUnsentDownload,
+	holdsAnything,
+	INCOMPLETE_DOWNLOAD,
+	type Library,
+	libraryOf,
+	unsentLibrary,
+	type ZipFile,
+	zipOf,
+	zipParts,
+} from '../../src/store/exportDrawings.js';
+import { createFolder } from '../../src/store/folders.js';
+import { beforeClosing } from '../../src/store/heldEdits.js';
+import { unsyncedIn } from '../../src/store/unsynced.js';
+import { createDexieSyncStore } from '../../src/sync/store.js';
+import { freshDatabase } from '../support/db.js';
+import { fileAdded, svgOf } from '../support/drawingRows.js';
+
+/**
+ * The archive is written by hand, so it is read back by hand: a reader here
+ * that shares nothing with the writer — its own CRC, its own offsets — and
+ * checks every field a real one depends on. Where the machine has `unzip`, that
+ * is asked as well, since the point is that other people's tools open it.
+ */
+
+const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
+
+/**
+ * A drawing as a pull leaves it: the file exactly as it came, read into a
+ * clean row. Its id is the one the file names.
+ */
+const pulledFile = async (
+	db: DrawDatabase,
+	input: { connectionId?: string; path: string; id: string; words: string }
+): Promise<DrawingRecord> => {
+	const source = svgOf(input.words, input.id);
+	const row = drawingRecordFromFile({
+		id: input.id,
+		connectionId: input.connectionId ?? LOCAL_CONNECTION_ID,
+		path: input.path,
+		source,
+		hash: await contentHash(source),
+		now: 1,
+	});
+	await db.drawings.put(row);
+	return row;
+};
+
+/** Drawings alone, as a library with nothing else in it. */
+const downloadDrawings = (drawings: readonly DrawingRecord[], filename?: string): void => {
+	downloadLibrary({ drawings: [...drawings], folders: [], files: [], missing: 0 }, filename);
+};
+const text = (bytes: Uint8Array): string => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+
+/** Bit by bit, with no table: slow, obvious, and not the code under test. */
+const slowCrc32 = (bytes: Uint8Array): number =>
+	(bytes.reduce(
+		(crc, byte) =>
+			Array.from({ length: 8 }).reduce<number>(
+				(each) => ((each & 1) === 1 ? (each >>> 1) ^ 0xedb88320 : each >>> 1),
+				crc ^ byte
+			),
+		0xffffffff
+	) ^
+		0xffffffff) >>>
+	0;
+
+interface ReadEntry {
+	path: string;
+	/** The entry's bytes as text, for a drawing's; `data` is what was written. */
+	content: string;
+	data: Uint8Array;
+	flags: number;
+	method: number;
+	time: number;
+	date: number;
+	crc: number;
+	size: number;
+	offset: number;
+}
+
+/**
+ * Read an archive the way a tool does: find the end record, walk the central
+ * directory it points at, and follow each entry to its local header. Every
+ * expectation a reader has of the structure is asserted on the way.
+ */
+const readZip = (bytes: Uint8Array): { entries: ReadEntry[]; directoryOffset: number } => {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const u16 = (at: number) => view.getUint16(at, true);
+	const u32 = (at: number) => view.getUint32(at, true);
+
+	// No archive comment, so the end record is exactly the last 22 bytes.
+	const end = bytes.length - 22;
+	expect(u32(end)).toBe(0x06054b50);
+	expect(u16(end + 4)).toBe(0); // this disk
+	expect(u16(end + 6)).toBe(0); // disk with the directory
+	const count = u16(end + 8);
+	expect(u16(end + 10)).toBe(count);
+	const directorySize = u32(end + 12);
+	const directoryOffset = u32(end + 16);
+	expect(u16(end + 20)).toBe(0); // comment length
+	// The directory runs right up to the end record, with nothing between.
+	expect(directoryOffset + directorySize).toBe(end);
+
+	// Where the next central header is, and where the next local header has to
+	// be if entries sit back to back. Moved along as it reads, as a reader does.
+	const cursor = { current: directoryOffset };
+	const expected = { current: 0 };
+	const next = (): ReadEntry => {
+		const at = cursor.current;
+		const local = expected.current;
+		expect(u32(at)).toBe(0x02014b50);
+		expect(u16(at + 4)).toBe(20); // made by: 2.0, host 0
+		expect(u16(at + 6)).toBe(20); // needed to extract
+		const flags = u16(at + 8);
+		const method = u16(at + 10);
+		const time = u16(at + 12);
+		const date = u16(at + 14);
+		const crc = u32(at + 16);
+		const compressed = u32(at + 20);
+		const size = u32(at + 24);
+		const nameLength = u16(at + 28);
+		expect(u16(at + 30)).toBe(0); // extra
+		expect(u16(at + 32)).toBe(0); // comment
+		expect(u16(at + 34)).toBe(0); // disk
+		expect(u16(at + 36)).toBe(0); // internal attributes
+		const offset = u32(at + 42);
+		const name = bytes.slice(at + 46, at + 46 + nameLength);
+		// External attributes: MS-DOS's directory bit on a folder's entry, and
+		// nothing on a file's.
+		expect(u32(at + 38)).toBe(text(name).endsWith('/') ? 0x10 : 0);
+
+		// Entries sit back to back from the start of the file.
+		expect(offset).toBe(local);
+		expect(compressed).toBe(size);
+
+		// The local header says the same thing, field for field.
+		expect(u32(offset)).toBe(0x04034b50);
+		expect(u16(offset + 4)).toBe(20);
+		expect(u16(offset + 6)).toBe(flags);
+		expect(u16(offset + 8)).toBe(method);
+		expect(u16(offset + 10)).toBe(time);
+		expect(u16(offset + 12)).toBe(date);
+		expect(u32(offset + 14)).toBe(crc);
+		expect(u32(offset + 18)).toBe(size);
+		expect(u32(offset + 22)).toBe(size);
+		expect(u16(offset + 26)).toBe(nameLength);
+		expect(u16(offset + 28)).toBe(0);
+		expect(bytes.slice(offset + 30, offset + 30 + nameLength)).toEqual(name);
+
+		const data = bytes.slice(offset + 30 + nameLength, offset + 30 + nameLength + size);
+		expect(data.length).toBe(size);
+		expect(slowCrc32(data)).toBe(crc);
+
+		cursor.current = at + 46 + nameLength;
+		expected.current = offset + 30 + nameLength + size;
+		return {
+			path: text(name),
+			content: new TextDecoder().decode(data),
+			data,
+			flags,
+			method,
+			time,
+			date,
+			crc,
+			size,
+			offset,
+		};
+	};
+	const entries = Array.from({ length: count }, next);
+	// The directory starts where the last file ends, and ends where it said.
+	expect(expected.current).toBe(directoryOffset);
+	expect(cursor.current).toBe(end);
+	return { entries, directoryOffset };
+};
+
+/** How many entries the end record claims, without reading any of them. */
+const countIn = (bytes: Uint8Array): number =>
+	new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(
+		bytes.length - 14,
+		true
+	);
+
+const pathsAndContents = (bytes: Uint8Array) =>
+	readZip(bytes).entries.map(({ path, content }) => ({ path, content }));
+
+describe('crc32', () => {
+	it('matches the known vectors', () => {
+		expect(crc32(utf8('123456789'))).toBe(0xcbf43926);
+		expect(crc32(utf8(''))).toBe(0);
+		expect(crc32(utf8('a'))).toBe(0xe8b7be43);
+		expect(crc32(utf8('The quick brown fox jumps over the lazy dog'))).toBe(0x414fa339);
+	});
+
+	it('is unsigned, and agrees with the bit-by-bit definition on every byte value', () => {
+		const every = Uint8Array.from({ length: 1024 }, (_, index) => (index * 7) & 0xff);
+
+		expect(crc32(every)).toBe(slowCrc32(every));
+		expect(crc32(every)).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe('a store-only ZIP', () => {
+	it('is a valid, empty archive for no files: the end record and nothing else', () => {
+		const bytes = zipOf([]);
+
+		expect(bytes.length).toBe(22);
+		expect(readZip(bytes)).toEqual({ entries: [], directoryOffset: 0 });
+	});
+
+	it('holds each file at its path, stored, with its sizes, offsets and CRC', () => {
+		const files: ZipFile[] = [
+			{ path: 'a.svg', content: '# A\n' },
+			{ path: 'work/plan.svg', content: '123456789' },
+		];
+
+		const { entries } = readZip(zipOf(files));
+
+		expect(entries.map(({ path, content }) => ({ path, content }))).toEqual(files);
+		expect(entries.map((entry) => entry.method)).toEqual([0, 0]);
+		expect(entries.map((entry) => entry.offset)).toEqual([0, 30 + 'a.svg'.length + 4]);
+		expect(entries[1]?.crc).toBe(0xcbf43926);
+		expect(entries[1]?.size).toBe(9);
+	});
+
+	it('says its names are UTF-8, and writes names and contents as UTF-8', () => {
+		const files: ZipFile[] = [
+			{
+				path: 'Résumé/日本語 🗒️.svg',
+				content: '# Überschrift\n\nnaïve — “quoted” 日本語 🗒️\n',
+			},
+		];
+
+		const { entries } = readZip(zipOf(files));
+
+		expect(entries[0]?.flags).toBe(0x0800);
+		expect(entries[0]?.path).toBe(files[0]?.path);
+		expect(entries[0]?.content).toBe(files[0]?.content);
+		// Sizes are in bytes, not in characters.
+		const written = String(files[0]?.content ?? '');
+		expect(entries[0]?.size).toBe(utf8(written).length);
+		expect(entries[0]?.size).toBeGreaterThan(written.length);
+	});
+
+	it('sets the UTF-8 flag on a plain ASCII name too', () => {
+		expect(readZip(zipOf([{ path: 'a.svg', content: '' }])).entries[0]?.flags).toBe(0x0800);
+	});
+
+	it('stores an empty file as an entry of no bytes and a CRC of zero', () => {
+		const { entries } = readZip(
+			zipOf([
+				{ path: 'empty.svg', content: '' },
+				{ path: 'after.svg', content: 'x' },
+			])
+		);
+
+		expect(entries[0]).toMatchObject({ path: 'empty.svg', content: '', size: 0, crc: 0 });
+		expect(entries[1]).toMatchObject({ path: 'after.svg', content: 'x' });
+	});
+
+	it('keeps every file when paths collide, numbering the later ones in the order given', () => {
+		const bytes = zipOf([
+			{ path: 'work/a.svg', content: 'first' },
+			{ path: 'work/a.svg', content: 'second' },
+			{ path: 'work/a.svg', content: 'third' },
+			// One name on the disk most people will unpack this onto.
+			{ path: 'Work/A.svg', content: 'fourth' },
+			{ path: 'a.svg', content: 'not in the way' },
+		]);
+
+		expect(pathsAndContents(bytes)).toEqual([
+			{ path: 'work/a.svg', content: 'first' },
+			{ path: 'work/a (2).svg', content: 'second' },
+			{ path: 'work/a (3).svg', content: 'third' },
+			{ path: 'Work/A (4).svg', content: 'fourth' },
+			{ path: 'a.svg', content: 'not in the way' },
+		]);
+	});
+
+	it('does not number a file onto a name another file already has', () => {
+		const bytes = zipOf([
+			{ path: 'a.svg', content: 'first' },
+			{ path: 'a (2).svg', content: 'the real a (2)' },
+			{ path: 'a.svg', content: 'second' },
+			{ path: 'README', content: 'one' },
+			{ path: 'README', content: 'two' },
+		]);
+
+		expect(pathsAndContents(bytes)).toEqual([
+			{ path: 'a.svg', content: 'first' },
+			{ path: 'a (2).svg', content: 'the real a (2)' },
+			{ path: 'a (3).svg', content: 'second' },
+			{ path: 'README', content: 'one' },
+			{ path: 'README (2)', content: 'two' },
+		]);
+	});
+
+	it('gives the same bytes for the same files', () => {
+		const files: ZipFile[] = [
+			{ path: 'a.svg', content: 'A', modifiedAt: Date.UTC(2026, 8, 19, 10, 0, 0) },
+			{ path: 'a.svg', content: 'B' },
+		];
+
+		expect(zipOf(files)).toEqual(zipOf(files));
+	});
+
+	it('dates a file in MS-DOS local time, and one with no date at the start of 1980', () => {
+		// Built from local parts, as the format is local: true in any time zone.
+		const at = new Date(2026, 8, 19, 13, 37, 42).getTime();
+
+		const { entries } = readZip(
+			zipOf([
+				{ path: 'dated.svg', content: '', modifiedAt: at },
+				{ path: 'undated.svg', content: '' },
+				{ path: 'too-early.svg', content: '', modifiedAt: new Date(1970, 0, 1).getTime() },
+			])
+		);
+
+		expect(entries[0]?.date).toBe(((2026 - 1980) << 9) | (9 << 5) | 19);
+		expect(entries[0]?.time).toBe((13 << 11) | (37 << 5) | 21);
+		// Two-second steps, so an odd second is the even one before it: 57 is
+		// written as 28, which reads back as 56. Never rounded up, where 59
+		// would become a sixtieth second no clock has.
+		const odd = (seconds: number) =>
+			readZip(
+				zipOf([
+					{
+						path: 'odd.svg',
+						content: '',
+						modifiedAt: new Date(2026, 8, 19, 13, 37, seconds).getTime(),
+					},
+				])
+			).entries[0]?.time ?? -1;
+		expect(odd(57) & 0x1f).toBe(28);
+		expect(odd(59) & 0x1f).toBe(29);
+		expect(odd(57)).toBe(odd(56));
+		expect(entries[1]).toMatchObject({ date: (1 << 5) | 1, time: 0 });
+		expect(entries[2]).toMatchObject({ date: (1 << 5) | 1, time: 0 });
+	});
+
+	describe('at the edges of what the format can say', () => {
+		const empties = (count: number): ZipFile[] =>
+			Array.from({ length: count }, (_, index) => ({
+				path: `${String(index)}.svg`,
+				content: '',
+			}));
+
+		it('writes 65,534 files, and refuses 65,535: that count is how ZIP64 says "look elsewhere"', () => {
+			expect(countIn(zipOf(empties(0xfffe)))).toBe(0xfffe);
+			expect(() => zipOf(empties(0xffff))).toThrow(RangeError);
+		});
+
+		it('counts an empty folder as an entry, since it is one', () => {
+			expect(countIn(zipOf(empties(0xfffd), [{ path: 'one more' }]))).toBe(0xfffe);
+			expect(() => zipOf(empties(0xfffe), [{ path: 'one more' }])).toThrow(RangeError);
+		});
+
+		it('says which limit it met, so the user can be told in words', () => {
+			expect(() => zipOf(empties(0xffff))).toThrow(
+				expect.objectContaining({ name: 'ArchiveLimitError', limit: 'entries' })
+			);
+			expect(() => zipOf(empties(0xfffe), [{ path: 'one more' }])).toThrow(
+				expect.objectContaining({ limit: 'entries' })
+			);
+			expect(() => zipOf([{ path: `${'a'.repeat(0xffff)}.svg`, content: '' }])).toThrow(
+				expect.objectContaining({ limit: 'name' })
+			);
+		});
+
+		it('writes a name of 65,535 bytes, and refuses one of 65,536 rather than wrap its length', () => {
+			const longest = `${'a'.repeat(0xffff - 4)}.svg`;
+
+			const { entries } = readZip(zipOf([{ path: longest, content: 'x' }]));
+			expect(entries[0]?.path).toBe(longest);
+			expect(entries[0]?.content).toBe('x');
+
+			expect(() => zipOf([{ path: `a${longest}`, content: 'x' }])).toThrow(RangeError);
+			// In bytes, not characters: half as many of these is already too long.
+			expect(() => zipOf([{ path: `${'é'.repeat(0x8000)}.svg`, content: 'x' }])).toThrow(
+				RangeError
+			);
+		});
+	});
+
+	describe('the name an entry is written under', () => {
+		it.each([
+			['/abs.svg', 'abs.svg'],
+			['../up.svg', 'up.svg'],
+			['a/../../b.svg', 'b.svg'],
+			['a//b.svg', 'a/b.svg'],
+			['./x.svg', 'x.svg'],
+			['a\\..\\..\\w.svg', 'a_.._.._w.svg'],
+			['a/b\\c.svg', 'a/b_c.svg'],
+			['..\\..\\etc/passwd', '.._.._etc/passwd'],
+			['', 'untitled.svg'],
+			['/', 'untitled.svg'],
+			['..', 'untitled.svg'],
+			['./.', 'untitled.svg'],
+			['a/b/', 'a/b'],
+			// The spelling is the user's: only the comparison folds.
+			['Work/Plan É.svg', 'Work/Plan É.svg'],
+		])('writes %j as %j', (path, name) => {
+			expect(entryName(path)).toBe(name);
+			expect(
+				readZip(zipOf([{ path, content: 'x' }])).entries.map((entry) => entry.path)
+			).toEqual([name]);
+		});
+
+		it('never writes a name that is absolute, climbs, or holds a backslash', () => {
+			const hostile = [
+				'/abs.svg',
+				'../up.svg',
+				'a/../../b.svg',
+				'a//b.svg',
+				'./x.svg',
+				'a\\..\\..\\w.svg',
+				'',
+				'//../..//',
+				'..\\x',
+				'a/./../..',
+			];
+
+			const names = readZip(
+				zipOf(hostile.map((path) => ({ path, content: '' })))
+			).entries.map((entry) => entry.path);
+
+			expect(names).toHaveLength(hostile.length);
+			expect(new Set(names).size).toBe(hostile.length);
+			names.forEach((name) => {
+				expect(name.startsWith('/')).toBe(false);
+				expect(name.includes('\\')).toBe(false);
+				expect(name.split('/').filter((part) => ['', '.', '..'].includes(part))).toEqual(
+					[]
+				);
+			});
+		});
+
+		it('tells apart by the name it writes, so two spellings of one path are one name', () => {
+			// Compared normalized and written raw, these were two entries with two
+			// names that unpack onto one file.
+			expect(
+				pathsAndContents(
+					zipOf([
+						{ path: 'a/b.svg', content: 'first' },
+						{ path: 'a//b.svg', content: 'second' },
+						{ path: '/a/./b.svg', content: 'third' },
+						{ path: '', content: 'fourth' },
+						{ path: 'untitled.svg', content: 'fifth' },
+					])
+				)
+			).toEqual([
+				{ path: 'a/b.svg', content: 'first' },
+				{ path: 'a/b (2).svg', content: 'second' },
+				{ path: 'a/b (3).svg', content: 'third' },
+				{ path: 'untitled.svg', content: 'fourth' },
+				{ path: 'untitled (2).svg', content: 'fifth' },
+			]);
+		});
+	});
+
+	describe('a folder with nothing in it', () => {
+		const written = (files: readonly ZipFile[], folders: { path: string }[]) =>
+			readZip(zipOf(files, folders)).entries.map(({ path, size }) => ({ path, size }));
+
+		it('is an entry of its own: its name and a slash, no bytes, and marked a folder', () => {
+			expect(
+				written(
+					[{ path: 'work/plan.svg', content: 'x' }],
+					[{ path: 'ideas' }, { path: 'work' }]
+				)
+			).toEqual([
+				{ path: 'ideas/', size: 0 },
+				{ path: 'work/plan.svg', size: 1 },
+			]);
+		});
+
+		it('is written once under any spelling, and never for the root or a folder a file is in', () => {
+			expect(
+				written(
+					[{ path: 'a/b/c.svg', content: '' }],
+					[
+						{ path: '' },
+						{ path: '..' },
+						{ path: 'a' },
+						{ path: 'A/B' },
+						{ path: 'Empty' },
+						{ path: 'empty/' },
+						{ path: 'x\\..\\y' },
+					]
+				).map(({ path }) => path)
+			).toEqual(['Empty/', 'x_.._y/', 'a/b/c.svg']);
+		});
+
+		it('takes its name before any file does, so the file of that name is the numbered one', () => {
+			expect(
+				written([{ path: 'Plan.svg', content: 'file' }], [{ path: 'plan.svg' }]).map(
+					({ path }) => path
+				)
+			).toEqual(['plan.svg/', 'Plan (2).svg']);
+		});
+
+		it('changes nothing about an archive where every folder holds a drawing', () => {
+			const files = [{ path: 'w/a.svg', content: 'a' }];
+
+			expect(zipOf(files, [{ path: 'w' }])).toEqual(zipOf(files));
+			expect(zipOf(files, [])).toEqual(zipOf(files));
+		});
+	});
+
+	describe('a file where a folder has to be', () => {
+		it('numbers the file, whichever of the two came first', () => {
+			const file = { path: 'a', content: 'a file' };
+			const inside = { path: 'a/b.svg', content: 'in a folder' };
+
+			expect(pathsAndContents(zipOf([inside, file]))).toEqual([
+				{ path: 'a/b.svg', content: 'in a folder' },
+				{ path: 'a (2)', content: 'a file' },
+			]);
+			expect(pathsAndContents(zipOf([file, inside]))).toEqual([
+				{ path: 'a (2)', content: 'a file' },
+				{ path: 'a/b.svg', content: 'in a folder' },
+			]);
+		});
+
+		it('sees the folder at any depth, under any spelling, and does not number onto one', () => {
+			expect(
+				pathsAndContents(
+					zipOf([
+						{ path: 'Work/2026.svg/plan.svg', content: 'deep' },
+						{ path: 'work/2026.SVG', content: 'a file named as the folder is' },
+						{ path: 'x.svg', content: 'first' },
+						{ path: 'x.svg', content: 'second' },
+						{ path: 'x (2).svg/inner.svg', content: 'makes `x (2).svg` a folder' },
+					])
+				)
+			).toEqual([
+				{ path: 'Work/2026.svg/plan.svg', content: 'deep' },
+				{ path: 'work/2026 (2).SVG', content: 'a file named as the folder is' },
+				{ path: 'x.svg', content: 'first' },
+				{ path: 'x (3).svg', content: 'second' },
+				{ path: 'x (2).svg/inner.svg', content: 'makes `x (2).svg` a folder' },
+			]);
+		});
+	});
+
+	it('zips twenty thousand files, three thousand of them at one path, each under its own name', () => {
+		const DUPLICATES = 3000;
+		const files: ZipFile[] = Array.from({ length: 20_000 }, (_, index) =>
+			index < DUPLICATES
+				? { path: 'drawings/same.svg', content: `copy ${String(index)}` }
+				: { path: `drawings/${String(index)}.svg`, content: `drawing ${String(index)}` }
+		);
+
+		const { entries } = readZip(zipOf(files));
+
+		expect(entries).toHaveLength(20_000);
+		expect(new Set(entries.map((entry) => entry.path.toLowerCase())).size).toBe(20_000);
+		// In the order given, numbered in the order given, and each with its own text.
+		expect(entries[0]).toMatchObject({ path: 'drawings/same.svg', content: 'copy 0' });
+		expect(entries[1]).toMatchObject({ path: 'drawings/same (2).svg', content: 'copy 1' });
+		expect(entries[DUPLICATES - 1]).toMatchObject({
+			path: `drawings/same (${String(DUPLICATES)}).svg`,
+			content: `copy ${String(DUPLICATES - 1)}`,
+		});
+		expect(entries[DUPLICATES]).toMatchObject({
+			path: `drawings/${String(DUPLICATES)}.svg`,
+			content: `drawing ${String(DUPLICATES)}`,
+		});
+		expect(entries.every((entry, index) => entry.content.endsWith(` ${String(index)}`))).toBe(
+			true
+		);
+	}, 60_000);
+
+	it('does not run out of stack on a folder of names already numbered by hand', () => {
+		// What importing one of these archives leaves behind, and then a
+		// duplicate of the first: every number up to the last is taken.
+		const TAKEN = 12_000;
+		const files: ZipFile[] = [
+			{ path: 'a.svg', content: 'the first' },
+			...Array.from({ length: TAKEN - 1 }, (_, index) => ({
+				path: `a (${String(index + 2)}).svg`,
+				content: '',
+			})),
+			{ path: 'a.svg', content: 'the duplicate' },
+		];
+
+		const bytes = zipOf(files);
+
+		expect(countIn(bytes)).toBe(TAKEN + 1);
+		expect(new TextDecoder().decode(bytes).includes(`a (${String(TAKEN + 1)}).svg`)).toBe(true);
+	}, 60_000);
+
+	const unzip = (() => {
+		try {
+			execFileSync('unzip', ['-v'], { stdio: 'ignore' });
+			return true;
+		} catch {
+			return false;
+		}
+	})();
+
+	it.skipIf(!unzip)('is an archive `unzip` tests clean and reads the contents of', () => {
+		const folder = mkdtempSync(join(tmpdir(), 'skysa-export-'));
+		try {
+			const archive = join(folder, 'drawings.zip');
+			const content = '# Überschrift\n\nnaïve 日本語\n';
+			writeFileSync(
+				archive,
+				zipOf([
+					{ path: 'work/plan.svg', content, modifiedAt: Date.now() },
+					{ path: 'Résumé/日本語.svg', content: 'x' },
+					{ path: 'empty.svg', content: '' },
+				])
+			);
+
+			// Exits non-zero on a bad CRC, a bad offset or a directory that does
+			// not match its local headers.
+			const report = execFileSync('unzip', ['-t', archive], { encoding: 'utf8' });
+			expect(report).toContain('No errors detected');
+			// By an ASCII name: how a non-ASCII one is spelled on a command line
+			// is the locale's business, not the archive's.
+			expect(
+				execFileSync('unzip', ['-p', archive, 'work/plan.svg'], { encoding: 'utf8' })
+			).toBe(content);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it.skipIf(!unzip)("gives a file's bytes back exactly, every value of them", () => {
+		const folder = mkdtempSync(join(tmpdir(), 'skysa-export-'));
+		try {
+			const archive = join(folder, 'drawings.zip');
+			const bytes = Uint8Array.from({ length: 4096 }, (_, index) => (index * 31) & 0xff);
+			writeFileSync(
+				archive,
+				zipOf([
+					{ path: 'work/plan.svg', content: '![p](p.png)\n' },
+					{ path: 'work/p.png', content: bytes },
+				])
+			);
+
+			expect(execFileSync('unzip', ['-t', archive], { encoding: 'utf8' })).toContain(
+				'No errors detected'
+			);
+			expect(new Uint8Array(execFileSync('unzip', ['-p', archive, 'work/p.png']))).toEqual(
+				bytes
+			);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it.skipIf(!unzip)('unpacks an empty folder as an empty folder', () => {
+		const folder = mkdtempSync(join(tmpdir(), 'skysa-export-'));
+		try {
+			const archive = join(folder, 'drawings.zip');
+			writeFileSync(
+				archive,
+				zipOf([{ path: 'work/plan.svg', content: 'x' }], [{ path: 'ideas/later' }])
+			);
+
+			execFileSync('unzip', ['-q', archive, '-d', join(folder, 'out')]);
+
+			expect(statSync(join(folder, 'out', 'ideas', 'later')).isDirectory()).toBe(true);
+			expect(statSync(join(folder, 'out', 'work', 'plan.svg')).isFile()).toBe(true);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+});
+
+describe('what the user is told when there is no download', () => {
+	it('names the limit that was met, and that nothing was downloaded', () => {
+		expect(downloadProblem(new ArchiveLimitError('entries', ''))).toBe(
+			'There are too many drawings, folders and files here for one archive, which holds at most 65,534. Nothing was downloaded.'
+		);
+		expect(downloadProblem(new ArchiveLimitError('bytes', ''))).toBe(
+			'These drawings and files come to more than one archive can hold, which is 4 GB. Nothing was downloaded.'
+		);
+		expect(downloadProblem(new ArchiveLimitError('name', ''))).toBe(
+			'A drawing, folder or file here has a path too long to put in an archive. Nothing was downloaded.'
+		);
+	});
+
+	it('asks for another try when it was anything else', () => {
+		expect(downloadProblem(new Error('The database connection is closing.'))).toBe(
+			'The drawings could not be downloaded. Try again.'
+		);
+		expect(downloadProblem(new RangeError('not ours'))).toBe(
+			'The drawings could not be downloaded. Try again.'
+		);
+	});
+});
+
+describe('exporting drawings', () => {
+	const listening: (() => void)[] = [];
+	const scope = { connectionId: 'dropbox-1' };
+
+	afterEach(() => {
+		listening.splice(0).forEach((stop) => {
+			stop();
+		});
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
+
+	it('writes each drawing as the file a push would send, at the path the provider has', async () => {
+		const db = freshDatabase();
+		// A file the app did not write, which goes out exactly as it came.
+		const pulled = await pulledFile(db, {
+			...scope,
+			path: 'work/From elsewhere.svg',
+			id: 'elsewhere',
+			words: 'as it came',
+		});
+		const made = await createDrawing(db, {
+			...scope,
+			title: 'Made here',
+			text: svgOf('typed\n'),
+		});
+
+		const files = filesOf([pulled, made]);
+
+		expect(files.map((file) => file.path)).toEqual([made.path, 'work/From elsewhere.svg']);
+		expect(files.find((file) => file.path === pulled.path)?.content).toBe(
+			svgOf('as it came', 'elsewhere')
+		);
+		expect(files.find((file) => file.path === made.path)).toEqual({
+			path: made.path,
+			content: made.text,
+			modifiedAt: made.updatedAt,
+		});
+		expect(made.path.endsWith('.svg')).toBe(true);
+	});
+
+	it('orders two drawings at one path by id, so the numbered one is always the same one', () => {
+		const drawing = (id: string, text: string): DrawingRecord => ({
+			id,
+			connectionId: 'dropbox-1',
+			path: 'a.svg',
+			title: 'A',
+			text,
+			contentHash: 'h',
+			dirty: 1,
+			deletedLocally: 0,
+			createdAt: 1,
+			updatedAt: 1,
+		});
+		const one = drawing('1111', 'one');
+		const two = drawing('2222', 'two');
+
+		const either = [zipOf(filesOf([one, two])), zipOf(filesOf([two, one]))];
+
+		expect(either[0]).toEqual(either[1]);
+		expect(pathsAndContents(either[0] ?? new Uint8Array())).toEqual([
+			{ path: 'a.svg', content: 'one' },
+			{ path: 'a (2).svg', content: 'two' },
+		]);
+	});
+
+	it('hands the browser one archive through a link it clicks and takes away again', async () => {
+		const db = freshDatabase();
+		const drawing = await pulledFile(db, { ...scope, path: 'a.svg', id: 'a', words: 'A' });
+
+		const blobs: Blob[] = [];
+		const createObjectURL = vi.fn((blob: Blob) => {
+			blobs.push(blob);
+			return 'blob:skysa/1';
+		});
+		const revokeObjectURL = vi.fn();
+		// jsdom has neither, and nothing else here asks `URL` for anything.
+		vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+		// Heard at the document, so the link was in the page when it was clicked;
+		// and stopped there, since jsdom cannot follow it.
+		const clicked: { href: string | null; download: string | null }[] = [];
+		const onClick = (event: Event) => {
+			event.preventDefault();
+			const link = event.target as HTMLAnchorElement;
+			clicked.push({
+				href: link.getAttribute('href'),
+				download: link.getAttribute('download'),
+			});
+		};
+		document.addEventListener('click', onClick);
+		listening.push(() => {
+			document.removeEventListener('click', onClick);
+		});
+
+		// Only from here, and not for long: fake-indexeddb runs on the same timers
+		// a fake clock stops.
+		vi.useFakeTimers();
+		downloadDrawings([drawing], 'my drawings.zip');
+
+		expect(clicked).toEqual([{ href: 'blob:skysa/1', download: 'my drawings.zip' }]);
+		expect(document.querySelector('a[download]')).toBeNull();
+		// Kept until the browser has had time to read it, then let go.
+		expect(revokeObjectURL).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(DOWNLOAD_GRACE_MS - 1);
+		expect(revokeObjectURL).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
+		expect(revokeObjectURL).toHaveBeenCalledWith('blob:skysa/1');
+		vi.useRealTimers();
+
+		expect(blobs[0]?.type).toBe('application/zip');
+		const bytes = new Uint8Array(await (blobs[0] ?? new Blob()).arrayBuffer());
+		expect(pathsAndContents(bytes)).toEqual([{ path: 'a.svg', content: svgOf('A', 'a') }]);
+	});
+
+	it('takes the link away and lets the blob go even when the click throws', () => {
+		const revokeObjectURL = vi.fn();
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:skysa/3', revokeObjectURL });
+		const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+			throw new Error('the browser said no');
+		});
+		listening.push(() => {
+			click.mockRestore();
+		});
+
+		vi.useFakeTimers();
+		expect(() => {
+			downloadDrawings([]);
+		}).toThrow('the browser said no');
+
+		expect(document.querySelector('a[download]')).toBeNull();
+		vi.advanceTimersByTime(DOWNLOAD_GRACE_MS);
+		expect(revokeObjectURL).toHaveBeenCalledWith('blob:skysa/3');
+	});
+
+	it('makes nothing to let go of when the archive cannot be written', () => {
+		const createObjectURL = vi.fn(() => 'blob:skysa/4');
+		vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: () => undefined });
+		const drawing = { path: `${'a'.repeat(0x10000)}.svg`, text: 'x', id: '1', updatedAt: 1 };
+
+		expect(() => {
+			downloadDrawings([drawing as DrawingRecord]);
+		}).toThrow(RangeError);
+
+		expect(createObjectURL).not.toHaveBeenCalled();
+		expect(document.querySelector('a[download]')).toBeNull();
+	});
+
+	it("names the archive by the day on the user's clock, not the one in Greenwich", () => {
+		vi.stubGlobal('URL', {
+			createObjectURL: () => 'blob:skysa/5',
+			revokeObjectURL: () => undefined,
+		});
+		const names: (string | null)[] = [];
+		const onClick = (event: Event) => {
+			event.preventDefault();
+			names.push((event.target as HTMLAnchorElement).getAttribute('download'));
+		};
+		document.addEventListener('click', onClick);
+		listening.push(() => {
+			document.removeEventListener('click', onClick);
+		});
+
+		// Half an hour into the local day, and half an hour before its end: in
+		// any zone but UTC itself, one of the two is another day in Greenwich.
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(2026, 8, 19, 0, 30));
+		downloadDrawings([]);
+		vi.setSystemTime(new Date(2026, 8, 19, 23, 30));
+		downloadDrawings([]);
+
+		expect(names).toEqual(['drawings-2026-09-19.zip', 'drawings-2026-09-19.zip']);
+	});
+
+	it('names the archive by the day when it is not told a name', () => {
+		vi.stubGlobal('URL', {
+			createObjectURL: () => 'blob:skysa/2',
+			revokeObjectURL: () => undefined,
+		});
+		const names: (string | null)[] = [];
+		const onClick = (event: Event) => {
+			event.preventDefault();
+			names.push((event.target as HTMLAnchorElement).getAttribute('download'));
+		};
+		document.addEventListener('click', onClick);
+		listening.push(() => {
+			document.removeEventListener('click', onClick);
+		});
+
+		downloadDrawings([]);
+
+		expect(names[0]).toMatch(/^drawings-\d{4}-\d{2}-\d{2}\.zip$/);
+	});
+
+	it('hands a whole source over as one archive, its empty folders with it', () => {
+		const made: Blob[] = [];
+		vi.stubGlobal('URL', {
+			createObjectURL: (blob: Blob) => {
+				made.push(blob);
+				return 'blob:skysa/3';
+			},
+			revokeObjectURL: () => undefined,
+		});
+		const onClick = (event: Event) => {
+			event.preventDefault();
+		};
+		document.addEventListener('click', onClick);
+		listening.push(() => {
+			document.removeEventListener('click', onClick);
+		});
+		const drawing: DrawingRecord = {
+			id: '1111',
+			connectionId: LOCAL_CONNECTION_ID,
+			path: 'Work/a.svg',
+			title: 'A',
+			text: 'a',
+			contentHash: 'h',
+			dirty: 1,
+			deletedLocally: 0,
+			createdAt: 1,
+			updatedAt: 1,
+		};
+		const library: Library = {
+			drawings: [drawing],
+			folders: [{ path: 'Ideas' }, { path: 'Work' }],
+			files: [],
+			missing: 0,
+		};
+
+		downloadLibrary(library);
+
+		expect(made).toHaveLength(1);
+		expect(made[0]?.size).toBe(zipOf(filesOf([drawing]), library.folders).length);
+	});
+});
+
+describe('a whole source', () => {
+	const withdrawn: (() => void)[] = [];
+
+	afterEach(() => {
+		withdrawn.splice(0).forEach((withdraw) => {
+			withdraw();
+		});
+	});
+
+	it("is its live drawings and every folder, and nothing of another source's", async () => {
+		const db = freshDatabase();
+		const scope = { connectionId: 'dropbox-1' };
+		await createFolder(db, 'Work', scope);
+		await createFolder(db, 'Empty', scope);
+		const kept = await createDrawing(db, {
+			...scope,
+			folderPath: 'Work',
+			title: 'Kept',
+			text: svgOf('k\n'),
+		});
+		const gone = await createDrawing(db, {
+			...scope,
+			folderPath: 'Work',
+			title: 'Gone',
+			text: svgOf('g\n'),
+		});
+		await deleteDrawing(db, gone.id, scope);
+		await createFolder(db, 'Theirs', { connectionId: 'dropbox-2' });
+		await createDrawing(db, { connectionId: 'dropbox-2', title: 'Theirs', text: svgOf('t\n') });
+
+		const library = await libraryOf(db, scope.connectionId);
+
+		expect(library.drawings.map((drawing) => drawing.id)).toEqual([kept.id]);
+		expect(library.folders.map((folder) => folder.path)).toEqual(['Empty', 'Work']);
+	});
+
+	it('holds something once it has a folder or a drawing, and not for a deleted one', async () => {
+		const db = freshDatabase();
+		const scope = { connectionId: LOCAL_CONNECTION_ID };
+
+		expect(await holdsAnything(db, LOCAL_CONNECTION_ID)).toBe(false);
+		const drawing = await createDrawing(db, { ...scope, title: 'Loose', text: svgOf('x\n') });
+		expect(await holdsAnything(db, LOCAL_CONNECTION_ID)).toBe(true);
+		await deleteDrawing(db, drawing.id, scope);
+		expect(await holdsAnything(db, LOCAL_CONNECTION_ID)).toBe(false);
+		await createFolder(db, 'Work', scope);
+		expect(await holdsAnything(db, LOCAL_CONNECTION_ID)).toBe(true);
+		expect(await holdsAnything(db, 'dropbox-1')).toBe(false);
+	});
+
+	it('is read after the editors have written what they were holding', async () => {
+		const db = freshDatabase();
+		const drawing = await createDrawing(db, { title: 'Typing', text: svgOf('before\n') });
+		withdrawn.push(
+			beforeClosing(async () => {
+				await saveDrawing(db, drawing.id, svgOf('typed a moment ago\n'));
+			})
+		);
+		const given: Library[] = [];
+
+		await downloadSource(db, LOCAL_CONNECTION_ID, (library) => {
+			given.push(library);
+		});
+
+		expect(given).toHaveLength(1);
+		expect(given[0]?.drawings.map((each) => each.text)).toEqual([
+			svgOf('typed a moment ago\n', drawing.id),
+		]);
+	});
+
+	it('comes out of a device with nothing connected as the files a push puts in the folder', async () => {
+		const db = freshDatabase();
+		await createFolder(db, 'Work');
+		await createFolder(db, 'Deep', { parentPath: 'Work' });
+		await createFolder(db, 'Ideas');
+		await createFolder(db, 'Later', { parentPath: 'Ideas' });
+		await createDrawing(db, {
+			folderPath: 'Work',
+			title: 'Plan',
+			text: svgOf('# Plan\n\n- [ ] ship it\n'),
+		});
+		await createDrawing(db, {
+			folderPath: 'Work/Deep',
+			title: 'Überschrift 日本語',
+			text: svgOf('naïve\n'),
+		});
+		await createDrawing(db, { title: 'Loose', text: svgOf('at the root\n') });
+		// A file another tool wrote: pushed as it came, so exported as it came.
+		await pulledFile(db, {
+			path: 'Work/From elsewhere.svg',
+			id: 'elsewhere',
+			words: 'nothing added',
+		});
+		// And one edited here since, which is what the edit saved.
+		const edited = await pulledFile(db, {
+			path: 'Work/Edited here.svg',
+			id: 'edited',
+			words: 'as it came',
+		});
+		await saveDrawing(db, edited.id, svgOf('edited here'));
+
+		const library = await libraryOf(db, LOCAL_CONNECTION_ID);
+		const archived = readZip(zipOf(filesOf(library.drawings), library.folders)).entries;
+
+		// The same library, pushed to a folder by the engine that syncs it.
+		await bindConnection(db, {
+			connectionId: 'dropbox-1',
+			provider: 'dropbox',
+			accountId: 'dbid:1',
+		});
+		const provider = createFakeProvider();
+		await provider.ensureRoot();
+		await createSyncEngine({
+			provider,
+			store: createDexieSyncStore(db, { connectionId: 'dropbox-1' }),
+		}).sync();
+		const pushed = provider.snapshot().filter((entry) => !isHidden(entry.path));
+		const files = pushed.filter((entry) => entry.kind === 'file');
+		const byPath = (a: { path: string }, b: { path: string }) => a.path.localeCompare(b.path);
+
+		expect(
+			archived
+				.filter((entry) => !entry.path.endsWith('/'))
+				.map(({ path, content }) => ({ path, content }))
+				.sort(byPath)
+		).toEqual(
+			files
+				.map((entry) => ({ path: entry.path, content: provider.contentAt(entry.path) }))
+				.sort(byPath)
+		);
+		// And each folder the push made with nothing in it is a folder of the
+		// archive's own; every other one is there by the files inside it.
+		expect(
+			archived
+				.filter((entry) => entry.path.endsWith('/'))
+				.map((entry) => entry.path)
+				.sort()
+		).toEqual(
+			pushed
+				.filter(
+					(entry) =>
+						entry.kind === 'folder' &&
+						!files.some((file) => file.path.startsWith(`${entry.path}/`))
+				)
+				.map((entry) => `${entry.path}/`)
+				.sort()
+		);
+		expect(files).toHaveLength(5);
+		expect(provider.contentAt('Work/From elsewhere.svg')).toBe(
+			svgOf('nothing added', 'elsewhere')
+		);
+	});
+
+	it('says the archive is incomplete where an editor holds text the store would not take', async () => {
+		const db = freshDatabase();
+		const drawing = await createDrawing(db, { title: 'Held', text: svgOf('stored\n') });
+		withdrawn.push(beforeClosing(() => Promise.resolve([drawingRef(drawing)])));
+
+		const answer = await downloadSource(db, LOCAL_CONNECTION_ID, () => undefined);
+
+		expect(answer).toEqual({ incomplete: true, missing: 0 });
+	});
+
+	it("does not call it incomplete for another source's unsaved text", async () => {
+		const db = freshDatabase();
+		const elsewhere = await createDrawing(db, { connectionId: 'dropbox-1', title: 'Other' });
+		await createDrawing(db, { title: 'Here' });
+		withdrawn.push(beforeClosing(() => Promise.resolve([drawingRef(elsewhere)])));
+		const given: Library[] = [];
+
+		const answer = await downloadSource(db, LOCAL_CONNECTION_ID, (library) => {
+			given.push(library);
+		});
+
+		expect(answer).toEqual({ incomplete: false, missing: 0 });
+		expect(given[0]?.drawings.map((each) => each.title)).toEqual(['Here']);
+	});
+});
+
+describe('the files beside the drawings (skysa-notes #187)', () => {
+	const listening: (() => void)[] = [];
+	const scope = { connectionId: 'dropbox-1' };
+
+	afterEach(() => {
+		listening.splice(0).forEach((stop) => {
+			stop();
+		});
+		vi.unstubAllGlobals();
+	});
+
+	const bufferOf = (value: string): ArrayBuffer => new TextEncoder().encode(value).buffer;
+
+	/** The archive `downloadLibrary` hands the browser, read back. */
+	const archiveOf = async (library: Library): Promise<Uint8Array> => {
+		const blobs: Blob[] = [];
+		vi.stubGlobal('URL', {
+			createObjectURL: (blob: Blob) => {
+				blobs.push(blob);
+				return 'blob:skysa/files';
+			},
+			revokeObjectURL: () => undefined,
+		});
+		const onClick = (event: Event) => {
+			event.preventDefault();
+		};
+		document.addEventListener('click', onClick);
+		listening.push(() => {
+			document.removeEventListener('click', onClick);
+		});
+		downloadLibrary(library);
+		return new Uint8Array(await (blobs[0] ?? new Blob()).arrayBuffer());
+	};
+
+	/**
+	 * In `dropbox-1`: an unsent drawing in Work beside two files the remote
+	 * has — one whose bytes are cached here, one never read — and a file added
+	 * here and not uploaded; and beside them a file the remote has moved on
+	 * from, whose bytes here are an older version. The drawing links none of
+	 * them: a drawing's links come with attachments (docs/ARCHITECTURE.md §10).
+	 */
+	const source = async () => {
+		const db = freshDatabase();
+		const drawing = await createDrawing(db, {
+			...scope,
+			folderPath: 'Work',
+			title: 'Trip',
+			text: svgOf('![m](map.png) ![f](far.png)\n'),
+		});
+		const added = await fileAdded(db, {
+			...scope,
+			path: 'Work/sun.png',
+			bytes: bufferOf('sun'),
+		});
+		const bound = (id: string, path: string) =>
+			db.files.put({ ...scope, id, path, remoteId: `r-${id}`, remoteVersion: 'v2', size: 3 });
+		const cached = (id: string, value: string, version: string) =>
+			db.fileBytes.put({
+				...scope,
+				id,
+				bytes: bufferOf(value),
+				version,
+				pinned: 0,
+				lastUsedAt: 0,
+			});
+		await bound('map', 'Work/map.png');
+		await cached('map', 'map', 'v2');
+		await bound('far', 'Work/far.png');
+		await bound('old', 'Work/old.png');
+		await cached('old', 'was', 'v1');
+		return { db, drawing, added };
+	};
+
+	it("writes a file's bytes exactly as they are, and never copies them", () => {
+		const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+		const files: ZipFile[] = [
+			{ path: 'a.svg', content: '# A\n' },
+			{ path: 'pic.png', content: bytes },
+		];
+
+		// The very buffer, as a part of the archive, rather than a copy of it.
+		expect(zipParts(files).some((part) => part === bytes)).toBe(true);
+		const { entries } = readZip(zipOf(files));
+		expect(entries.map((entry) => entry.path)).toEqual(['a.svg', 'pic.png']);
+		expect(entries[1]?.data).toEqual(bytes);
+		expect(entries[1]?.size).toBe(256);
+	});
+
+	it('takes the files whose bytes are here as they are now, and counts the rest', async () => {
+		const { db, added } = await source();
+		await createDrawing(db, { connectionId: 'dropbox-2', title: 'Theirs' });
+		await fileAdded(db, {
+			connectionId: 'dropbox-2',
+			path: 'theirs.png',
+			bytes: bufferOf('theirs'),
+		});
+
+		const library = await libraryOf(db, scope.connectionId);
+
+		expect(
+			library.files.map((file) => ({
+				path: file.path,
+				content: text(file.content as Uint8Array),
+			}))
+		).toEqual([
+			{ path: 'Work/map.png', content: 'map' },
+			{ path: added.path, content: 'sun' },
+		]);
+		expect(library.files.every((file) => typeof file.modifiedAt === 'number')).toBe(true);
+		// The one never read, and the one held only in an older version.
+		expect(library.missing).toBe(2);
+	});
+
+	it('puts them in the archive beside the drawings, and no folder of their own', async () => {
+		const { db, drawing, added } = await source();
+		// A folder holding a file and no drawing: the file says it is a folder.
+		await createFolder(db, 'Pics', scope);
+		await db.files.put({ ...scope, id: 'p', path: 'Pics/p.png', size: 1 });
+		await db.fileBytes.put({
+			...scope,
+			id: 'p',
+			bytes: bufferOf('p'),
+			pinned: 1,
+			lastUsedAt: 0,
+		});
+
+		const archive = await archiveOf(await libraryOf(db, scope.connectionId));
+
+		expect(readZip(archive).entries.map((entry) => entry.path)).toEqual([
+			drawing.path,
+			'Pics/p.png',
+			'Work/map.png',
+			added.path,
+		]);
+	});
+
+	it('refuses an archive too big from the sizes of the files held, before reading their bytes', async () => {
+		const db = freshDatabase();
+		const half = 2 ** 31;
+		const bound = (id: string) =>
+			db.files.put({
+				...scope,
+				id,
+				path: `${id}.bin`,
+				remoteId: `r-${id}`,
+				remoteVersion: 'v',
+				size: half,
+			});
+		const cached = (id: string) =>
+			db.fileBytes.put({
+				...scope,
+				id,
+				bytes: bufferOf(id),
+				version: 'v',
+				pinned: 0,
+				lastUsedAt: 0,
+			});
+		await bound('a');
+		await bound('b');
+		await cached('a');
+		// One held: under the limit, whatever the other's row says.
+		expect((await libraryOf(db, scope.connectionId)).missing).toBe(1);
+		await cached('b');
+		const read = vi.spyOn(db.fileBytes, 'bulkGet');
+
+		const refused = await libraryOf(db, scope.connectionId).catch((error: unknown) => error);
+
+		expect(refused).toBeInstanceOf(ArchiveLimitError);
+		expect((refused as ArchiveLimitError).limit).toBe('bytes');
+		expect(read).not.toHaveBeenCalled();
+	});
+
+	it('answers how many it left out, and the user is told where they are', async () => {
+		const { db } = await source();
+
+		expect(await downloadSource(db, scope.connectionId, () => undefined)).toEqual({
+			incomplete: false,
+			missing: 2,
+		});
+		expect(downloadNotice({ incomplete: false, missing: 2 })).toBe(
+			"Downloaded, without 2 files this device has no current copy of. They are still in the source's storage."
+		);
+		expect(downloadNotice({ incomplete: false, missing: 1 })).toBe(
+			"Downloaded, without 1 file this device has no current copy of. It is still in the source's storage."
+		);
+		expect(downloadNotice({ incomplete: false, missing: 0 })).toBeNull();
+		// Text only the user can save comes first.
+		expect(downloadNotice({ incomplete: true, missing: 2 })).toBe(INCOMPLETE_DOWNLOAD);
+	});
+
+	it('holds something to download in a file alone, where its current bytes are here', async () => {
+		const db = freshDatabase();
+		const cached = (id: string, version: string) =>
+			db.fileBytes.put({
+				...scope,
+				id,
+				bytes: bufferOf(id),
+				version,
+				pinned: 0,
+				lastUsedAt: 0,
+			});
+		await db.files.put({
+			...scope,
+			id: 'f',
+			path: 'a.png',
+			remoteId: 'r-f',
+			remoteVersion: 'v2',
+			size: 1,
+		});
+
+		// The row alone would be an empty archive.
+		expect(await holdsAnything(db, scope.connectionId)).toBe(false);
+		// And so would bytes of no file, or of a version the remote has moved on from.
+		await cached('g', 'v2');
+		await cached('f', 'v1');
+		expect(await holdsAnything(db, scope.connectionId)).toBe(false);
+		await cached('f', 'v2');
+		expect(await holdsAnything(db, scope.connectionId)).toBe(true);
+		expect(await holdsAnything(db, 'dropbox-2')).toBe(false);
+	});
+
+	it('takes what was never sent with the files not uploaded yet, where their bytes are here', async () => {
+		const { db, drawing, added } = await source();
+		const listed = await unsyncedIn(db, scope.connectionId);
+		const handed: Library[] = [];
+
+		await downloadUnsent(db, listed, (library) => {
+			handed.push(library);
+		});
+
+		expect(handed).toHaveLength(1);
+		expect(handed[0]?.drawings.map((each) => each.id)).toEqual([drawing.id]);
+		expect(handed[0]?.folders).toEqual([]);
+		// The files a drawing links come too once it can link one
+		// (docs/ARCHITECTURE.md §10); the remote has the rest.
+		expect(handed[0]?.files.map((file) => file.path)).toEqual([added.path]);
+		expect(handed[0]?.missing).toBe(0);
+	});
+
+	it("takes a listed file's bytes as they are while the source is unchecked, and a linked one's only as they are now", async () => {
+		const { db, added } = await source();
+		await db.syncState.put({ ...scope, clientId: 'this-browser', resumeUnverified: true });
+		const listed = await unsyncedIn(db, scope.connectionId);
+		const contents = (library: Library) =>
+			library.files.map((file) => [file.path, text(file.content as Uint8Array)]);
+
+		// Unchecked, the older copy here may be the only one left.
+		expect(contents(await unsentLibrary(db, listed))).toEqual([
+			['Work/map.png', 'map'],
+			['Work/old.png', 'was'],
+			[added.path, 'sun'],
+		]);
+		// Only linked, the same file is the remote's, which has it as it is now.
+		const linkedOnly = await unsentLibrary(db, { ...listed, files: [], linked: listed.files });
+		expect(contents(linkedOnly)).toEqual([
+			['Work/map.png', 'map'],
+			[added.path, 'sun'],
+		]);
+		expect(linkedOnly.missing).toBe(1);
+	});
+
+	it('has something to download in a file not uploaded alone', async () => {
+		const { db } = await source();
+		const listed = await unsyncedIn(db, scope.connectionId);
+
+		expect(hasUnsentDownload({ ...listed, drawings: [] })).toBe(true);
+		expect(hasUnsentDownload({ ...listed, drawings: [], portable: [] })).toBe(false);
+	});
+});

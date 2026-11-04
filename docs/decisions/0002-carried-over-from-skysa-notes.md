@@ -23,6 +23,8 @@ What came across, from skysa-notes v2.1.1 (`b39c8e42f542bdc9f222d5d536bb490710ec
 | `apps/web/src/i18n` | The catalog machinery and its tests | An English catalog of this app's own words |
 | `packages/core/src/sync`, `tests/sync` | The sync engine, its store port, the store contract, the in-memory store, the simulation kit, the two-device and random-remote tests (2026-11-04) | The rename below; `sync/conflicts.ts` became `sync/document.ts`, the document seam; the clipboard and key-file flags cut; `messageOf` from `errors.ts`; fixtures are SVG (`tests/sync/kit/drawings.ts`) |
 | `apps/web/src/sync/providers.ts` | The provider factory with its request deadlines | Nothing |
+| `apps/web/src/{store,sync,api,errors,hooks}`, their tests | The Dexie store, the `SyncStore`, the scheduler, the connection, credential, token, account, relay and API clients, the connect code, export, held edits, stale and frozen tabs (2026-11-04) | The rename; schema version 1 rewritten in place without the clipboard, picture and key tables; cut: clipboard, key file, secrets, vault, scratchpad, pictures, pins, open folders, recents, last open, per-source prefs, search, frontmatter, file links and the attachment writers, import and zip reading, editor mode, code display, slices; the lock is `skysa-draw:sync:<id>`; notes' issue numbers in comments read "skysa-notes #N" |
+| `apps/web/src/components/{account,sources}`, their tests | The account panel, the sources, the connect choice, button and code, the devices, disconnecting and moving what was never sent (2026-11-04) | Drawn on this app's component set; one sources panel at every size in place of notes' tabs and gear menu; questions and info sheets on `Panel`; the app's own provider marks, since notes ships the vendors' trademarks; cut: importing, the clipboard and scratchpad toggles, secrets and the key file |
 | Root | ESLint, Prettier, knip, tsconfig, Changesets, CI, the legal texts | Lint layers for this app's folders; no bookmarklet |
 
 The sync engine came across a day after the rest, once the drawing's own identity rules existed (`readDrawingId`, `withDrawingId`): notes' engine read a note in two places, the conflict copy patching a frontmatter `id` and the pull batch reading a note's identity with `parseNoteFile`, and both now go through one module, the document seam (§7, "Sync engine").
@@ -49,8 +51,8 @@ s/(?<!encode\()(?<!svg\()`((?:[^`\\\n]|\\.)+?\\n)`/svg(`$1`)/g;
 ```
 
 What did not come across, and why:
-the markdown pipeline, the editors, the clipboard, the scratchpad, the vault, secrets and the bookmarklet, which are the notes app;
-the web app's store, sync runtime and screens, which read notes' rows, and are written afresh here over the same shape of database so the engine port finds what it expects (§7).
+the markdown pipeline, the clipboard, the scratchpad, the vault, secrets and the bookmarklet, which are the notes app;
+the editors, the list and the library's rows, which are this app's own.
 
 Until a shared package exists, a fix to a carried-over layer is a fix in both repositories.
 The trigger for extracting the package is the first change that has to be made twice: when that happens, the shared layers move to a package the two products depend on, and this record says so.

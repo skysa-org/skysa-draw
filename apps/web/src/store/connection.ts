@@ -1,0 +1,1689 @@
+import {
+	ancestorPaths,
+	basename,
+	conflictFilePath,
+	conflictPath,
+	isNotFoundError,
+	isUnreadableError,
+	joinPath,
+	parentPath,
+	type ProviderKind,
+	type StorageProvider,
+} from '@skysa/draw-core';
+import type { PromiseExtended } from 'dexie';
+
+import {
+	ACTIVE_CONNECTION_KEY,
+	activeConnectionId,
+	type Detached,
+	type DrawDatabase,
+	drawingKey,
+	type DrawingRecord,
+	drawingRef,
+	type FileRecord,
+	type FolderKey,
+	type FolderRecord,
+	LOCAL_CONNECTION_ID,
+	type OpQueueRecord,
+	type SyncStateRecord,
+} from './db.js';
+import { detachedFrom } from './detached.js';
+import { fileKey, heldBytesAreCurrent } from './files.js';
+import { goneSources } from './goneSources.js';
+import { movedRows } from './movedRows.js';
+import { foldPath, freePath, pathDepth, respell } from './naming.js';
+import { queueByFolder } from './queue.js';
+import { rowsOf } from './rows.js';
+import { isLive, isLiveSource, isTombstone } from './rowStates.js';
+import { sourceTables } from './scopes.js';
+import { isEmpty, type Seen, unseenIn, type Unsynced, unsyncedIn, wasSeen } from './unsynced.js';
+
+/**
+ * Which storage account the drawings on this device belong to.
+ *
+ * Every row carries a `connectionId`, and the app shows and syncs exactly one
+ * connection's rows (`activeConnectionId` in `db.ts`). The remote is the source
+ * of truth, and each connected source is its own silo (docs/ARCHITECTURE.md §6), so
+ * rows change connection in two cases only, each in one transaction — a drawing is
+ * never left behind under a connection nothing shows, and never half-moved:
+ *
+ * - **The device's own rows go into the first source bound.** Whatever was
+ *   written before anything was connected (`LOCAL_CONNECTION_ID`) is copied
+ *   into it. That is the only thing the local pile is for: it holds drawings only
+ *   while nothing is, or ever was, connected.
+ * - **A detached source's rows go home.** When the account a detached source
+ *   was to is connected again, under whatever id the server gives it this
+ *   time, the rows it kept are resumed under that connection.
+ *
+ * Letting a source go moves nothing. What the remote has is removed from the
+ * device — connecting again brings it back — and what it was never sent stays
+ * where it is, under a source marked `detached`, in plain sight, until the user
+ * reconnects, downloads or discards it (`detachConnection`). Nothing a
+ * disconnect does fills the local pile, where it would be invisible behind any
+ * other source, and nothing is carried into another account.
+ *
+ * Two things the sync store relies on, and so are guaranteed here:
+ *
+ * - **A row's key is its connection and its id**, so a row that moves is
+ *   deleted and added, two drawings of one id can meet where they land, and an
+ *   editor holding the drawing as it was has to be able to find it again
+ *   (`moveRowsTo`, `store/movedRows.ts`).
+ * - **A moved row's text moves as it is.** The row holds its file byte for
+ *   byte (`DrawingRecord.text`), so nothing about a move changes the bytes
+ *   under the engine.
+ *
+ * What a moved row keeps depends on whose files it knows:
+ *
+ * - **Resumed**, when a detached source's rows go back to the account they came
+ *   from: each row keeps its `remoteId`, `remoteVersion`, `dirty` and
+ *   tombstone, and every queued op follows it. The engine then picks up where
+ *   it stopped — its first pull on a connection with no cursor is a full scan,
+ *   which sees what changed and what went while it was away, and brings back
+ *   everything the detach removed — rather than meeting every drawing as new
+ *   writing with a file already in the way.
+ * - **Copied**, from the device's own pile: each row is marked dirty and owed a
+ *   write, each folder a `mkdir`. A deleted drawing is dropped: there is no file
+ *   to delete. The remote may already hold the same drawings; the first pull meets
+ *   them as it meets any file whose drawing holds unpushed writing, and nothing is
+ *   overwritten.
+ *
+ * A row that has to move to a new path on the way — only when rows under two
+ * connections want one — is copied either way: the file it knows is at the
+ * old path.
+ */
+
+/** One provider account, however many connections it has had. */
+export const accountKey = (provider: ProviderKind, accountId: string | null | undefined) =>
+	accountId === null || accountId === undefined ? undefined : `${provider}:${accountId}`;
+
+type Scope = Pick<
+	DrawDatabase,
+	'drawings' | 'folders' | 'opQueue' | 'syncState' | 'files' | 'fileBytes' | 'prefs'
+>;
+
+/** `accountId` on a `syncState` row, or nothing where the API did not name one. */
+const accountOn = (accountId: string | null | undefined): { accountId?: string } =>
+	accountId === null || accountId === undefined ? {} : { accountId };
+
+/** `displayName` on a `syncState` row, or nothing where the API did not give one. */
+const nameOn = (displayName: string | null | undefined): { displayName?: string } =>
+	displayName === null || displayName === undefined ? {} : { displayName };
+
+const withoutRemote = ({
+	remoteId: _remoteId,
+	remoteVersion: _remoteVersion,
+	syncedHash: _syncedHash,
+	...drawing
+}: DrawingRecord): DrawingRecord => drawing;
+
+interface Moved {
+	/** Owed to the new connection as though new. */
+	drawings: DrawingRecord[];
+	folders: FolderRecord[];
+	/** Files pending under the new connection, with their bytes, owed an upload. */
+	files: FileRecord[];
+	/** Whether any row moved still names a file or folder on the remote. */
+	linked: boolean;
+}
+
+/**
+ * Rows from two connections can disagree about a folder's spelling — `Work`
+ * and `work` — which is one directory on every provider. Everything moved
+ * takes the spelling already under the target, or the first one moved, so the
+ * folder stays one folder, and its drawings stay in it.
+ */
+const spellingsOn = (folders: readonly FolderRecord[]) => {
+	const spellings = new Map(folders.map((folder) => [foldPath(folder.path), folder.path]));
+	const spell = (path: string): string => respell(spellings, path);
+	return {
+		/** Whether the target already has this folder, in some spelling. */
+		has: (path: string): boolean => spellings.has(foldPath(path)),
+		folder: spell,
+		drawing: (path: string): string => joinPath(spell(parentPath(path)), basename(path)),
+	};
+};
+
+type Mode = 'resume' | 'copy';
+
+/** A moved row, and whether it is owed to the new connection as though new. */
+interface Placed<T> {
+	row: T;
+	owed: boolean;
+}
+
+/**
+ * Which of `from`'s rows a move is about, where it is about some of them: the
+ * drawings by id, the folders by path.
+ *
+ * A bind names none and takes everything, which is what moving a whole source's
+ * rows home means. A disconnect that moves the unsent work to another source
+ * names exactly what the user was shown and said yes to (`moveUnsyncedTo`), and
+ * every other row — the drawings the remote has, the tombstones, the renames — is
+ * no business of the target's. Those rows are left exactly where they are here,
+ * and the caller decides what becomes of them and of the source around them:
+ * half a move is not a thing this can answer for.
+ *
+ * A folder named here is *copied*, not taken: its row stays under `from` as
+ * well. A drawing that is not moving can be in it, and a drawing in a folder with no
+ * row is one the sidebar shows and nothing can rename.
+ */
+interface Only {
+	drawings: ReadonlySet<string>;
+	folders: ReadonlySet<string>;
+	/** Files by id, which are copied and not taken, as folders are. */
+	files: ReadonlySet<string>;
+}
+
+/** A file a move placed, and the id it had under the source it came from. */
+interface FilePlaced extends Placed<FileRecord> {
+	was: string;
+}
+
+/** Of the names in `path`'s folder, the ones `files` hold, for a conflict name to avoid. */
+const namesBeside = (files: Iterable<FileRecord>, path: string): string[] =>
+	[...files]
+		.filter((file) => foldPath(parentPath(file.path)) === foldPath(parentPath(path)))
+		.map((file) => basename(file.path));
+
+/**
+ * The files that go with a move (skysa-notes #187), under the target's spelling of their
+ * folder, beside the drawings that link them.
+ *
+ * - **Resumed** at the path it had, a row is the row it was, bound or pending,
+ *   with its bytes, and what is queued for it follows it.
+ * - **Anywhere else** — copied, or respelled on the way — it is a file the
+ *   target's remote has never heard of: pending there, owed an upload, with
+ *   its bytes held. Where this device holds none it cannot be sent, and it is
+ *   not placed: the remote it came from has it still, which a pending row
+ *   could never say.
+ * - **The target's own row for the same file** stands, as a drawing's does: the
+ *   row a live connection pulled for the `remoteId`, or one at the name with
+ *   the size, which is the same file by the rule an upload adopts one by. One
+ *   at the name and of another size keeps it, and this one goes beside it
+ *   under a conflict name that keeps its extension, as an upload does. The
+ *   drawings that link it are not rewritten.
+ *
+ * Taken from the source only where the whole source is moving (`only`
+ * unnamed, and not `keep`). Named, the files are copied, as folders are: a
+ * drawing staying in the source may link the same file, and what becomes of the
+ * source's rows is the caller's.
+ */
+const placeFiles = async (
+	db: Scope,
+	move: { target: string; mode: Mode; from: string; only?: Only; keep: boolean },
+	spell: (path: string) => string
+): Promise<FilePlaced[]> => {
+	const { target, mode, from, only, keep } = move;
+	const leaving = (await rowsOf(db.files, from).toArray()).filter(
+		(file) => only === undefined || only.files.has(file.id)
+	);
+	const theirs = await rowsOf(db.files, target).toArray();
+	// Written to as files land, so two placed here cannot take one name or id.
+	const at = new Map(theirs.map((file) => [foldPath(file.path), file]));
+	const ids = new Set(theirs.map((file) => file.id));
+	const remote = new Set(
+		theirs.flatMap((file) => (file.remoteId === undefined ? [] : [file.remoteId]))
+	);
+
+	const placed = await leaving.reduce<Promise<FilePlaced[]>>(async (sofar, file) => {
+		const done = await sofar;
+		if (mode === 'resume' && file.remoteId !== undefined && remote.has(file.remoteId)) {
+			return done;
+		}
+		const wanted = spell(file.path);
+		const there = at.get(foldPath(wanted));
+		if (there?.size === file.size) return done;
+		const path =
+			there === undefined
+				? wanted
+				: conflictFilePath(wanted, new Date(), namesBeside(at.values(), wanted));
+		const asItWas = mode === 'resume' && path === file.path;
+		const held = await db.fileBytes.get(fileKey(file));
+		const current = held !== undefined && heldBytesAreCurrent(file, held);
+		if (!asItWas && !current) return done;
+		const id = ids.has(file.id) ? crypto.randomUUID() : file.id;
+		const row: FileRecord = asItWas
+			? { ...file, connectionId: target, id }
+			: { connectionId: target, id, path, size: file.size };
+		await db.files.add(row);
+		if (held !== undefined) {
+			const { version: _version, ...bytes } = held;
+			await db.fileBytes.add(
+				asItWas
+					? { ...held, connectionId: target, id }
+					: { ...bytes, connectionId: target, id, pinned: 1 }
+			);
+		}
+		at.set(foldPath(path), row);
+		ids.add(id);
+		return [...done, { row, owed: !asItWas, was: file.id }];
+	}, Promise.resolve([]));
+
+	if (only === undefined && !keep) {
+		await db.files.bulkDelete(leaving.map(fileKey));
+		await db.fileBytes.bulkDelete(leaving.map(fileKey));
+	}
+	return placed;
+};
+
+/**
+ * Every row under `from`, moved under `target`. What it owes is the caller's.
+ *
+ * `from` is named rather than implied, and that is the Phase 7 change. It used
+ * to move every row not already under the target, which was the only sensible
+ * reading while a device could hold one connection at a time. It is now the
+ * wrong one: connecting a second source would take the first source's drawings
+ * with it, into a stranger's storage, and the user would be told nothing. Each
+ * connected source is its own silo (docs/ARCHITECTURE.md §6), so the only rows that
+ * move are the device's own — `LOCAL_CONNECTION_ID` — and a detached source's,
+ * to the connection its own account came back under.
+ *
+ * Moving rows onto the connection they are already on does nothing, and has to
+ * say so explicitly: every row would be found both leaving and already taken,
+ * collide with itself over its own path, and be renamed and unlinked from the
+ * remote file it names. The cost of not saying it is a drawing silently losing
+ * its `remoteId`.
+ *
+ * A drawing's key is its connection and its id, so a move is the one place two
+ * drawings can meet under one key: a drawing imported on the device before anything
+ * was connected, from a file that carried its id, going into a source that has
+ * the same file. The one already there keeps its id. The newcomer is given a
+ * fresh one, and what is queued for it follows it; it is otherwise the row it
+ * was, file and all. Its file still says the old id until the drawing is next
+ * written, which is how any drawing stands whose file names an id its source
+ * already had (`idForNewDrawing` in `packages/core`).
+ *
+ * Two rows can also meet over one *file*: a detached source's rows resuming
+ * into a connection that is already live for the same account, and has pulled
+ * the file a kept row still names. The remote is the truth, and its row is the
+ * one that stands. A kept drawing with text of its own becomes a conflict copy
+ * beside it — fresh id, no file, a free name, owed a write — so nothing written
+ * is lost and nothing is written over the file. A kept rename or delete, which
+ * holds no text, is dropped in its favour. Either way an editor open on the
+ * kept row is pointed at the row that stands for it (`movedRows`).
+ */
+const moveRowsTo = async (
+	db: Scope,
+	target: string,
+	mode: Mode,
+	from: string,
+	only?: Only,
+	/**
+	 * Leave `from`'s rows where they are as well: the pile during a first
+	 * import, which a cancel goes back to (`abandonImport`) and a finished
+	 * import clears (`finishImport`).
+	 */
+	keep = false
+): Promise<Moved> => {
+	if (from === target) return NOTHING_MOVED;
+	const ops = (await db.opQueue.toArray()).filter((op) => op.connectionId === from);
+	const queuedFor = new Set(
+		ops.flatMap((op) => (op.drawingId === undefined ? [] : [op.drawingId]))
+	);
+
+	const folders = await db.folders.toArray();
+	const foldersLeaving = folders.filter((folder) => folder.connectionId === from);
+	const spelling = spellingsOn(folders.filter((folder) => folder.connectionId === target));
+	if (only === undefined && !keep) {
+		await db.folders.bulkDelete(
+			foldersLeaving.map((folder): FolderKey => [folder.connectionId, folder.path])
+		);
+	}
+	// Outermost first, so a folder is spelled after its parent is.
+	const foldersPlaced = [...foldersLeaving]
+		.sort((a, b) => pathDepth(a.path) - pathDepth(b.path))
+		.flatMap((folder): Placed<FolderRecord>[] => {
+			if (only !== undefined && !only.folders.has(folder.path)) return [];
+			if (spelling.has(folder.path)) return [];
+			const path = spelling.folder(folder.path);
+			if (mode === 'resume' && path === folder.path) {
+				// Never made on the remote is owed a `mkdir` even so; asking
+				// for one that exists changes nothing.
+				return [
+					{
+						row: { ...folder, connectionId: target },
+						owed: folder.remoteId === undefined,
+					},
+				];
+			}
+			const { remoteId: _remoteId, ...unlinked } = folder;
+			return [
+				{
+					row: { ...unlinked, connectionId: target, path, name: basename(path) },
+					owed: true,
+				},
+			];
+		});
+	const foldersMoved = foldersPlaced.map((placed) => placed.row);
+	if (foldersMoved.length > 0) await db.folders.bulkPut(foldersMoved);
+
+	const drawings = await db.drawings.toArray();
+	const leaving = drawings.filter((drawing) => drawing.connectionId === from);
+
+	// Two drawings wanting one path is one file on every provider, and one of the
+	// drawings lost on the first push. By folded path, as the providers compare.
+	// A tombstone's path is free, as it is to every other writer (`takenNamesIn`).
+	const taken = new Set(
+		drawings
+			.filter((drawing) => drawing.connectionId === target && isLive(drawing))
+			.map((drawing) => foldPath(drawing.path))
+	);
+	const held = new Set(
+		drawings.filter((drawing) => drawing.connectionId === target).map((drawing) => drawing.id)
+	);
+	const targetsFile = new Map(
+		drawings.flatMap((drawing) =>
+			drawing.connectionId === target && drawing.remoteId !== undefined
+				? [[drawing.remoteId, drawing]]
+				: []
+		)
+	);
+	const twinOf = (drawing: DrawingRecord): DrawingRecord | undefined =>
+		mode === 'resume' && drawing.remoteId !== undefined
+			? targetsFile.get(drawing.remoteId)
+			: undefined;
+	/** Whether this row is one of the rows being moved at all. */
+	const taking = (drawing: DrawingRecord): boolean =>
+		only === undefined || only.drawings.has(drawing.id);
+	// Dropped for the target's row of the same file: nothing of its own to keep.
+	const yielding = (drawing: DrawingRecord): boolean =>
+		twinOf(drawing) !== undefined && (isTombstone(drawing) || drawing.dirty === 0);
+	// Where each row ends up: its own id, a fresh one where the target holds the
+	// id or the file, or the target's own row where this one yields to it.
+	const landing = new Map(
+		leaving.map((drawing): [string, string] => {
+			const twin = twinOf(drawing);
+			if (twin !== undefined)
+				return [drawing.id, yielding(drawing) ? twin.id : crypto.randomUUID()];
+			return [drawing.id, held.has(drawing.id) ? crypto.randomUUID() : drawing.id];
+		})
+	);
+	const idNow = (id: string): string => landing.get(id) ?? id;
+	const drawingsPlaced = leaving.flatMap((drawing): Placed<DrawingRecord>[] => {
+		if (!taking(drawing)) return [];
+		if (yielding(drawing)) return [];
+		const pinned: DrawingRecord = {
+			...drawing,
+			id: idNow(drawing.id),
+			connectionId: target,
+		};
+		if (isTombstone(drawing)) {
+			// A delete owed to the account it came from, which the new one
+			// only is when resuming.
+			return mode === 'resume' ? [{ row: pinned, owed: false }] : [];
+		}
+		const wanted = spelling.drawing(drawing.path);
+		if (twinOf(drawing) !== undefined) {
+			// Its text, beside the file it was an edit to, as a conflict copy is
+			// named (§7); the file as the user was writing it, under the new id.
+			const path = conflictPath(wanted, new Date(), [...taken]);
+			taken.add(foldPath(path));
+			return [{ row: withoutRemote({ ...pinned, path, dirty: 1 }), owed: true }];
+		}
+		const path = taken.has(foldPath(wanted)) ? freePath(wanted, [...taken]) : wanted;
+		taken.add(foldPath(path));
+		if (mode === 'resume' && path === drawing.path) {
+			// Nothing queued and no file: a drawing nothing would ever push.
+			const stranded = drawing.remoteId === undefined && !queuedFor.has(drawing.id);
+			return [{ row: pinned, owed: stranded }];
+		}
+		return [{ row: { ...withoutRemote(pinned), path, dirty: 1 }, owed: true }];
+	});
+	// Every one of them, placed or not: the connection is half of the key, so a
+	// row that moves is a row deleted and a row added. Only the rows being taken,
+	// where the caller named them: the rest are its to dispose of.
+	if (!keep) await db.drawings.bulkDelete(leaving.filter(taking).map(drawingKey));
+	if (drawingsPlaced.length > 0)
+		await db.drawings.bulkAdd(drawingsPlaced.map((placed) => placed.row));
+	// For an editor open on one of them, whose next save names the old key — and
+	// for an undo of a delete whose tombstone this drops rather than carries,
+	// which has nothing else left to say where the drawing belongs now.
+	leaving
+		.filter((drawing) => taking(drawing) || isTombstone(drawing))
+		.forEach((drawing) => {
+			movedRows.record(drawing, { connectionId: target, id: idNow(drawing.id) });
+		});
+
+	const filesPlaced = await placeFiles(
+		db,
+		{ target, mode, from, ...(only === undefined ? {} : { only }), keep },
+		spelling.drawing
+	);
+	// The files placed as they were, whose queued ops follow them, under the
+	// ids they have now. Every other file op is owed to a file that is not there.
+	const fileNow = new Map(
+		filesPlaced.flatMap((placed) => (placed.owed ? [] : [[placed.was, placed.row.id]]))
+	);
+
+	// A row owed to the new connection as though new owes what it is now, which
+	// the caller queues; what was queued for it was owed to its old file. A row
+	// that yielded owes nothing: the target's row is the file's. Every other row
+	// takes its queue with it, in the order it was made.
+	const owed = new Set(
+		drawingsPlaced.filter((placed) => placed.owed).map((placed) => placed.row.id)
+	);
+	const yielded = new Set(leaving.filter(yielding).map((drawing) => drawing.id));
+	// An op about a row that is staying put is not this move's to answer for.
+	const left = (op: OpQueueRecord): boolean => {
+		if (only === undefined) return true;
+		// Named files are copied, not taken: what is queued for them stays
+		// with the source, whose rows the caller disposes of.
+		if (op.fileId !== undefined) return false;
+		return op.drawingId === undefined
+			? only.folders.has(op.path)
+			: only.drawings.has(op.drawingId);
+	};
+	const dropped = ops.filter(
+		(op) =>
+			left(op) &&
+			(mode === 'copy' ||
+				(op.drawingId !== undefined &&
+					(owed.has(idNow(op.drawingId)) || yielded.has(op.drawingId))) ||
+				(op.fileId !== undefined && !fileNow.has(op.fileId)))
+	);
+	if (!keep) {
+		await db.opQueue.bulkDelete(
+			dropped.flatMap((op) => (op.seq === undefined ? [] : [op.seq]))
+		);
+	}
+	const carried = ops.filter((op) => left(op) && !dropped.includes(op));
+	if (carried.length > 0) {
+		await db.opQueue.bulkPut(
+			carried.map((op) => ({
+				...op,
+				connectionId: target,
+				...(op.drawingId === undefined ? {} : { drawingId: idNow(op.drawingId) }),
+				...(op.fileId === undefined ? {} : { fileId: fileNow.get(op.fileId) ?? op.fileId }),
+			}))
+		);
+	}
+
+	return {
+		drawings: drawingsPlaced.filter((placed) => placed.owed).map((placed) => placed.row),
+		folders: foldersPlaced.filter((placed) => placed.owed).map((placed) => placed.row),
+		files: filesPlaced.filter((placed) => placed.owed).map((placed) => placed.row),
+		linked: [...drawingsPlaced, ...foldersPlaced, ...filesPlaced].some(
+			(placed) => placed.row.remoteId !== undefined
+		),
+	};
+};
+
+/**
+ * Cut a connection's rows loose from the files they name, in place: the copy
+ * half of a bind, without the move.
+ *
+ * In place, and not by sending the rows through `LOCAL_CONNECTION_ID` and
+ * back, as `verifyResume` once did: the return trip moved *everything* under
+ * `LOCAL`, whoever had put it there. Doing it in place cannot reach another
+ * row at all.
+ *
+ * Nothing is renamed, because nothing moves: the rows are already where they
+ * are and already agree about their paths. A tombstone goes — its delete was
+ * owed to a file that is not there — and everything else is owed a write. A
+ * file the remote had is owed an upload where its bytes are here (skysa-notes #187), and
+ * goes where they are not: nothing could send it, and a scan that finds it
+ * brings it back. One not uploaded yet keeps its upload, `copyOf` and all.
+ */
+const cutLoose = async (db: Scope, connectionId: string): Promise<Moved> => {
+	const drawings = await rowsOf(db.drawings, connectionId).toArray();
+	const folders = await rowsOf(db.folders, connectionId).toArray();
+	const [gone, staying] = [drawings.filter(isTombstone), drawings.filter(isLive)];
+	await db.drawings.bulkDelete(gone.map(drawingKey));
+	const cut = staying.map((drawing): DrawingRecord => ({ ...withoutRemote(drawing), dirty: 1 }));
+	if (cut.length > 0) await db.drawings.bulkPut(cut);
+	const unlinked = folders.map(({ remoteId: _remoteId, ...folder }) => folder);
+	if (unlinked.length > 0) await db.folders.bulkPut(unlinked);
+	// Every queued op was owed to a file this connection no longer names, but
+	// an upload, which names none: it makes a file. One whose bytes are a copy
+	// of a remote file (`copyOf`) still asks for it, and is told so where the
+	// remote does not have it (`lost-file`).
+	const ops = await rowsOf(db.opQueue, connectionId).toArray();
+	await db.opQueue.bulkDelete(
+		ops.flatMap((op) => (op.seq === undefined || op.op === 'upload' ? [] : [op.seq]))
+	);
+	const files = await rowsOf(db.files, connectionId).toArray();
+	const pending = await files.reduce<Promise<FileRecord[]>>(async (sofar, file) => {
+		const done = await sofar;
+		if (file.remoteId === undefined) return [...done, file];
+		const held = await db.fileBytes.get(fileKey(file));
+		if (held === undefined || !heldBytesAreCurrent(file, held)) {
+			await db.files.delete(fileKey(file));
+			await db.fileBytes.delete(fileKey(file));
+			return done;
+		}
+		const { remoteId: _remoteId, remoteVersion: _remoteVersion, ...loose } = file;
+		const { version: _version, ...bytes } = held;
+		await db.files.put(loose);
+		await db.fileBytes.put({ ...bytes, pinned: 1 });
+		return [...done, loose];
+	}, Promise.resolve([]));
+	return { drawings: cut, folders: unlinked, files: pending, linked: false };
+};
+
+/**
+ * What moved rows owe their new connection, folder by folder: each made
+ * before what is in it, and its files before its drawings, so another device
+ * fills in a folder at a time and a drawing never lands ahead of the files
+ * beside it (`queueByFolder`).
+ */
+const queueOwed = (db: DrawDatabase, connectionId: string, moved: Moved) =>
+	queueByFolder(db, connectionId, {
+		folders: moved.folders.map((folder) => folder.path),
+		// By path within a folder, so the queue reads in an order a person
+		// could follow.
+		files: [...moved.files].sort((a, b) => a.path.localeCompare(b.path)),
+		drawings: [...moved.drawings].sort((a, b) => a.path.localeCompare(b.path)),
+	});
+
+// The credentials too: a source let go loses its rows and the key to its
+// account together, or a failure between the two leaves a device holding a
+// live credential for a source it no longer admits to having. The files
+// because what is unsent is asked inside (`unsyncedIn`), and a file added here
+// and not uploaded is.
+const inTransaction = <T>(db: DrawDatabase, work: () => Promise<T>): Promise<T> =>
+	db.transaction('rw', sourceTables(db), work);
+
+/** Prefs key: how many binds and unbinds this device has seen. */
+const BINDINGS_KEY = 'sync.bindings';
+
+/**
+ * A count rather than the connection bound, because the connection can come
+ * back to where it was — bound and disconnected again in another tab — while
+ * everything decided from before is stale.
+ */
+export const bindingCount = (db: Pick<DrawDatabase, 'prefs'>): PromiseExtended<number> =>
+	db.prefs.get(BINDINGS_KEY).then((record) => Number(record?.value ?? 0));
+
+const countBinding = (db: Pick<DrawDatabase, 'prefs'>): PromiseExtended<string> =>
+	bindingCount(db).then((count) => db.prefs.put({ key: BINDINGS_KEY, value: String(count + 1) }));
+
+/**
+ * Only if the device has not been bound or unbound since `bindingCount` said
+ * this, checked when the transaction runs. For a decision made from a server's
+ * answer: the user, or another tab, may have changed the device's connection
+ * while it was on its way, and acting on the answer anyway would bind a
+ * connection the server has since deleted.
+ */
+export interface Precondition {
+	ifUnchangedSince?: number;
+}
+
+const unchangedSince = async (
+	db: DrawDatabase,
+	{ ifUnchangedSince }: Precondition
+): Promise<boolean> =>
+	ifUnchangedSince === undefined || (await bindingCount(db)) === ifUnchangedSince;
+
+export interface BindInput extends Precondition {
+	/** The id `apps/api` gave the connection. */
+	connectionId: string;
+	provider: ProviderKind;
+	/** The provider's id for the account, when the API knows it. */
+	accountId?: string | null;
+	/** What the server calls the account, when it says (`SyncStateRecord.displayName`). */
+	displayName?: string | null;
+}
+
+/**
+ * Which detached sources are `input`'s own account, and so go home when it is
+ * bound: the rows they kept are resumed under it. None for an account the API
+ * does not name — nothing can be said to be its — and none for any other
+ * account, whose connecting leaves every detached source exactly where it is.
+ * Never `input`'s own connection: coming back under the same id moves nothing.
+ */
+export const bindingMode = async (
+	db: Pick<DrawDatabase, 'syncState'>,
+	input: Pick<BindInput, 'connectionId' | 'provider' | 'accountId'>
+): Promise<{ mode: Mode; from: string[] }> => {
+	const to = accountKey(input.provider, input.accountId);
+	const from = (await db.syncState.toArray())
+		.filter(
+			(state) =>
+				!isLiveSource(state) &&
+				state.connectionId !== input.connectionId &&
+				state.provider !== undefined &&
+				to !== undefined &&
+				accountKey(state.provider, state.accountId) === to
+		)
+		.map((state) => state.connectionId);
+	return { mode: from.length > 0 ? 'resume' : 'copy', from };
+};
+
+const NOTHING_MOVED: Moved = { drawings: [], folders: [], files: [], linked: false };
+
+const together = (a: Moved, b: Moved): Moved => ({
+	drawings: [...a.drawings, ...b.drawings],
+	folders: [...a.folders, ...b.folders],
+	files: [...a.files, ...b.files],
+	linked: a.linked || b.linked,
+});
+
+/**
+ * What a detached source's rows owe once the same connection is live again,
+ * having gone nowhere: the counterpart of what `moveRowsTo` answers for rows
+ * that resume under a new id. A drawing with no file is owed a write and a
+ * folder with no id a `mkdir` — asking for either twice changes nothing
+ * (`queueWrite`, `queueMkdir`) — and `linked` says whether any of them still
+ * names a file, which is what has to be checked before the first scan.
+ */
+const owedInPlace = async (db: Scope, connectionId: string): Promise<Moved> => {
+	const drawings = await rowsOf(db.drawings, connectionId).toArray();
+	const folders = await rowsOf(db.folders, connectionId).toArray();
+	const files = await rowsOf(db.files, connectionId).toArray();
+	// A pending file kept its upload through the detach (`keepOnly`); one
+	// with none queued is owed one, which a second would not change but
+	// would send twice.
+	const uploading = new Set(
+		(await rowsOf(db.opQueue, connectionId).toArray()).flatMap((op) =>
+			op.op === 'upload' && op.fileId !== undefined ? [op.fileId] : []
+		)
+	);
+	return {
+		drawings: drawings.filter((drawing) => isLive(drawing) && drawing.remoteId === undefined),
+		folders: folders.filter((folder) => folder.remoteId === undefined),
+		files: files.filter((file) => file.remoteId === undefined && !uploading.has(file.id)),
+		linked: [...drawings, ...folders, ...files].some((row) => row.remoteId !== undefined),
+	};
+};
+
+/**
+ * A live source whose first import is holding the device's pile: copied into
+ * it, and kept here as well until the import is done or cancelled.
+ */
+const holdsPile = (state: SyncStateRecord): boolean =>
+	state.importing !== undefined && isLiveSource(state);
+
+/** A source with no row of its own and nothing detached to resume: new here. */
+const firstBinding = (
+	states: readonly SyncStateRecord[],
+	connectionId: string,
+	resuming: readonly string[]
+): boolean => resuming.length === 0 && !states.some((state) => state.connectionId === connectionId);
+
+/**
+ * Make `connectionId` the app's connection. The device's own drawings and
+ * folders come with it, copied into it, and so do the rows of any detached
+ * source that was this same account, resumed. Safe to call again: rows already
+ * under it are left as they are, cursor included, and queue nothing. Answers
+ * whether it bound.
+ */
+export const bindConnection = (db: DrawDatabase, input: BindInput): Promise<boolean> =>
+	inTransaction(db, async () => {
+		if (!(await unchangedSince(db, input))) return false;
+		await countBinding(db);
+		const states = await db.syncState.toArray();
+		const current = states.find((state) => state.connectionId === input.connectionId);
+		const { from } = await bindingMode(db, input);
+		// The account's own rows first, so they keep the paths their files are
+		// at and anything from the device's pile that wants one gives way.
+		const resumed = await from.reduce<Promise<Moved>>(
+			async (sofar, detachedId) =>
+				together(
+					await sofar,
+					await moveRowsTo(db, input.connectionId, 'resume', detachedId)
+				),
+			Promise.resolve(NOTHING_MOVED)
+		);
+		// Gone home, every row: the source they waited under has nothing left to
+		// stand for. It held no credential, cursor or token to let go of.
+		await db.syncState.bulkDelete(from);
+		// The same connection, back: the rows it kept never left it.
+		const waiting =
+			current?.detached === undefined
+				? NOTHING_MOVED
+				: await owedInPlace(db, input.connectionId);
+		// Only the device's own rows besides. A source already connected keeps
+		// everything of its own, whichever source is being connected now, and so
+		// does a detached source of any other account: nobody was asked.
+		// A source this device has not seen is imported, which the user watches
+		// and can cancel. It holds the app while it runs, the first and every
+		// one after (2026-10-02): shown before its drawings are in, a later source
+		// was an empty one offering to make folders in it. It keeps the pile
+		// as it was until it is done, so a cancel has it to go back to.
+		const importing = firstBinding(states, input.connectionId, from)
+			? { lock: true, returnTo: await activeConnectionId(db) }
+			: undefined;
+		// Not while an import holds the pile: it is already copied into that
+		// source, and is only still here for a cancel to go back to. Copied
+		// again — the same bind run twice, another tab connecting something
+		// else — every drawing would arrive a second time under a new name.
+		const copied = states.some(holdsPile)
+			? NOTHING_MOVED
+			: await moveRowsTo(
+					db,
+					input.connectionId,
+					'copy',
+					LOCAL_CONNECTION_ID,
+					undefined,
+					importing !== undefined
+				);
+		const moved = together(together(resumed, waiting), copied);
+
+		// Every other connected source keeps its `syncState` row, and with it its
+		// cursor, its root and its place. Deleting them was right while a device
+		// could hold one source; now it would strand another source's drawings under
+		// a connection nothing shows, having just refused to move them.
+		const { resumeUnverified: _unverified, detached: _detached, ...kept } = current ?? {};
+		const state: SyncStateRecord = {
+			...kept,
+			connectionId: input.connectionId,
+			provider: input.provider,
+			// Whose account this source is to, so that a reconnect can tell whether
+			// the rows a detach kept are its own. Kept from the row when the API
+			// did not name one, rather than dropped.
+			...accountOn(input.accountId ?? current?.accountId),
+			// The same for its name: a bind that was not told one keeps the last
+			// one heard rather than forgetting what the source is called.
+			...nameOn(input.displayName ?? current?.displayName),
+			// Per install, not per account: kept from whichever connection had one.
+			clientId: current?.clientId ?? states[0]?.clientId ?? crypto.randomUUID(),
+			...(moved.linked || current?.resumeUnverified === true
+				? { resumeUnverified: true }
+				: {}),
+			// This binding, as distinct from any earlier one of the same id: what a
+			// tab remembers of the source as it was bound before is stale from here
+			// (`store/deletedHere.ts`).
+			boundAt: Date.now(),
+			...(importing === undefined ? {} : { importing }),
+		};
+		await db.syncState.put(state);
+		// Connecting a source is choosing it, which is the only moment the app can
+		// infer the choice rather than be told it.
+		await db.prefs.put({ key: ACTIVE_CONNECTION_KEY, value: input.connectionId });
+
+		await queueOwed(db, input.connectionId, moved);
+		return true;
+	}).then((bound) => {
+		// Bound again, its row says whose it is; nothing has to remember for it.
+		if (bound) goneSources.forget(input.connectionId);
+		return bound;
+	});
+
+/**
+ * Record which account the connection in front of the user is to, for a device
+ * bound before the API named accounts: nothing else writes it until the next
+ * bind, and a source detached in between could not be told from a stranger's
+ * when its account came back. Answers whether the device was still as
+ * `ifUnchangedSince` says.
+ *
+ * And what the account is called, every time the server says: the name can
+ * change under a connection, and the last one heard is what the device has to
+ * go on once the server stops answering for it (`SyncStateRecord.displayName`).
+ * Each is written only where it was given. A server that names no account still
+ * gives a name, and one must not wait on the other.
+ */
+export const rememberAccount = (
+	db: DrawDatabase,
+	input: Pick<BindInput, 'provider' | 'accountId' | 'displayName'> & Precondition
+): Promise<boolean> =>
+	inTransaction(db, async () => {
+		if (!(await unchangedSince(db, input))) return false;
+		const active = await activeConnectionId(db);
+		const state = await db.syncState.get(active);
+		const known = {
+			...(input.accountId === null || input.accountId === undefined
+				? {}
+				: { provider: input.provider, accountId: input.accountId }),
+			...nameOn(input.displayName),
+		};
+		// Nothing bound, or nothing said: no row to write, or nothing to write on it.
+		if (state === undefined || Object.keys(known).length === 0) return true;
+		await db.syncState.put({ ...state, ...known });
+		return true;
+	});
+
+/** How many of the drawings' own files `verifyResume` looks for before giving up on them. */
+export const RESUME_SAMPLE_COUNT = 8;
+
+type Sighting = 'found' | 'missing' | { failed: unknown };
+
+/**
+ * Whether the remote still has this file, by id.
+ *
+ * A file that is there and is no longer UTF-8 text is found: that it cannot be
+ * read is the one thing the error is sure of, and the question here is only
+ * whether this is the folder the drawings came from. Taken for a failure, it
+ * fails the same way every time it is asked, and a connection whose samples
+ * are all such files never verifies.
+ */
+const sight = async (
+	provider: Pick<StorageProvider, 'read'>,
+	drawing: DrawingRecord
+): Promise<Sighting> => {
+	try {
+		await provider.read({ remoteId: drawing.remoteId ?? '', path: drawing.path });
+		return 'found';
+	} catch (error) {
+		if (isUnreadableError(error)) return 'found';
+		return isNotFoundError(error) ? 'missing' : { failed: error };
+	}
+};
+
+/**
+ * The drawings to look for: the most recently edited of each folder in turn, at
+ * any depth and the loose drawings as one, so that one folder deleted elsewhere
+ * — often the one in use — cannot stand for the whole folder.
+ */
+const samplesOf = (drawings: readonly DrawingRecord[]): DrawingRecord[] => {
+	const byFolder = [...drawings]
+		.sort((a, b) => b.updatedAt - a.updatedAt)
+		.reduce(
+			(groups, drawing) =>
+				groups.set(parentPath(drawing.path), [
+					...(groups.get(parentPath(drawing.path)) ?? []),
+					drawing,
+				]),
+			new Map<string, DrawingRecord[]>()
+		);
+	const deepest = Math.max(0, ...[...byFolder.values()].map((group) => group.length));
+	return Array.from({ length: deepest }, (_, rank) =>
+		[...byFolder.values()].flatMap((group) => {
+			const drawing = group[rank];
+			return drawing === undefined ? [] : [drawing];
+		})
+	)
+		.flat()
+		.slice(0, RESUME_SAMPLE_COUNT);
+};
+
+export type ResumeVerdict = 'verified' | 'resumed' | 'copied' | 'superseded';
+
+/**
+ * Before a resumed connection's first sync: is the remote the one the drawings'
+ * ids point into?
+ *
+ * A resume trusts the first full scan to say what was deleted while the device
+ * was away. If the app folder was emptied, or replaced — the scan cannot tell
+ * the two apart — every drawing it does not see would be deleted here too: the
+ * rows a detach kept are the ones the remote was never sent in full, and the
+ * text in them exists nowhere else. So a few of the drawings' own
+ * files are looked for by id first, across folders. One found, and the resume
+ * stands. None, and the rows are copied instead: cut loose and written back, so
+ * nothing a scan does not see is taken from the device.
+ *
+ * The sync store refuses to write for the connection until this has answered
+ * (`resumeUnverified`), so no engine can scan first. Throws when the remote
+ * cannot be asked; the flag stays, and asking again is safe.
+ */
+export const verifyResume = async (
+	db: DrawDatabase,
+	connectionId: string,
+	provider: Pick<StorageProvider, 'read'>
+): Promise<ResumeVerdict> => {
+	const since = await bindingCount(db);
+	if ((await db.syncState.get(connectionId))?.resumeUnverified !== true) return 'verified';
+
+	const held = samplesOf(
+		(await rowsOf(db.drawings, connectionId).toArray()).filter(
+			(drawing) => drawing.remoteId !== undefined
+		)
+	);
+	// One after another, stopping at the first found. A file the provider will
+	// not read — restricted, say — is no answer either way, and is passed over
+	// rather than allowed to hold the resume up for good.
+	const sightings = await held.reduce<Promise<Sighting[]>>(async (sofar, drawing) => {
+		const seen = await sofar;
+		return seen.includes('found') ? seen : [...seen, await sight(provider, drawing)];
+	}, Promise.resolve([]));
+	const found = sightings.includes('found');
+	const failures = sightings.flatMap((each) => (typeof each === 'object' ? [each.failed] : []));
+	// Nothing found, and not everything asked answered: a connection that went
+	// down partway, or a rate limit, says nothing about the files it did not
+	// reach. Ask again later rather than copy on half an answer.
+	if (!found && failures.length > 0) throw failures[0];
+
+	return inTransaction(db, async (): Promise<ResumeVerdict> => {
+		const state = await db.syncState.get(connectionId);
+		if (!(await unchangedSince(db, { ifUnchangedSince: since })) || state === undefined) {
+			return 'superseded';
+		}
+		const { resumeUnverified: _unverified, ...verified } = state;
+		if (!found) {
+			await countBinding(db);
+			await queueOwed(db, connectionId, await cutLoose(db, connectionId));
+		}
+		await db.syncState.put(verified);
+		return found ? 'resumed' : 'copied';
+	});
+};
+
+/**
+ * Every row of a source that is not being kept, removed; answers the drawings that
+ * went. Inside the caller's transaction.
+ *
+ * What is kept is `staying` — the caller's choice among the drawings the remote
+ * was never sent in full (unsent text, a rename owed, a delete owed), and any
+ * drawing an editor still holds text for — with every op queued for them, exactly
+ * as they stand: a drawing that *was* pushed keeps the file it names and the
+ * version it last agreed on, so that the same account coming back finds it an
+ * edit to that file and not a second drawing beside it. With them stay the
+ * folders nothing has made on the remote, their `mkdir`s, and every `rmdir`
+ * still owed.
+ *
+ * A folder the remote does have is kept too where a kept drawing or folder
+ * sits inside it, link and all. It is not unsent and is not counted as such;
+ * it is there because a drawing's folder has a row, everywhere else in the store,
+ * and a drawing left in a folder that no longer exists would be one the sidebar
+ * can show and nothing can rename.
+ *
+ * Files (skysa-notes #187): the ones `unsynced` lists that `keepFile` keeps — every one,
+ * for a detach — and every file a kept drawing links, bound or not, so that its
+ * pictures still show. And every file whose move is owed, as a drawing's rename
+ * is: a folder renamed here can hold files no drawing links, and one left
+ * behind would keep the old directory on the remote after its drawings had gone.
+ * Their bytes stay with them, and every op about them and every `delete-file`
+ * still owed stays too, as an `rmdir` does, while the source stays: a detach
+ * that finds nothing unsent forgets every row (`detachConnection`).
+ *
+ * Everything else goes, and the remote has all of it: clean pushed drawings, the
+ * folders only they were in, tombstones that never had a file, the files no
+ * kept drawing links, and any op that names a row no longer here.
+ */
+const keepOnly = async (
+	db: Scope,
+	connectionId: string,
+	unsynced: Unsynced,
+	staying: readonly DrawingRecord[],
+	keepFile: (file: FileRecord) => boolean = () => true
+): Promise<DrawingRecord[]> => {
+	const stayingIds = new Set(staying.map((drawing) => drawing.id));
+	const rows = await rowsOf(db.drawings, connectionId).toArray();
+	const removed = rows.filter((drawing) => !stayingIds.has(drawing.id));
+	await db.drawings.bulkDelete(removed.map(drawingKey));
+
+	const live = staying.filter(isLive);
+	const listed = new Set(unsynced.files.filter(keepFile).map((file) => file.id));
+	const ops = await rowsOf(db.opQueue, connectionId).toArray();
+	const moving = new Set(
+		ops.flatMap((op) => (op.op === 'move-file' && op.fileId !== undefined ? [op.fileId] : []))
+	);
+	const keeps = (file: FileRecord): boolean => listed.has(file.id) || moving.has(file.id);
+	const files = await rowsOf(db.files, connectionId).toArray();
+	const [kept, gone] = [files.filter(keeps), files.filter((file) => !keeps(file))];
+	await db.files.bulkDelete(gone.map(fileKey));
+	await db.fileBytes.bulkDelete(gone.map(fileKey));
+	const keptIds = new Set(kept.map((file) => file.id));
+
+	// Folded, as the providers compare: `Work` and `work` are one directory.
+	const needed = new Set(
+		[
+			...unsynced.folders.flatMap((folder) => [...ancestorPaths(folder.path), folder.path]),
+			...live.flatMap((drawing) => ancestorPaths(drawing.path)),
+			...kept.flatMap((file) => ancestorPaths(file.path)),
+		].map(foldPath)
+	);
+	const folders = await rowsOf(db.folders, connectionId).toArray();
+	await db.folders.bulkDelete(
+		folders
+			.filter((folder) => !needed.has(foldPath(folder.path)))
+			.map((folder): FolderKey => [folder.connectionId, folder.path])
+	);
+
+	const unmade = new Set(unsynced.folders.map((folder) => foldPath(folder.path)));
+	const stays = (op: OpQueueRecord): boolean => {
+		if (op.op === 'rmdir' || op.op === 'delete-file') return true;
+		// A file kept with its upload dropped would never be sent (skysa-notes #195).
+		if (op.fileId !== undefined) return keptIds.has(op.fileId);
+		if (op.op === 'mkdir') return unmade.has(foldPath(op.path));
+		return op.drawingId !== undefined && stayingIds.has(op.drawingId);
+	};
+	await db.opQueue.bulkDelete(
+		ops.filter((op) => !stays(op)).flatMap((op) => (op.seq === undefined ? [] : [op.seq]))
+	);
+	return removed;
+};
+
+/**
+ * The source is gone from this device: its row, the credential that reached it,
+ * and the choice of it as the one to show. Only the choice that named it —
+ * clearing the choice for a source that is not the one in front would move the
+ * app off a source the user did not touch. Read from `prefs` rather than
+ * through `activeConnectionId`, which falls back to whatever row is left and
+ * would answer for the wrong one now that this row is gone.
+ */
+const forgetSource = async (db: DrawDatabase, connectionId: string): Promise<void> => {
+	await db.syncState.delete(connectionId);
+	await db.credentials.delete(connectionId);
+	const chosen = (await db.prefs.get(ACTIVE_CONNECTION_KEY))?.value;
+	if (chosen === connectionId) await db.prefs.delete(ACTIVE_CONNECTION_KEY);
+};
+
+/**
+ * A source's first import is done: its first pull reached the end and its first
+ * push went through the queue. The device's pile it was holding is let go —
+ * every row of it is in the source now, sent or owed — and the source is an
+ * ordinary one from here. Nothing, for a source that is not importing or has
+ * gone.
+ *
+ * Except a pile drawing written in since the bind. The app is held while the
+ * import runs, but an editor in another tab can still land a save it had
+ * pending, and a save to a pile drawing goes to the pile's own row, which the bind
+ * kept. That text is in no source, so it goes in as a drawing of its own — beside
+ * the copy, under a free name, owed a write — rather than going with the pile.
+ */
+export const finishImport = (db: DrawDatabase, connectionId: string): Promise<void> =>
+	inTransaction(db, async () => {
+		const state = await db.syncState.get(connectionId);
+		if (state?.importing === undefined || !isLiveSource(state)) return;
+		const since = state.boundAt ?? 0;
+		const lateDrawings = (await rowsOf(db.drawings, LOCAL_CONNECTION_ID).toArray()).filter(
+			(drawing) => isLive(drawing) && drawing.updatedAt > since
+		);
+		const late = lateDrawings.map((drawing) => drawing.id);
+		if (late.length > 0) {
+			const carried = await moveRowsTo(db, connectionId, 'copy', LOCAL_CONNECTION_ID, {
+				drawings: new Set(late),
+				folders: new Set(),
+				// The files a drawing links go with it once attachments come
+				// (docs/ARCHITECTURE.md §10): skysa-notes reads them from the
+				// links in a note's text here.
+				files: new Set(),
+			});
+			await queueOwed(db, connectionId, carried);
+		}
+		await clearPile(db);
+		const { importing: _done, ...rest } = state;
+		await db.syncState.put(rest);
+	});
+
+const clearPile = async (db: Scope): Promise<void> => {
+	await forgetRows(db, LOCAL_CONNECTION_ID);
+};
+
+/** Every row a connection holds, of every kind, and every op queued for it. */
+const forgetRows = async (db: Scope, connectionId: string): Promise<void> => {
+	await rowsOf(db.drawings, connectionId).delete();
+	await rowsOf(db.folders, connectionId).delete();
+	await rowsOf(db.opQueue, connectionId).delete();
+	await rowsOf(db.files, connectionId).delete();
+	await rowsOf(db.fileBytes, connectionId).delete();
+};
+
+/** Of `files`, the ones whose current bytes this device holds: the ones `placeFiles` can send. */
+const withBytes = async (db: Scope, files: readonly FileRecord[]): Promise<FileRecord[]> => {
+	const held = await db.fileBytes.bulkGet(files.map(fileKey));
+	return files.filter((file, at) => {
+		const bytes = held[at];
+		return bytes !== undefined && heldBytesAreCurrent(file, bytes);
+	});
+};
+
+/**
+ * A first import cancelled: the source and everything it brought are thrown
+ * away here, and the device is as it was before the user pressed Connect. The
+ * pile was never touched (`bindConnection` kept it), so there is nothing to put
+ * back but the source that was in front. Nothing on the remote is touched —
+ * what the import had already sent stays there — and nothing is asked of the
+ * server: that is the caller's (`cancelImport` in `sync/account.ts`).
+ *
+ * Only a source that is still importing. One that finished meanwhile is an
+ * ordinary source, with the pile gone into it, and throwing it away now would
+ * take the user's drawings with it; that is a disconnect, and asks its own
+ * question. Answers whether it did.
+ */
+export type AbandonOutcome =
+	| 'abandoned'
+	/** Not importing any more, or gone: nothing was thrown away. */
+	| 'imported'
+	/** Written in since it was connected, which only a disconnect may decide about. */
+	| 'written';
+
+export const abandonImport = (db: DrawDatabase, connectionId: string): Promise<AbandonOutcome> =>
+	inTransaction(db, async (): Promise<{ outcome: AbandonOutcome; gone?: SyncStateRecord }> => {
+		const state = await db.syncState.get(connectionId);
+		if (state?.importing === undefined) return { outcome: 'imported' };
+		// Held, nothing can have been; not held, the user could have gone on
+		// writing in it meanwhile, and a cancel is not the place to lose that.
+		if (!state.importing.lock && (await writtenSince(db, connectionId))) {
+			return { outcome: 'written' };
+		}
+		await countBinding(db);
+		await forgetRows(db, connectionId);
+		await forgetSource(db, connectionId);
+		await db.prefs.put({ key: ACTIVE_CONNECTION_KEY, value: state.importing.returnTo });
+		return { outcome: 'abandoned', gone: state };
+	}).then(({ outcome, gone }) => {
+		remember(gone);
+		return outcome;
+	});
+
+/**
+ * Whether a cancel could throw `connectionId` away now, asked before the server
+ * is: once it has disconnected the account there is no taking that back, and
+ * finding only then that the import had finished, or had been written in,
+ * would leave a source here the server no longer serves.
+ */
+export const importStanding = async (
+	db: DrawDatabase,
+	connectionId: string
+): Promise<'importing' | 'imported' | 'written'> => {
+	const state = await db.syncState.get(connectionId);
+	if (state?.importing === undefined || !isLiveSource(state)) return 'imported';
+	if (!state.importing.lock && (await writtenSince(db, connectionId))) return 'written';
+	return 'importing';
+};
+
+/**
+ * Anything in an importing source the user did there, rather than the import:
+ * a drawing or folder the pile never had, a drawing of the pile's that is not as it
+ * was, anything deleted, anything queued about a row that is not the pile's.
+ * Timid where the import itself moved a row — a conflict copy of a pile drawing
+ * reads as a change — since the answer only ever decides whether to throw
+ * rows away.
+ */
+const writtenSince = async (db: Scope, connectionId: string): Promise<boolean> => {
+	const pile = new Map(
+		(await rowsOf(db.drawings, LOCAL_CONNECTION_ID).toArray()).map((drawing) => [
+			drawing.id,
+			drawing,
+		])
+	);
+	const pileFolders = new Set(
+		(await rowsOf(db.folders, LOCAL_CONNECTION_ID).toArray()).map((folder) => folder.path)
+	);
+	const drawings = await rowsOf(db.drawings, connectionId).toArray();
+	const changed = drawings.some((drawing) => {
+		if (isTombstone(drawing)) return true;
+		const was = pile.get(drawing.id);
+		if (was === undefined) return drawing.dirty === 1;
+		return was.text !== drawing.text || was.path !== drawing.path;
+	});
+	if (changed) return true;
+	const ops = await rowsOf(db.opQueue, connectionId).toArray();
+	return ops.some((op) =>
+		op.drawingId === undefined ? !pileFolders.has(op.path) : !pile.has(op.drawingId)
+	);
+};
+
+/**
+ * For an editor in this tab still open on a row that went with its source: a
+ * save arriving now is kept, as an unsent drawing under the source made again
+ * (skysa-notes' `ensureDetached`), and this is what lets the row it is made under say whose
+ * it was. Never a mark that lets the save go — the remote has the *drawing*, not
+ * the edit. Only once the transaction has committed, so a rollback remembers
+ * nothing.
+ */
+const remember = (state: SyncStateRecord | undefined): void => {
+	if (state !== undefined) goneSources.remember(state);
+};
+
+export interface DetachInput extends Precondition {
+	/**
+	 * The source to let go, always by name. A disconnect is not always about
+	 * the source in front — the answer to one can arrive after the user has
+	 * turned to another — and "whichever is showing" would let go of a
+	 * connection nobody asked about, leaving the one that was meant live on the
+	 * server with nothing on the device able to name it.
+	 */
+	connectionId: string;
+	/** Why, for a source that stays. `revoked` unless said: the server ended it. */
+	reason?: Detached['reason'];
+	/**
+	 * Drawings an editor still holds text for that the store would not take, by
+	 * `drawingRef` (`settleEditors` in `store/heldEdits.ts`). Kept, whatever their
+	 * rows say: the row is clean because the edit never reached it, and removing
+	 * the row would leave the edit with nothing to land in.
+	 */
+	holding?: ReadonlySet<string>;
+}
+
+/**
+ * Stop syncing a source. The remote is the source of truth, so what it has is
+ * removed from this device, and connecting the account again brings it back.
+ * The remote itself is not touched: disconnecting is not deleting.
+ *
+ * What the remote was never sent is not removed, and is not moved either
+ * (`keepOnly`). If there is any, the source stays on the device **detached**:
+ * same connection id, same rows, same queue, but no credential, cursor, root
+ * or token, and marked as such (`detachedFrom`), so nothing syncs it and the
+ * user can see what is waiting and decide. If there is none, the source goes
+ * entirely, as though it had never been connected here.
+ *
+ * Every path that lets a source go comes through here — the user's Disconnect,
+ * "Stop syncing on this device", and the server saying the connection is gone —
+ * so that none of them can discard unsent work unasked, move it into another
+ * account, or file it in the device's own pile where nothing would show it.
+ *
+ * While a resumed source has not been verified everything live in it is unsent
+ * (`Unsynced.unverified`), so everything is kept. Editor-held text is invisible
+ * from here; callers settle the editors immediately first (`store/heldEdits.ts`)
+ * and pass on what would not save (`holding`), which is kept too.
+ *
+ * Answers whether it applied, `false` only for a precondition that failed.
+ */
+export const detachConnection = (db: DrawDatabase, input: DetachInput): Promise<boolean> =>
+	inTransaction(db, async () => {
+		if (!(await unchangedSince(db, input))) return { applied: false, gone: undefined };
+		const { connectionId } = input;
+		const state = await db.syncState.get(connectionId);
+		// Nothing bound under that name: a source another tab let go first.
+		// Already true, so nothing to do, and no drawings changed hands.
+		if (state === undefined) return { applied: true, gone: undefined };
+		await countBinding(db);
+		const unsynced = await unsyncedIn(db, connectionId);
+		const unsent = [...unsynced.drawings, ...unsynced.renames, ...unsynced.deletes];
+		const holding = input.holding ?? new Set<string>();
+		const heldOnly = (await rowsOf(db.drawings, connectionId).toArray()).filter(
+			(drawing) =>
+				holding.has(drawingRef(drawing)) && !unsent.some((each) => each.id === drawing.id)
+		);
+		await keepOnly(db, connectionId, unsynced, [...unsent, ...heldOnly]);
+		if (isEmpty(unsynced) && heldOnly.length === 0) {
+			// What `keepOnly` keeps that is not unsent — a file's owed move or
+			// delete, the folder it is in — goes too: under a source nothing
+			// names, it would be rows and ops nothing shows or sends. The files
+			// are the remote's, as they stand, and come back with the account.
+			await forgetRows(db, connectionId);
+			await forgetSource(db, connectionId);
+			return { applied: true, gone: state };
+		}
+		await db.credentials.delete(connectionId);
+		// Still the source showing, if it was: the user is looking at what they
+		// have to decide about, and moving them off it would hide it again.
+		await db.syncState.put(detachedFrom(state, input.reason ?? 'revoked', Date.now()));
+		return { applied: true, gone: undefined };
+	}).then(({ applied, gone }) => {
+		remember(gone);
+		return applied;
+	});
+
+export interface ReleaseInput {
+	connectionId: string;
+	/** What becomes of the rows the remote was never sent. */
+	unsynced: 'discard';
+	/**
+	 * What the user was shown before they said so, as it stood (`seenIn` in
+	 * `store/unsynced.ts`). Nothing outside it is discarded, whatever has been
+	 * written since — into a drawing that was on the list included.
+	 */
+	seen: Seen;
+	/**
+	 * Drawings an editor still holds text for that the store would not take, by
+	 * `drawingRef`, settled immediately before this (`store/heldEdits.ts`). Kept
+	 * whatever the answer was: the row is not the whole of what the user wrote,
+	 * so the list they answered about was not the whole of what would go.
+	 */
+	holding?: ReadonlySet<string>;
+}
+
+/**
+ * Gone entirely; still here detached because something unseen was kept, or
+ * because an editor is holding text no row has; or connected again meanwhile,
+ * and so not touched at all.
+ */
+export type ReleaseOutcome = 'released' | 'detached' | 'holding' | 'reconnected';
+
+/**
+ * The rows an editor still holds text for that the store would not take.
+ *
+ * Kept by every path that removes a source's rows, and for the same reason
+ * `detachConnection` keeps them: the row is clean only because the edit never
+ * reached it, and removing the row leaves the edit with nothing to land in. A
+ * failing save that begins *while the question is up* is caught here rather
+ * than by the guard the dialog computed before it was asked.
+ */
+const heldRowsIn = async (
+	db: Scope,
+	connectionId: string,
+	holding: ReadonlySet<string>
+): Promise<DrawingRecord[]> => {
+	if (holding.size === 0) return [];
+	const rows = await rowsOf(db.drawings, connectionId).toArray();
+	return rows.filter((drawing) => holding.has(drawingRef(drawing)));
+};
+
+/** Everything that may not go: what the list did not stand for, and what is held. */
+const stayingRows = (
+	unseen: readonly DrawingRecord[],
+	held: readonly DrawingRecord[]
+): DrawingRecord[] => [
+	...unseen,
+	...held.filter((drawing) => !unseen.some((each) => each.id === drawing.id)),
+];
+
+/**
+ * Let a source go for good, unsent work included: the user's answer to being
+ * shown what a source still holds.
+ *
+ * What is unsent is read again here, inside the transaction that acts on it,
+ * and only what the user was shown, as they were shown it, is discarded.
+ * Another tab may have typed into the source since the list was put in front
+ * of them — a new drawing, or a chapter into one that was listed — and that text
+ * was not on the list, so it is not theirs to have discarded: it is kept, the
+ * source stays detached around it, and so does everything else that the list
+ * did not stand for. A discard can never reach text the user was not shown.
+ * With nothing unseen, every row, every op, the source's row and its
+ * credential go together.
+ *
+ * Only a detached source. One that another tab has connected again while the
+ * question was open is syncing, and its rows are the remote's: taking them,
+ * and the credential, would leave a live connection on the server that nothing
+ * on the device can name.
+ */
+export const releaseConnection = (db: DrawDatabase, input: ReleaseInput): Promise<ReleaseOutcome> =>
+	inTransaction(db, async (): Promise<{ outcome: ReleaseOutcome; gone?: SyncStateRecord }> => {
+		const { connectionId, seen } = input;
+		const state = await db.syncState.get(connectionId);
+		if (state === undefined) return { outcome: 'released' };
+		if (isLiveSource(state)) return { outcome: 'reconnected' };
+		await countBinding(db);
+		const unsynced = await unsyncedIn(db, connectionId);
+		const held = await heldRowsIn(db, connectionId, input.holding ?? new Set());
+		if (unseenIn(unsynced, seen) || held.length > 0) {
+			const unseen = [...unsynced.drawings, ...unsynced.renames, ...unsynced.deletes].filter(
+				(drawing) => !wasSeen(seen, drawing)
+			);
+			await keepOnly(
+				db,
+				connectionId,
+				unsynced,
+				stayingRows(unseen, held),
+				(file) => !seen.files.has(file.id)
+			);
+			await db.credentials.delete(connectionId);
+			await db.syncState.put(detachedFrom(state, 'disconnected', Date.now()));
+			// Held text is the one of the two the user can do something about, so
+			// it is what they are told about where both are true.
+			return { outcome: held.length > 0 ? 'holding' : 'detached' };
+		}
+		// The files the user was told would be forgotten with it, and the rest.
+		await forgetRows(db, connectionId);
+		await forgetSource(db, connectionId);
+		return { outcome: 'released', gone: state };
+	}).then(({ outcome, gone }) => {
+		remember(gone);
+		return outcome;
+	});
+
+export interface MoveInput {
+	/** The source being let go. */
+	connectionId: string;
+	/** The connected source its unsent work is to be written into. */
+	target: string;
+	/** What the user was shown before they said so (`seenIn` in `store/unsynced.ts`). */
+	seen: Seen;
+	/** As `ReleaseInput.holding`: held text is never moved, and never removed. */
+	holding?: ReadonlySet<string>;
+}
+
+/**
+ * As a release, and three refusals that change nothing: a target that is not a
+ * connected source, a source whose files have not been checked against its
+ * remote yet, and a move with nothing in it to move.
+ */
+export type MoveOutcome = ReleaseOutcome | 'no-target' | 'unverified' | 'nothing-to-move';
+
+/**
+ * Take what one source never sent into another one, and let the first go: the
+ * other answer to being shown what a source still holds.
+ *
+ * This is the one operation in the app that carries a user's writing from one
+ * storage account into another, so nothing about it is inferred. The target is
+ * named, the rows are the ones the user was shown, and the button that asks for
+ * it names the account it is going to (docs/ARCHITECTURE.md §10).
+ *
+ * What moves is what could be anywhere: the drawings the remote was never sent in
+ * full, and the folders around them. Each arrives as new writing — no file,
+ * no version, dirty, owed a write, under the target's spelling of its folder
+ * and at a free name — because the target's storage has never heard of it. Its
+ * id comes with it unless the target already holds that id, which is the one
+ * thing two accounts can collide over; `createdAt` comes too, since that is
+ * what an editor open on the drawing recognises it by.
+ *
+ * What does *not* move is everything that is about the account being left. A
+ * rename the remote never heard of leaves the file where it is, under its old
+ * name, in full: there is nothing to carry. A delete it never heard of leaves
+ * the file there as well — the source is being disconnected, so the delete can
+ * never be sent, and a delete cannot be carried into an account that has no
+ * such file. The user is told both, in as many words, before they press it.
+ *
+ * A drawing the remote was sent *some* of — pushed once, edited since — is copied,
+ * and the older version stays in the account being left. Two accounts then hold
+ * a drawing of that name. That is the price of not losing the edit, and it is said
+ * plainly rather than avoided by leaving the edit behind.
+ *
+ * One transaction with the release, and with the same care for what the user
+ * was not shown as a discard takes: what is unsent is read again here, and a
+ * drawing written into since the list was made is neither moved nor let go. It is
+ * kept, the source stays detached around it, and the user is told. So is a drawing
+ * an editor still holds text for (`holding`).
+ *
+ * Only a detached source, and only into a live one. It refuses outright, having
+ * changed nothing, in three more cases: a target that is not a connected
+ * source; a source whose files have not been checked against its remote yet,
+ * where everything it holds is listed as unsent and a bulk copy would be made on
+ * a count known to be wrong; and a list with nothing of the kind this moves in
+ * it, where carrying on would be a discard of the renames and deletes reached
+ * through a button that says Move.
+ */
+export const moveUnsyncedTo = (db: DrawDatabase, input: MoveInput): Promise<MoveOutcome> =>
+	inTransaction(db, async (): Promise<{ outcome: MoveOutcome; gone?: SyncStateRecord }> => {
+		const { connectionId, target, seen } = input;
+		const state = await db.syncState.get(connectionId);
+		if (state === undefined) return { outcome: 'released' };
+		if (isLiveSource(state)) return { outcome: 'reconnected' };
+		const to = await db.syncState.get(target);
+		// Never the device's own pile, which nothing shows while a source is
+		// connected, and never a source that cannot send what it is handed.
+		if (target === connectionId || to === undefined || !isLiveSource(to)) {
+			return { outcome: 'no-target' };
+		}
+		const unsynced = await unsyncedIn(db, connectionId);
+		// A resumed source nobody has checked against its remote counts everything
+		// live in it as unsent (`Unsynced.unverified`), which here would be a whole
+		// synced library copied into a stranger's account on a number known to be
+		// wrong. Connecting it again is what settles the question; until then this
+		// refuses rather than guesses.
+		if (unsynced.unverified) return { outcome: 'unverified' };
+		const holding = input.holding ?? new Set<string>();
+		const held = await heldRowsIn(db, connectionId, holding);
+		// Never a row an editor is holding text for: the row is not the whole of
+		// the drawing, and half of it in another account is the worst of both.
+		const moving = unsynced.drawings.filter(
+			(drawing) => wasSeen(seen, drawing) && !holding.has(drawingRef(drawing))
+		);
+		const shownFolders = unsynced.folders.filter((folder) => seen.folders.has(folder.path));
+		const shownFiles = unsynced.portable.filter((file) => seen.files.has(file.id));
+		// Nothing of the kind a move is for. Carried on, this would be a discard of
+		// the renames and the deletes reached through a button that says Move, so
+		// it stops here and touches nothing. Which of the two it is told as depends
+		// on why: a list that held something movable when it was shown, and does
+		// not now, is a source written into since, and saying so is the useful
+		// half of it.
+		if (moving.length === 0 && shownFolders.length === 0 && shownFiles.length === 0) {
+			return { outcome: unseenIn(unsynced, seen) ? 'detached' : 'nothing-to-move' };
+		}
+		await countBinding(db);
+		// The files the user was shown, where this device holds their bytes.
+		// The rest stay in the account being left, which has them or the file
+		// they copy, and the dialog said so; named, they would bring their
+		// folders into the target empty. skysa-notes takes every file a moving
+		// note links too, which comes here with attachments
+		// (docs/ARCHITECTURE.md §10).
+		const files = await withBytes(db, shownFiles);
+		const moved = await moveRowsTo(db, target, 'copy', connectionId, {
+			drawings: new Set(moving.map((drawing) => drawing.id)),
+			// Every folder above a drawing that is going, whether or not it was
+			// listed as unsent itself: a drawing needs its folder's row wherever it
+			// lands. Closed under ancestors, so a folder is never placed under a
+			// parent that has no row.
+			folders: new Set([
+				...moving.flatMap((drawing) => ancestorPaths(drawing.path)),
+				...shownFolders.flatMap((folder) => [...ancestorPaths(folder.path), folder.path]),
+				...files.flatMap((file) => ancestorPaths(file.path)),
+			]),
+			files: new Set(files.map((file) => file.id)),
+		});
+		await queueOwed(db, target, moved);
+
+		if (!unseenIn(unsynced, seen) && held.length === 0) {
+			// Everything the source held was either shown and moved, or is the
+			// remote's and comes back if the account ever does.
+			await forgetRows(db, connectionId);
+			await forgetSource(db, connectionId);
+			return { outcome: 'released', gone: state };
+		}
+		// Written in since the list was made — another tab — and so not the user's
+		// to have moved or let go, or held by an editor whose save will not go
+		// through. Read again, because the move has just changed what is here, and
+		// kept with the folders it needs.
+		const left = await unsyncedIn(db, connectionId);
+		const unseen = [...left.drawings, ...left.renames, ...left.deletes].filter(
+			(drawing) => !wasSeen(seen, drawing)
+		);
+		await keepOnly(
+			db,
+			connectionId,
+			left,
+			stayingRows(unseen, held),
+			(file) => !seen.files.has(file.id)
+		);
+		await db.credentials.delete(connectionId);
+		await db.syncState.put(detachedFrom(state, 'disconnected', Date.now()));
+		return { outcome: held.length > 0 ? 'holding' : 'detached' };
+	}).then(({ outcome, gone }) => {
+		remember(gone);
+		return outcome;
+	});
+
+/**
+ * Show a different connected source.
+ *
+ * Nothing moves. Each source keeps its own drawings, its own folders, its own
+ * queue and its own cursor, and switching is a change of which one the app is
+ * looking at — which is what makes holding several safe: there is no operation
+ * here that could take one source's writing into another's storage.
+ *
+ * Answers whether the source was one this device actually has. A preference
+ * naming a connection with no `syncState` row would leave the app showing
+ * nothing, so it is refused rather than recorded. The device's own pile has no
+ * row and is always there to show: it is offered when it holds anything
+ * (`connectedSources`), since a source made again behind it would otherwise
+ * be the only way back to it.
+ */
+export const showConnection = (db: DrawDatabase, connectionId: string): Promise<boolean> =>
+	inTransaction(db, async () => {
+		const known =
+			connectionId === LOCAL_CONNECTION_ID ||
+			(await db.syncState.get(connectionId)) !== undefined;
+		if (!known) return false;
+		await countBinding(db);
+		await db.prefs.put({ key: ACTIVE_CONNECTION_KEY, value: connectionId });
+		return true;
+	});
+
+/**
+ * Call a source something else on this device, or `undefined` to have the
+ * derived name back (`tabName` in `sync/account.ts`).
+ *
+ * Answers whether there was a row to rename. The device's own pile has none —
+ * it is not a connection, only the drawings written before there was one — so it
+ * keeps the name the bar gives it and this refuses rather than inventing a row
+ * to hold a name.
+ *
+ * Blank is not a name. A tab with nothing in it cannot be clicked back into,
+ * and a user who has cleared the field has asked for the default rather than
+ * for emptiness, so both arrive here as `undefined`.
+ */
+export const renameSource = (
+	db: DrawDatabase,
+	connectionId: string,
+	label: string | undefined
+): Promise<boolean> =>
+	inTransaction(db, async () => {
+		const state = await db.syncState.get(connectionId);
+		if (state === undefined) return false;
+		const named = label?.trim();
+		const next =
+			named === undefined || named === ''
+				? withoutLabel(state)
+				: { ...state, label: named.slice(0, LABEL_LIMIT) };
+		await db.syncState.put(next);
+		return true;
+	});
+
+/** Long enough for "Dropbox — the one with the tax receipts in it". */
+export const LABEL_LIMIT = 64;
+
+const withoutLabel = ({ label: _label, ...rest }: SyncStateRecord): SyncStateRecord => rest;
+
+export interface ConnectedSource {
+	connectionId: string;
+	provider?: ProviderKind;
+	/** The provider's id for the account, where the API named one. */
+	accountId?: string;
+	/** What the server last called the account, where it said. */
+	displayName?: string;
+	/** What the user calls it, where they have said (`renameSource`). */
+	label?: string;
+	/**
+	 * When the connection was last bound, so a list can be put in the order the
+	 * user made it rather than in the order IndexedDB hands the rows back —
+	 * which is by connection id, and is a coin toss as far as anyone reading it
+	 * is concerned. Absent on the device's own pile, which was never bound.
+	 */
+	boundAt?: number;
+	/** Whether this is the one the app is showing. */
+	active: boolean;
+	/**
+	 * A source this device no longer reaches, still listed for what it holds
+	 * that was never sent. How much is the detached source's panel's to count
+	 * (`unsyncedIn`): counted here, it read every drawing of the source each time
+	 * a sync run wrote any source's `syncState` row, which re-runs this list
+	 * (skysa-notes #275).
+	 */
+	detached?: true;
+}
+
+/**
+ * What the device's own pile holds, which is what connecting any account moves
+ * into it (`bindConnection`) — and so what the user is told before they do.
+ * Live drawings only: one deleted here is not something they would recognise as
+ * theirs to keep.
+ */
+export const pileContents = async (
+	db: Pick<DrawDatabase, 'drawings' | 'folders' | 'syncState'>
+): Promise<{ folders: number; drawings: number }> =>
+	// Held by an import, it goes nowhere else (`bindConnection`).
+	(await db.syncState.toArray()).some(holdsPile)
+		? { folders: 0, drawings: 0 }
+		: {
+				folders: await rowsOf(db.folders, LOCAL_CONNECTION_ID).count(),
+				drawings: await rowsOf(db.drawings, LOCAL_CONNECTION_ID).filter(isLive).count(),
+			};
+
+/**
+ * Every source on this device, in the order they were connected: the live ones
+ * and the detached ones alike, since a detached source is listed precisely so
+ * that what it holds is not forgotten. And the device's own pile, last, when it
+ * holds a drawing or a folder: it is written in while nothing is connected, and
+ * a source that comes back detached beside it (`reason: 'interrupted'`) must not be
+ * the only thing the list offers.
+ */
+export const connectedSources = async (
+	db: Pick<DrawDatabase, 'drawings' | 'folders' | 'syncState' | 'prefs'>
+): Promise<ConnectedSource[]> => {
+	const active = await activeConnectionId(db);
+	const states = await db.syncState.toArray();
+	// Not while an import holds it: it is already in that source, and is only
+	// still here for a cancel to go back to.
+	const held = states.some(holdsPile);
+	const pile =
+		!held &&
+		(await rowsOf(db.drawings, LOCAL_CONNECTION_ID).count()) +
+			(await rowsOf(db.folders, LOCAL_CONNECTION_ID).count()) >
+			0
+			? [{ connectionId: LOCAL_CONNECTION_ID, active: active === LOCAL_CONNECTION_ID }]
+			: [];
+	const connected = states.map((state): ConnectedSource => ({
+		connectionId: state.connectionId,
+		...(state.provider === undefined ? {} : { provider: state.provider }),
+		...accountOn(state.accountId),
+		...nameOn(state.displayName),
+		...(state.label === undefined ? {} : { label: state.label }),
+		...(state.boundAt === undefined ? {} : { boundAt: state.boundAt }),
+		active: state.connectionId === active,
+		...(isLiveSource(state) ? {} : { detached: true }),
+	}));
+	return [...connected, ...pile];
+};

@@ -119,6 +119,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	/** The user is deleting the drawing: what is unsaved goes with it. */
 	const deleting = cell(false);
 	const saved = cell<readonly string[]>([]);
+	/**
+	 * The text of a save still on its way, which the store may yet refuse
+	 * (`expected`): until it lands, it is not saved.
+	 */
+	const sending = cell<string | undefined>(undefined);
 	const timer = cell<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
@@ -141,14 +146,31 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			// Reopened meanwhile: this document's text is no longer the drawing's.
 			if (state.current.document !== document) return;
 			const text = withDrawingId(document.text(), id);
+			// What this session last had in the row: a row that is none of it
+			// was changed from elsewhere since, and is not written over.
+			const expected = [
+				...(openedText.current === undefined ? [] : [openedText.current]),
+				...saved.current,
+			];
 			saved.current = [...saved.current, text].slice(-REMEMBERED_SAVES);
-			try {
-				await saveDrawing(db, id, text);
-			} catch (error) {
-				// Not in the store, so not saved: a delete that beat it still
-				// finds these edits unsaved (`keepDeleted`).
+			sending.current = text;
+			const outcome = await saveDrawing(db, id, text, { expected })
+				.catch((error: unknown) => {
+					// Not in the store, so not saved: a delete that beat it still
+					// finds these edits unsaved (`keepDeleted`).
+					saved.current = saved.current.filter((each) => each !== text);
+					throw error;
+				})
+				.finally(() => {
+					if (sending.current === text) sending.current = undefined;
+				});
+			if (outcome === 'changed') {
+				// Nothing was written. The change, as it arrives or already has,
+				// finds these edits unsaved and keeps them as a copy beside it
+				// (`keepCopy`), by the conflict rule.
 				saved.current = saved.current.filter((each) => each !== text);
-				throw error;
+				if (state.current.document === document) set({ saving: 'idle' });
+				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
 		})().catch(() => {
@@ -202,7 +224,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const hasUnsavedEdits = (): boolean => {
 		const document = state.current.document;
 		if (document === undefined || !document.snapshot().dirty) return false;
-		return !saved.current.includes(withDrawingId(document.text(), id));
+		const text = withDrawingId(document.text(), id);
+		return text === sending.current || !saved.current.includes(text);
 	};
 
 	/**

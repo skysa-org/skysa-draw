@@ -576,8 +576,8 @@ export default tseslint.config(
 				{
 					patterns: [
 						NOT_ABOVE(
-							['components', 'drawing', 'routes', 'sync'],
-							'the store is the data layer: it does not import the sync layer, the UI or the editor.'
+							['api', 'components', 'drawing', 'routes', 'sync'],
+							'the store is the data layer: it does not import the API client, the sync layer, the UI or the editor.'
 						),
 					],
 				},
@@ -611,6 +611,28 @@ export default tseslint.config(
 						NOT_ABOVE(
 							['components', 'drawing', 'store', 'routes', 'sync'],
 							'lib/ is the bottom layer: it imports nothing of the app.'
+						),
+					],
+				},
+			],
+		},
+	},
+	{
+		// The API client, the words for where a request failed, and plain React
+		// hooks: below the store's callers and the screens. errors/ reads api/.
+		files: [
+			'apps/web/src/api/**/*.{ts,tsx}',
+			'apps/web/src/errors/**/*.{ts,tsx}',
+			'apps/web/src/hooks/**/*.{ts,tsx}',
+		],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						NOT_ABOVE(
+							['components', 'drawing', 'routes', 'store', 'sync'],
+							'api/, errors/ and hooks/ sit below the store and the sync layer: they do not import them or the UI.'
 						),
 					],
 				},

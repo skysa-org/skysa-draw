@@ -250,33 +250,38 @@ Declared in `wrangler.toml` whether or not it is on; `self-hosting.md` says what
 `apps/web/src/store/db.ts`, database `skysa-draw`, version 1:
 
 ```
-drawings   id, [connectionId+path], [connectionId+dirty], updatedAt
-folders    id, [connectionId+path]
-opQueue    ++id, connectionId, drawingId
-prefs      key
+drawings     [connectionId+id], id, connectionId, path, [connectionId+path], dirty, deletedLocally, updatedAt, remoteId
+folders      [connectionId+path], connectionId, path
+syncState    connectionId
+opQueue      ++seq, connectionId, drawingId, path, fileId
+prefs        key
+credentials  id
+files        [connectionId+id], connectionId, [connectionId+path], [connectionId+remoteId]
+fileBytes    [connectionId+id], connectionId, [pinned+lastUsedAt]
 ```
 
 - A `DrawingRecord` holds the SVG text whole, its title, its path, its `contentHash`, the `syncedHash` it last agreed on with the provider, the provider's `remoteId` and `remoteVersion`, and `dirty` as 0/1 (IndexedDB cannot index a boolean).
-- Until an account is connected every row belongs to the `local` connection; attaching a real one is a data migration, not a schema change.
+- Each connected account is its own silo, keyed by connection and `draw:id`; `local` is the device's own pile, written in while nothing is connected, and the source showing is the pref `sync.activeConnection`.
+- `syncState` holds one row per connection; `credentials` holds the `sk1_…` credential, whose SHA-256 alone reaches the server (§6); `files` and `fileBytes` hold the files beside a drawing and the bytes cached of them.
 - The database's name is data identity and not brand: a deployment that renames the app keeps it (§8).
 - A later version adds a `version(n).stores()` with an `upgrade()` and never edits an earlier one.
-  The shape follows skysa-notes' store, so the sync engine ported from it finds what it expects.
+  Version 1 was rewritten in place once, for the sync port, since it had never shipped; its shape is skysa-notes' store without the clipboard, picture and key tables.
 
 ### What the app does to drawings
 
 `store/drawings.ts` and `store/folders.ts`: each change is one transaction over the rows and the op queue together, so the queue never says something the rows do not.
 
-- `createDrawing`: an empty canvas, or text brought in from a file, given this app's id if it has none; its filename the title's slug, unique in the folder; a `create` queued.
-- `saveDrawing`: the editor's text, with the drawing's own id written in whatever the text carried; a save of the same text is ignored; one `write` waits per drawing however many saves come, and the push sends what the row holds then.
+- `createDrawing`: an empty canvas, or text brought in from a file, given this app's id if it has none; its filename the title's slug, unique in the folder; a `write` queued.
+- `saveDrawing`: the editor's text, with the drawing's own id written in whatever the text carried; a save of the same text is ignored; a compare-and-set, given the texts the editor last opened or saved as `expected`, so a row changed from elsewhere since is answered `changed` with nothing written; one `write` waits per drawing however many saves come, and the push sends what the row holds then.
   The hash is computed before the transaction opens: Web Crypto is a wait IndexedDB does not hold a transaction across.
 - `renameDrawing`: into the file's `<title>` and into the filename; a `move` queued where the name changed, and a `write`.
-- `deleteDrawing`: the row gone now; a `delete` queued where the provider holds the file, and everything queued for a drawing it never saw dropped.
+- `deleteDrawing`: a tombstone now (`deletedLocally`), shown nowhere; its writes withdrawn and a `delete` queued, which the push sends where the provider has the file and settles with nothing sent where it never did; the pile's tombstones are dropped when the pile goes into a connection.
 - `createFolder`: refused where the parent has the name however it is cased.
 - `createDrawing` takes a `filename` chooser, run inside its transaction, for a name that is not the title's slug: a conflict copy's.
 
 ### Sync engine
 
-Ported from skysa-notes v2.1.1 (`b39c8e42`) into `packages/core/src/sync/`, with its tests in `packages/core/tests/sync/`; the Dexie `SyncStore` under it and the scheduler that runs it come next (§10).
+Ported from skysa-notes v2.1.1 (`b39c8e42`) into `packages/core/src/sync/`, with its tests in `packages/core/tests/sync/`; the Dexie `SyncStore` under it is `apps/web/src/sync/store.ts`, held to the contract in `apps/web/tests/sync/syncStore.test.ts`, and the scheduler, one engine per connection under the Web Lock `skysa-draw:sync:<connectionId>`, is `apps/web/src/sync/scheduler.ts`, started in `main.tsx`.
 It is skysa-notes' engine behind a document-format seam, `sync/document.ts`, the one module of the engine that knows what a drawing's file holds: the id a file claims (`claimedId`, `readDrawingId`), a conflict copy's contents (`conflictContent`: the local text with a new `draw:id`, by `withDrawingId`), and every read that holds or compares a drawing (`readDrawingText`), which answers a `.svg` that is not an SVG document as `UnreadableError`, as §3 says.
 ESLint holds the seam: nothing else in `sync/` imports `drawing/`.
 Everything else comes as it is: the op queue drained in order, the pull batch committed with its cursor, the conflict rule, the `displace` of a drawing on a path a remote file arrives at, the backoff, files beside a drawing (`SyncFile`, mirrored and never read), folders and their deletions, `listsEverything` and `leaveFolder`, `writesAtOnce`, progress and the outcome.
@@ -285,7 +290,9 @@ The engine's conflict copy keeps the drawing's `<title>` and takes a new `draw:i
 Cut as notes-only: the outcome's `clipboard` and `encryption` flags (`metIn`, `metOf`), and the hidden folders notes synced at the root.
 The engine's comments cite skysa-notes' docs/ARCHITECTURE.md §7 by section, where its design is written down; they are left as they came, so a fix can be carried between the two (§12).
 Every store is held to one contract, `describeSyncStoreContract` from `@skysa/draw-core/testing`, over the in-memory store in core and the Dexie store in the web app.
-The provider factory with its request deadlines is already here (`apps/web/src/sync/providers.ts`), and the lock every tab waits on comes with the scheduler.
+The provider factory with its request deadlines is `apps/web/src/sync/providers.ts`.
+The rest of skysa-notes' web sync layer came with it, renamed by the same scripts: the connection, the credential, the token, account, relay and API clients, the connect code, held edits, and the tabs that stand against each other (`decisions/0002-carried-over-from-skysa-notes.md` lists what was cut).
+The connect flow's screens sit at the top of the library at every size (`components/sources/`, `components/account/`), drawn on this app's own components, with the app's own marks for the providers and no vendor's logo.
 
 ### Conflict rule (concrete)
 
@@ -297,7 +304,7 @@ When the row changes under unsaved edits, from another tab or from a pull, the r
 When the row is deleted under unsaved edits, by another tab or a pull, the edits become a new drawing in its folder, under its title and with a new `draw:id`, since the old id now means deleted; the editor moves to it, replacing the entry in the history.
 A save the delete beat counts as unsaved; edits already saved go with the delete.
 The user's own delete goes through the open drawing, which marks it intended before the row goes, so it leaves nothing behind.
-A save already in flight when a change arrives can still land over it, since `saveDrawing` has no compare-and-set; the sync engine's port is where that closes (§10).
+`saveDrawing` is a compare-and-set: the editor passes what it last opened or saved as `expected`, and a row changed from elsewhere since is answered `changed` with nothing written; the edits are then kept as a copy, as above, and a save still in flight counts as unsaved until it lands.
 
 ### Where the user is, in the URL
 
@@ -440,8 +447,7 @@ Carried over; the SVG-specific lines are new.
 [`history.md`](history.md), by phase.
 What comes next, in order:
 
-1. The Dexie `SyncStore` over the schema in §7, held to the store contract, and the scheduler that runs the engine core now holds (§7, "Sync engine"), with the connect flow's screens; with it a compare-and-set save, so a save in flight cannot land over a change from elsewhere.
-2. Attachments beside a drawing (§3), which the engine moves with it, and with them `INLINE_RASTER_BYTES`.
+1. Attachments beside a drawing (§3), which the engine moves with it, and with them `INLINE_RASTER_BYTES`.
 
 Known gaps in what is built, each for an issue:
 
@@ -453,6 +459,9 @@ Known gaps in what is built, each for an issue:
 - A drawing's `@font-face` does not apply inside the shadow root in Chromium, so its embedded fonts may not show in the editor.
 - Deleting a layer leaves the clips that name it, and those layers show nothing until their clip is released; a clipped layer moved by a `transform` moves its mask with it.
 - The pen finishes a path when the tool changes by watching the overlay being emptied, and listens for Enter and Escape on the document between clicks, since the viewport tells a tool only about strokes; a tool key pressed during a pen drag leaves the path open until Enter or Escape; a `finish` member of the tool contract, called by the viewport, would replace both.
+- A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
+- Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
+- Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.
 - A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.
 
 ## 11. Repo layout
@@ -463,9 +472,9 @@ apps/
                   src/routes/, src/oauth/, src/db/ (schema), src/relay/ (Durable Object),
                   migrations/ (generated), tests/ (node:sqlite shim for D1)
   web/            Vite + React: src/routes/ (file routes; routeTree.gen.ts is generated),
-                  src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/),
+                  src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/, sources/, account/),
                   src/drawing/ (the editor: document/, tools/, panels/, Editor.tsx, Viewport.tsx, keys.ts),
-                  src/i18n/, src/sync/, src/styles/,
+                  src/i18n/, src/sync/ (scheduler, SyncStore), src/api/, src/errors/, src/hooks/, src/styles/,
                   brand/ (default brand, icons.mjs), brand.ts, pwa.ts, public/_headers,
                   scripts/bundleBudget.mjs, tests/
 packages/
@@ -479,13 +488,13 @@ docs/             this file, history.md, decisions/, self-hosting.md, google-oau
 .github/          CI (verify, changeset check, generated files, size, minimum Node), release, CLA
 ```
 
-Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
+Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor nor the API client, `api/`, `errors/` and `hooks/` import neither the store nor the sync layer nor the UI, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
 Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
 
 ## 12. Carried over from skysa-notes
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
-The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, and the sync engine behind a document seam (§7, "Sync engine"); not the markdown pipeline, the editors or any notes-only feature.
+The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
 Until a shared package exists, a fix to a carried-over layer is a fix in both repositories; the first fix that has to be made twice is the trigger for the package.
 
 ## 13. Distribution and licensing

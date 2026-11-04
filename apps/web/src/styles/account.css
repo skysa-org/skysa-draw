@@ -1,1 +1,511 @@
-/* The account panel and the connect flow's screens (docs/ARCHITECTURE.md §6). */
+/* The sources at the top of the library, the account panel of the one showing
+   under them, and the connect flow's screens (docs/ARCHITECTURE.md §6). Each
+   fits the column it is put in, whatever the window (docs/decisions/0004-the-interface.md):
+   the library's first column, its drawer, or the whole screen on a phone. Every
+   control is at least a target in both directions. */
+
+/* The sources: a heading with the `+`, then a row per source. */
+.source-panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.source-panel-header {
+	align-items: center;
+	display: flex;
+	gap: var(--space-xs);
+	justify-content: space-between;
+}
+
+.source-panel-title {
+	color: var(--muted);
+	font-size: var(--text-s);
+	font-weight: 600;
+	margin: 0;
+}
+
+.source-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3xs);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.source-item {
+	align-items: center;
+	border-radius: var(--radius-s);
+	display: flex;
+	min-height: var(--target);
+}
+
+.source-row {
+	align-items: center;
+	background: none;
+	border: 0;
+	border-radius: var(--radius-s);
+	color: inherit;
+	cursor: pointer;
+	display: flex;
+	flex: 1;
+	font: inherit;
+	gap: var(--space-s);
+	min-height: var(--target);
+	min-width: 0;
+	padding: 0 var(--space-s);
+	text-align: start;
+}
+
+.source-row:hover {
+	background: var(--hover-bg);
+}
+
+.source-row[aria-current] {
+	background: var(--on-bg);
+	color: var(--on-fg);
+}
+
+.source-row-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.source-row-detached {
+	color: var(--muted);
+}
+
+/* Where the row's `⋯` goes: the account panel draws the showing source's into it. */
+.source-row-options {
+	display: flex;
+	flex: none;
+	min-width: var(--target);
+}
+
+.source-rename {
+	flex: 1;
+	padding-inline-start: var(--space-s);
+}
+
+.source-rename-label {
+	display: flex;
+	flex: 1;
+}
+
+.source-rename input {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: 1;
+	font: inherit;
+	font-size: var(--text-field-floor);
+	min-height: var(--target);
+	min-width: 0;
+	padding: 0 var(--space-s);
+}
+
+/* The marks before a source's name, and the dot that says it needs connecting again. */
+.provider-icon {
+	flex: none;
+}
+
+.provider-icon-alert {
+	display: inline-flex;
+	flex: none;
+	position: relative;
+}
+
+.provider-icon-badge {
+	background: var(--bad);
+	border: 2px solid var(--bg);
+	border-radius: 50%;
+	height: 0.625rem;
+	inset-block-start: -0.125rem;
+	inset-inline-end: -0.125rem;
+	position: absolute;
+	width: 0.625rem;
+}
+
+/* The `+`, and what it opens, hung under it. */
+.source-add {
+	position: relative;
+}
+
+.source-add-first {
+	align-items: center;
+	display: inline-flex;
+	gap: var(--space-xs);
+	min-height: var(--target);
+}
+
+.source-add-menu {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-m);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+	inset-block-start: calc(100% + var(--space-3xs));
+	inset-inline-end: 0;
+	max-width: min(20rem, calc(100vw - 2 * var(--gutter)));
+	min-width: 14rem;
+	padding: var(--space-s);
+	position: absolute;
+	z-index: var(--z-popover);
+}
+
+.source-add-heading {
+	color: var(--muted);
+	font-size: var(--text-s);
+	margin: 0;
+}
+
+.source-add-item {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	justify-content: flex-start;
+	min-height: var(--target);
+	text-align: start;
+	width: 100%;
+}
+
+/* The operator's gate in front of the buttons, and its code. */
+.connect-gate,
+.connect-code-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.connect-gate p,
+.connect-gate-line,
+.connect-code-line {
+	margin: 0;
+}
+
+.connect-gate-line,
+.connect-code-until {
+	color: var(--muted);
+	font-size: var(--text-s);
+}
+
+.connect-gate a,
+.connect-gate-line a,
+.connect-notice-action {
+	align-items: center;
+	color: var(--accent);
+	display: inline-flex;
+	min-height: var(--target);
+}
+
+/* No box of its own: somewhere to find the first button in. */
+.connect-choices {
+	display: contents;
+}
+
+.connect-code-row {
+	display: flex;
+	gap: var(--space-xs);
+}
+
+.connect-code-row input {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: 1;
+	font: inherit;
+	font-size: var(--text-field-floor);
+	min-height: var(--target);
+	min-width: 0;
+	padding: 0 var(--space-s);
+}
+
+/* Both words in one cell, so the button is as wide as the longer. */
+.connect-code-use {
+	display: inline-grid;
+	min-height: var(--target);
+}
+
+.connect-code-use > span {
+	grid-area: 1 / 1;
+}
+
+.connect-code-use > span[aria-hidden='true'] {
+	visibility: hidden;
+}
+
+.connect-code-said:empty {
+	display: none;
+}
+
+.connect-code-said {
+	color: var(--bad);
+	font-size: var(--text-s);
+}
+
+.connect-code-line {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3xs);
+}
+
+.connect-code-line code {
+	overflow-wrap: anywhere;
+}
+
+/* A control drawn as words in a sentence, and still a target. */
+.link-button {
+	background: none;
+	border: 0;
+	color: var(--accent);
+	cursor: pointer;
+	font: inherit;
+	min-height: var(--target);
+	padding: 0;
+	text-align: start;
+	text-decoration: underline;
+}
+
+/* The account panel under the sources: what needs the user, then one line. */
+.account-frame:focus {
+	outline: none;
+}
+
+.account {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.account p {
+	margin: 0;
+}
+
+.account-problem {
+	color: var(--bad);
+}
+
+.account-line {
+	align-items: center;
+	display: flex;
+	gap: var(--space-xs);
+	min-height: var(--target);
+}
+
+.account-status {
+	flex: 1;
+	font-size: var(--text-s);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.account-status-button {
+	background: none;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	max-width: 100%;
+	min-height: var(--target);
+	overflow: hidden;
+	padding: 0;
+	text-align: start;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.account-status-button:hover {
+	text-decoration: underline;
+}
+
+.account-devices-count {
+	align-items: center;
+	background: none;
+	border: 0;
+	color: var(--muted);
+	cursor: pointer;
+	display: inline-flex;
+	flex: none;
+	font: inherit;
+	font-size: var(--text-s);
+	gap: var(--space-3xs);
+	min-height: var(--target);
+	min-width: var(--target);
+	justify-content: center;
+}
+
+.account-menu {
+	align-self: flex-end;
+}
+
+.account-bar,
+.run-bar {
+	accent-color: var(--brand);
+	height: 0.375rem;
+	width: 100%;
+}
+
+.account-devices ul {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.account-devices li {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	justify-content: space-between;
+}
+
+.account-targets {
+	border: 0;
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+}
+
+.account-targets label {
+	align-items: center;
+	display: flex;
+	gap: var(--space-xs);
+	min-height: var(--target);
+}
+
+.account-targets input {
+	height: 1.25rem;
+	width: 1.25rem;
+}
+
+/* A question asked in place: a card in the panel, its buttons one row at its end. */
+.question {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-m);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+	padding: var(--space-s);
+}
+
+.question p,
+.question ul {
+	margin: 0;
+}
+
+.question ul {
+	padding-inline-start: var(--space-l);
+}
+
+.question-title {
+	font-weight: 600;
+}
+
+.question-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-xs);
+	justify-content: flex-end;
+}
+
+.question-actions button,
+.question-answer {
+	min-height: var(--target);
+}
+
+.question-answer {
+	display: contents;
+}
+
+.account button,
+.question button:not(.link-button),
+.source-add-menu button:not(.link-button),
+.info-sheet button:not(.icon-button) {
+	min-height: var(--target);
+}
+
+button.danger {
+	background: var(--bad);
+	border-color: transparent;
+	color: var(--on-brand);
+}
+
+/* What is said at length over the library: the devices, how syncing is going. */
+.info-sheet .question-actions {
+	margin-block-start: var(--space-s);
+}
+
+.run-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.run-body p {
+	margin: 0;
+}
+
+/* The file a run is on, cut in the middle where it does not fit. */
+.run-file {
+	color: var(--muted);
+	display: flex;
+	font-size: var(--text-xs);
+	min-width: 0;
+	white-space: pre;
+}
+
+.run-file-start {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.run-file-end {
+	flex: none;
+}
+
+/* The way back from connecting: a card over the top of the screen, until put away. */
+.connect-notice {
+	align-items: center;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-inline-start: 4px solid var(--ok);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-l);
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-xs) var(--space-s);
+	inset-block-start: var(--space-s);
+	inset-inline: var(--gutter);
+	margin-inline: auto;
+	max-width: 32rem;
+	padding: var(--space-3xs) var(--space-3xs) var(--space-3xs) var(--space-m);
+	position: fixed;
+	z-index: var(--z-float);
+}
+
+.connect-notice-warning {
+	border-inline-start-color: var(--warn);
+}
+
+.connect-notice-error {
+	border-inline-start-color: var(--bad);
+}
+
+.connect-notice-message {
+	flex: 1;
+	margin: 0;
+	min-width: 12rem;
+}

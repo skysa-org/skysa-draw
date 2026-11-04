@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 import { routeTree } from '../src/routeTree.gen';
 import { DatabaseProvider } from '../src/store/database.js';
-import type { DrawDatabase } from '../src/store/db.js';
+import { type DrawDatabase, drawingKey } from '../src/store/db.js';
 import { createDrawing } from '../src/store/drawings.js';
+import { isTombstone } from '../src/store/rowStates.js';
 import { freshDatabase } from './support/db.js';
 
 /**
@@ -27,6 +28,10 @@ const renderApp = (path = '/', db: DrawDatabase = freshDatabase()) => {
 	);
 	return { db, router };
 };
+
+/** The drawings not deleted: a delete keeps a tombstone until the source hears of it. */
+const liveDrawings = async (db: DrawDatabase): Promise<number> =>
+	(await db.drawings.toArray()).filter((row) => !isTombstone(row)).length;
 
 /** The top bar's More menu, open, and the item named. */
 const more = async (user: ReturnType<typeof userEvent.setup>, item: string) => {
@@ -52,9 +57,9 @@ describe('the app', () => {
 		await user.click(screen.getByRole('button', { name: 'Drawings' }));
 		const library = await screen.findByRole('dialog', { name: 'Drawings' });
 		expect(
-			within(library)
-				.getByRole('button', { name: /^Untitled/ })
-				.getAttribute('aria-current')
+			(await within(library).findByRole('button', { name: /^Untitled/ })).getAttribute(
+				'aria-current'
+			)
 		).toBe('true');
 	});
 
@@ -89,6 +94,58 @@ describe('the app', () => {
 		expect(router.state.location.search).toMatchObject({ f: 'Work' });
 	});
 
+	it('has the sources at the top of the library, on the home screen and in the editor’s drawer', async () => {
+		const user = userEvent.setup();
+		const db = freshDatabase();
+		const made = await createDrawing(db, { title: 'Plan' });
+		const { router } = renderApp('/', db);
+
+		const home = await screen.findByRole('region', { name: 'Sources' });
+		expect(await within(home).findByRole('button', { name: 'This device' })).toBeDefined();
+		await user.click(await screen.findByRole('button', { name: /^Plan/ }));
+		await waitFor(() => {
+			expect(router.state.location.search).toEqual({ d: made.id });
+		});
+		expect(await screen.findByRole('heading', { name: 'Plan' })).toBeDefined();
+
+		await user.click(await screen.findByRole('button', { name: 'Drawings' }));
+		const library = await screen.findByRole('dialog', { name: 'Drawings' });
+		expect(within(library).getByRole('region', { name: 'Sources' })).toBeDefined();
+	});
+
+	it('says how connecting went on the way back from the provider, once, until put away', async () => {
+		const user = userEvent.setup();
+		const { router } = renderApp('/?f=Work&connect=ok');
+
+		const said = await screen.findByText('Storage connected. Your drawings will sync with it.');
+		// Out of the address at once, so a reload does not say it again.
+		await waitFor(() => {
+			expect(router.state.location.search).toEqual({ f: 'Work' });
+		});
+		expect(said.closest('[role="status"]')).not.toBeNull();
+
+		await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+		expect(
+			screen.queryByText('Storage connected. Your drawings will sync with it.')
+		).toBeNull();
+	});
+
+	it('says why the operator would not take the account, as an alert', async () => {
+		renderApp('/?connect=refused&code=lapsed');
+
+		expect((await screen.findByRole('alert')).textContent).toContain(
+			"This account's access to sync on this server has lapsed, so storage was not connected."
+		);
+	});
+
+	it('says nothing for an outcome this build has no words for', async () => {
+		const { router } = renderApp('/?connect=signin');
+
+		await screen.findByText('No drawings here yet.');
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(router.state.location.search).toEqual({});
+	});
+
 	it('renames and deletes the open drawing from the top bar', async () => {
 		const user = userEvent.setup();
 		const db = freshDatabase();
@@ -100,20 +157,21 @@ describe('the app', () => {
 		await user.clear(screen.getByLabelText('Title'));
 		await user.type(screen.getByLabelText('Title'), 'After{Enter}');
 		expect(await screen.findByRole('heading', { name: 'After' })).toBeDefined();
-		expect((await db.drawings.get(made.id))?.path).toBe('after.svg');
+		expect((await db.drawings.get(drawingKey(made)))?.path).toBe('after.svg');
 
 		await more(user, 'Delete');
 		const asked = await screen.findByRole('alertdialog');
 		expect(asked.textContent).toContain('Delete “After”?');
 		await user.click(within(asked).getByRole('button', { name: 'Cancel' }));
-		expect(await db.drawings.count()).toBe(1);
+		expect(await liveDrawings(db)).toBe(1);
 
 		await more(user, 'Delete');
 		await user.click(
 			within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' })
 		);
 		expect(await screen.findByText('Choose a drawing, or make a new one.')).toBeDefined();
-		expect(await db.drawings.count()).toBe(0);
+		// Kept as a tombstone, for the delete to reach the source's storage.
+		expect(await liveDrawings(db)).toBe(0);
 		expect(router.state.location.search).toEqual({});
 	});
 });

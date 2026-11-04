@@ -1,2 +1,11 @@
-/** What the sync scheduler tells the user: a sync that failed, a drawing it could not send (docs/ARCHITECTURE.md §7, "Sync engine"). */
-export const scheduler = {} as const;
+/**
+ * What the sync scheduler says itself of why a sync stopped, where nothing
+ * else did (docs/ARCHITECTURE.md §7, "Sync engine"). The storage panel and the
+ * import dialog show it beside their own words; what a provider or the server
+ * said is shown as they said it.
+ */
+export const scheduler = {
+	/** A sync that failed without a reason of its own. Shown in brackets after the panel's words. */
+	failed: 'Sync failed',
+	unsupported: 'This app cannot sync with this storage provider yet.',
+} as const;

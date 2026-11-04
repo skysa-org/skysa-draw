@@ -34,3 +34,10 @@ For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` her
 - Learned on the way: the viewport told a tool only about strokes, so a tool with state between strokes (the pen, the text field) watches for itself; `putImageData` ignores a clip, so the fill floods through a coverage mask; no fill rule subtracts one arbitrary path from another, so the area adds and does not subtract.
 - Tests: core 7128 (6103 of them the engine's), web 1189, API 423, all under jsdom.
 - Then driven in headless Chromium under the real Content-Security-Policy, which raised no violation; it found the layers panel's actions cut off by the dock (a narrow panel's header now puts them on rows of their own), shapes written to every float digit (now two decimals, as paths are), and an open pen path filled into a wedge (now a line in the fill colour).
+
+## Phase 3 — The web sync layer and the connect flow (2026-11-04)
+- skysa-notes' web sync layer ported by one agent and its screens by another, at the same time, against a list of the module paths and names the screens import, written down before either began: the Dexie `SyncStore` held to the core contract, the scheduler, the connection, credential, token, account, relay and API clients, export as a zip of `.svg` files, and the sources and account panels on this app's own components.
+- Schema version 1 rewritten in place, since it had never shipped: drawings keyed by connection and id, a deleted drawing a tombstone until its delete is pushed, and the tables for the credential, the sync state and the files beside a drawing.
+- `saveDrawing` became a compare-and-set, and the editor counts a save still in flight as unsaved, so a change that arrives meanwhile keeps the edits as a copy.
+- Tests: core 7128, web 2352, API 423; the largest chunk grew from 121 kB to 210 kB of its 350 kB budget, the sync layer loading with the app.
+

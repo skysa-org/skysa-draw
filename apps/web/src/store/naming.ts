@@ -1,0 +1,117 @@
+import {
+	basename,
+	DRAWING_EXTENSION,
+	foldName,
+	joinPath,
+	normalizePath,
+	parentPath,
+	pathSegments,
+	replaceBasename,
+	ROOT,
+	uniqueFilename,
+} from '@skysa/draw-core';
+
+/**
+ * Finding a free name for a drawing, shared by every writer that puts one
+ * somewhere it might already be occupied.
+ *
+ * Shared rather than written twice because the hard part is not the naming, it
+ * is the comparison, and getting that wrong in one writer is as bad as getting
+ * it wrong in all of them: the whole point is that two drawings never end up at
+ * one path.
+ */
+
+/**
+ * How two names are compared when the question is whether they are the same
+ * file — which is the only question asked here.
+ *
+ * Case-folded and NFC-normalized, because that is what the providers do.
+ * `Report.svg` and `report.svg` are two names in this app and one file on Drive,
+ * on Dropbox and on macOS, and so are `café.svg` written as one codepoint and as
+ * `e` with a combining accent. Neither is exotic: folder and file names arrive
+ * from whatever wrote them, NFD is what a macOS file and an iOS share sheet
+ * hand you, and a folder other tools write to is the entire premise.
+ *
+ * `foldName` is core's own answer to that question, and the one `uniqueFilename`
+ * compares with — imported rather than restated, because the check here guards
+ * that renamer and the two have to agree. Every time a copy of this has drifted
+ * from it, the check has been the half that failed open.
+ *
+ * The path is normalized too, since a row holds whatever path it was imported
+ * with rather than one this app composed.
+ */
+export const foldPath = (path: string): string => foldName(normalizePath(path));
+
+/** The name without its `.svg`, which is what `uniqueFilename` takes. */
+const stemOf = (filename: string): string =>
+	// Case-insensitively: `.SVG` is ordinary from Windows tools, and matching it
+	// exactly would leave the extension in the stem to be slugified into the
+	// name — `Report.SVG` becoming `report-md.svg`. `deriveTitle` in core asks the
+	// same question the same way.
+	foldName(filename).endsWith(DRAWING_EXTENSION)
+		? filename.slice(0, -DRAWING_EXTENSION.length)
+		: filename;
+
+const occupied = (wanted: string, taken: Iterable<string>): boolean => {
+	const folded = foldPath(wanted);
+	return [...taken].some((each) => foldPath(each) === folded);
+};
+
+/**
+ * A free filename in a folder, given the names already in it.
+ *
+ * The name is handed back untouched unless it collides: `uniqueFilename`
+ * slugifies, and renaming somebody's `My Report.svg` to `my-report.svg` merely
+ * because the folder around it moved would be a change to their file that
+ * nothing asked for. A name that does collide is slugified, since that is what
+ * choosing a new one means here — `My Report.svg` gives way to `my-report-2.svg`.
+ */
+export const freeName = (wanted: string, taken: Iterable<string>): string =>
+	occupied(wanted, taken) ? uniqueFilename(stemOf(wanted), taken) : wanted;
+
+/** The same question asked of a whole path, for callers that have one. */
+export const freePath = (wanted: string, taken: Iterable<string>): string => {
+	if (!occupied(wanted, taken)) return wanted;
+
+	// Only the names in the folder it is landing in. `uniqueFilename` compares
+	// bare filenames, so paths from anywhere else would have it stepping over
+	// names that are not actually in its way.
+	//
+	// Folded, like everything else here. Comparing the folders exactly would
+	// drop the very entry the check above just found — its folder spelled
+	// `Archive` where this one says `archive` — leaving `freeName` nothing to
+	// avoid, so it would hand back the path this function has already proved is
+	// taken. A check that fails open at the moment it finds something is worse
+	// than no check: the caller is entitled to believe the answer.
+	const folder = foldPath(parentPath(wanted));
+	const siblings = [...taken]
+		.filter((path) => foldPath(parentPath(path)) === folder)
+		.map(basename);
+
+	return replaceBasename(wanted, freeName(basename(wanted), siblings));
+};
+
+/**
+ * The spelling a path takes in a source: each folder along it as the source
+ * spells it, and as the first path through it spelled it where the source has
+ * no such folder. Rows from two places can disagree about a folder's
+ * spelling — `Work` and `work` — which is one directory on every provider.
+ * `spellings`, folded path to spelling, is written to as it goes.
+ */
+export const respell = (spellings: Map<string, string>, path: string): string => {
+	if (path === ROOT) return path;
+	const known = spellings.get(foldPath(path));
+	if (known !== undefined) return known;
+	const spelled = joinPath(respell(spellings, parentPath(path)), basename(path));
+	spellings.set(foldPath(path), spelled);
+	return spelled;
+};
+
+/** The names of what `paths` holds directly in `folder`, the folder compared folded. */
+export const namesIn = (paths: Iterable<string>, folder: string): string[] => {
+	const wanted = foldPath(folder);
+	return [...paths].filter((path) => foldPath(parentPath(path)) === wanted).map(basename);
+};
+
+/** How many folders deep a path is: `a/b.svg` is 2, the root 0. */
+export const pathDepth = (path: string): number => pathSegments(path).length;

@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, Fragment, type ReactNode, useContext } from 'react';
 
 import { db, type DrawDatabase } from './db.js';
 
@@ -9,12 +9,22 @@ import { db, type DrawDatabase } from './db.js';
  */
 const DatabaseContext = createContext<DrawDatabase>(db);
 
+/**
+ * What it holds is drawn afresh for another database, by its name (one name,
+ * one database): a hook's answers were read from the one before, and none of
+ * them is checked against which database it came from.
+ */
 export const DatabaseProvider = ({
 	database,
 	children,
 }: {
 	database: DrawDatabase;
 	children: ReactNode;
-}) => <DatabaseContext.Provider value={database}>{children}</DatabaseContext.Provider>;
+}) => (
+	<DatabaseContext.Provider value={database}>
+		<Fragment key={database.name}>{children}</Fragment>
+	</DatabaseContext.Provider>
+);
 
+/** The database the component is drawn over: the app's, outside a provider. */
 export const useDb = (): DrawDatabase => useContext(DatabaseContext);

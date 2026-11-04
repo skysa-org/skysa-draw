@@ -10,9 +10,9 @@ const SLOW_MS = 10_000;
  * `registerType: 'prompt'` means a new build never swaps itself in underneath a
  * half-drawn stroke. The user decides when to reload.
  *
- * `beforeUpdate` is where the sync layer, once ported, pauses its requests so
- * the new worker can take over at once (skysa-notes' `sync/beforeUpdate.ts`);
- * until then there is nothing to pause. It says it is updating meanwhile, and
+ * `beforeUpdate` is where the sync layer pauses its requests so the new
+ * worker can take over at once (`makeWay` in `sync/beforeUpdate.ts`, given by
+ * the root route). It says it is updating meanwhile, and
  * if the page has still not reloaded after `SLOW_MS`, what else will do it.
  */
 export const UpdatePrompt = ({

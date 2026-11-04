@@ -40,6 +40,13 @@ body {
 	padding: var(--space-m);
 }
 
+/* The folders, under the sources (`account.css`), in the same column. */
+.folder-nav {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-s);
+}
+
 .sidebar ul,
 .drawing-list ul {
 	display: flex;
