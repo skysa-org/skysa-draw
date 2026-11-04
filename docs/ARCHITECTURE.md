@@ -428,7 +428,7 @@ Decided 2026-11-04; see [`decisions/0004-the-interface.md`](decisions/0004-the-i
 **Size classes.**
 The window is `compact` under 600 px wide, `medium` from 600 to 839 and `expanded` from 840, Material's window size classes, read from `matchMedia` by `useSizeClass` (`components/ui/sizeClass.ts`) and nowhere else: a component never asks how wide the window is; the frame places it, and the component fits its container (`@container`).
 
-**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke at the foot of the tool bar), `Select`, `Menu`, `ContextMenu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
+**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Toggle` (an option on or off, a check box beside its name), `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke at the foot of the tool bar), `Select`, `Menu`, `ContextMenu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
 Every control is at least 44 CSS px in either direction, whatever the size class and whatever the pointer; keyboard focus shows a ring; words come from the catalog.
 
 **The frame** (`drawing/Editor.tsx`) places them:
@@ -455,7 +455,7 @@ The two colors sit at the foot of the tool bar (`ColorPair`; `decisions/0004-the
 A press on a color opens the color panel on it (`editColor`, `colorSlot` in `editorState.ts`).
 
 **Input.**
-Pointer Events only, `touch-action: none` on the canvas; a pen draws, a finger draws unless a pen is down (palm rejection), two fingers pan and pinch to zoom, a two-finger tap undoes and a three-finger tap redoes; a wheel scrolls, with Ctrl or ⌘ zooms, and Space held pans.
+Pointer Events only, `touch-action: none` on the canvas; a pen draws, a finger draws unless a pen is down (palm rejection), two fingers pan and pinch to zoom, a two-finger tap undoes and a three-finger tap redoes; a wheel scrolls, with Ctrl or ⌘ zooms, and Space held pans, except on a control the keyboard brought the focus to, which Space presses (`isHandKey`, `viewport/pointerPressed.ts`).
 Keys on every size, since a tablet may have a keyboard: a letter per tool and the editing keys users know, in one map (`drawing/keys.ts`).
 `prefers-color-scheme` and `prefers-reduced-motion` are honored through the tokens (`styles/tokens.css`); safe areas through `env(safe-area-inset-*)`; the canvas draws at `devicePixelRatio`.
 

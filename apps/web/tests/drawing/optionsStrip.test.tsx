@@ -100,6 +100,8 @@ describe('the options strip', () => {
 		const moveLike: Tool = { id: 'select', options: ['autoSelect'], behaviors: {} };
 		render(<OptionsStrip tool={moveLike} options={DEFAULT_TOOL_OPTIONS} onChange={onChange} />);
 		const toggle = screen.getByRole('button', { name: 'Auto-select' });
+		// Its name in words, as Photoshop's options bar has it: no icon says what it does.
+		expect(toggle.textContent).toBe('Auto-select');
 		expect(toggle.getAttribute('aria-pressed')).toBe('false');
 		await user.click(toggle);
 		expect(onChange).toHaveBeenCalledWith('autoSelect', true);

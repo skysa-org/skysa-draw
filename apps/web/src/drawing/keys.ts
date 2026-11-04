@@ -73,18 +73,38 @@ const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable=
 export const isTyping = (target: EventTarget | null | undefined): boolean =>
 	target instanceof Element && target.closest(TYPING) !== null;
 
+/** The controls Space presses, as a browser presses a button with it. */
+const PRESSED_BY_SPACE =
+	'button, summary, [role="button"], [role="checkbox"], [role="switch"], [role="radio"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
+
+/**
+ * Whether Space would press the control the keys go to: one the keyboard
+ * brought the focus to, and not the one the last pointer press was in
+ * (`pressed`, `viewport/pointerPressed.ts`), which keeps the focus in
+ * Chrome, so that Space held after a tool is clicked still pans.
+ */
+const pressesControl = (
+	target: EventTarget | null | undefined,
+	pressed: Node | null | undefined
+): boolean =>
+	target instanceof Element &&
+	target.matches(PRESSED_BY_SPACE) &&
+	!(pressed instanceof Node && target.contains(pressed));
+
 /**
  * Whether the key is the one held for the hand, whatever the tool: Space, as
- * in every editor, bare and outside a field. The viewport pans while it is
- * down; its keyup is read as any Space, so a modifier pressed meanwhile does
- * not leave the hand held.
+ * in every editor, bare and outside a field, and not on a control the
+ * keyboard is on, which Space presses. `pressed` is what the last pointer
+ * press landed on. The viewport pans while it is down; its keyup is read as
+ * any Space, so a modifier pressed meanwhile does not leave the hand held.
  */
-export const isHandKey = (event: KeyLike): boolean =>
+export const isHandKey = (event: KeyLike, pressed?: Node | null): boolean =>
 	event.key === ' ' &&
 	!event.ctrlKey &&
 	!event.metaKey &&
 	!event.altKey &&
-	!isTyping(event.target);
+	!isTyping(event.target) &&
+	!pressesControl(event.target, pressed);
 
 /** The arrows' nudge in the layer's pixels: one, or ten with Shift, as Photoshop's move tool's. */
 const NUDGES: Readonly<Record<string, readonly [number, number]>> = {

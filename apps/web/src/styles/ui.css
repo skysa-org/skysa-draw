@@ -234,6 +234,61 @@
 		0 0 0 2px var(--bg);
 }
 
+/*
+ * An option on or off (`Toggle`): a check box beside its name, the whole
+ * row a target to press. The box is the "on" color with the check in the
+ * page's when it is on, and an empty box when it is off.
+ */
+.toggle {
+	align-items: center;
+	background: none;
+	border: 0;
+	border-radius: var(--radius-m);
+	color: inherit;
+	cursor: pointer;
+	display: inline-flex;
+	flex: none;
+	font: inherit;
+	font-size: var(--text-s);
+	gap: var(--space-xs);
+	min-height: var(--target);
+	min-width: var(--target);
+	padding: 0 var(--space-s);
+	touch-action: manipulation;
+	user-select: none;
+	white-space: nowrap;
+	-webkit-user-select: none;
+}
+
+.toggle:hover {
+	background: var(--hover-bg);
+}
+
+.toggle-box {
+	border: 1.5px solid var(--muted);
+	border-radius: var(--radius-xs);
+	color: var(--bg);
+	display: inline-grid;
+	flex: none;
+	height: 1.125rem;
+	place-items: center;
+	width: 1.125rem;
+}
+
+.toggle-box > svg {
+	stroke-width: 3;
+	visibility: hidden;
+}
+
+.toggle[aria-pressed='true'] > .toggle-box {
+	background: var(--accent);
+	border-color: var(--accent);
+}
+
+.toggle[aria-pressed='true'] > .toggle-box > svg {
+	visibility: visible;
+}
+
 /* A row of controls a hair apart: a bar, a panel's header and its actions. */
 .toolbar,
 .panel-header,

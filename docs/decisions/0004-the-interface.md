@@ -20,9 +20,11 @@ An open drawing fills the window on every size, and the library of folders and d
 Every control is at least 44 CSS px in either direction on every size and for every pointer: Apple's minimum, a hair under Material's 48, and the size a finger needs whether or not a mouse is also attached.
 Input is Pointer Events only, never touch or mouse events, so one handler sees a finger, a pen and a mouse alike with `pointerType` to tell them apart, `pressure`, `tiltX` and `tiltY` where the device gives them, and `getCoalescedEvents()` so a fast stroke keeps every sample.
 A pen draws; a finger draws unless a pen is down, which is palm rejection; two fingers pan and pinch to zoom; a two-finger tap undoes and a three-finger tap redoes, as in Procreate; a wheel scrolls and zooms with Ctrl or ⌘; Space held pans.
+Space presses a control the keyboard is on, as a browser's button takes it, and pans everywhere else, the tool just clicked included, which keeps the focus in Chrome; `:focus-visible` cannot tell the two apart, since Chrome turns it on at the first key, so the viewport remembers what the last pointer press was in (`viewport/pointerPressed.ts`).
 Keys work on every size, since a tablet may have a keyboard.
 
 The tools are the ones users of Figma, Illustrator, Photoshop, Procreate and Krita already know, under the keys those agree on, and one tool is one tool: the same name, key and options on a vector layer and on a raster one, doing on each what a user of that tool expects.
+An option that is on or off, Auto-select, Contiguous, Pressure or Constrain, is a check box with its name beside it, as Photoshop's options bar shows them, since no icon says what such an option does; rejected: a check mark alone with the name in a tooltip, which a finger never sees.
 
 | Tool | Key | On a vector layer | On a raster layer |
 |---|---|---|---|

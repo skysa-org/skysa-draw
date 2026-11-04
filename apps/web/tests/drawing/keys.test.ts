@@ -152,6 +152,24 @@ describe('isHandKey', () => {
 		expect(isHandKey(key('Spacebar'))).toBe(false);
 	});
 
+	it('leaves Space to a control the keyboard is on, which Space presses', () => {
+		const button = document.createElement('button');
+		const toggle = document.createElement('div');
+		toggle.setAttribute('role', 'switch');
+		expect(isHandKey(key(' ', { target: button }))).toBe(false);
+		expect(isHandKey(key(' ', { target: toggle }))).toBe(false);
+	});
+
+	it('keeps Space the hand on the control a pointer last pressed, which keeps the focus in Chrome', () => {
+		const button = document.createElement('button');
+		const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		button.append(icon);
+		expect(isHandKey(key(' ', { target: button }), icon)).toBe(true);
+		expect(isHandKey(key(' ', { target: button }), button)).toBe(true);
+		expect(isHandKey(key(' ', { target: button }), document.body)).toBe(false);
+		expect(isHandKey(key(' ', { target: button }), null)).toBe(false);
+	});
+
 	it('picks no tool and no action, so the frame leaves Space to the viewport', () => {
 		expect(toolFor(key(' '), false)).toBeUndefined();
 		expect(editActionFor(key(' '), false)).toBeUndefined();

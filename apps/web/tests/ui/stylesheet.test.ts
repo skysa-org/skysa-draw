@@ -43,6 +43,7 @@ describe('ui.css', () => {
 
 	it.each([
 		'.icon-button',
+		'.toggle',
 		'.color-none',
 		'.color-recent-swatch',
 		'.menu-item',

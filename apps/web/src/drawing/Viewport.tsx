@@ -39,6 +39,7 @@ import {
 } from './viewport/gestures.js';
 import { observable } from './viewport/observable.js';
 import { isMac, pointerTypeOf, sampleFrom } from './viewport/pointer.js';
+import { usePointerPressed } from './viewport/pointerPressed.js';
 import { useSelectionCommands } from './viewport/selectionCommands.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 import { shadowOf } from './viewport/shadow.js';
@@ -198,6 +199,7 @@ export const Viewport = ({
 	const held = selection ?? ownSelection;
 	const { region: regions, elements: selections } = held;
 	const [spaceHeld, setSpaceHeld] = useState(false);
+	const pointerPressed = usePointerPressed();
 	const view = useSyncExternalStore(views.subscribe, views.get);
 	const snapshot = useSyncExternalStore(document.subscribe, document.snapshot);
 	const facts = useSelectionFacts(held, snapshot, layerId);
@@ -505,7 +507,7 @@ export const Viewport = ({
 			if (done || action === 'selectAll' || action === 'deselect') event.preventDefault();
 			return;
 		}
-		if (!isHandKey(event)) return;
+		if (!isHandKey(event, pointerPressed())) return;
 		event.preventDefault();
 		setSpaceHeld(true);
 	});

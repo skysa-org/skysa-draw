@@ -1,11 +1,10 @@
 import { Fragment } from 'react';
 
 import { ColorField } from '../../components/ui/ColorField.js';
-import { CheckIcon } from '../../components/ui/icons.js';
 import type { MenuItem } from '../../components/ui/Menu.js';
 import { Slider } from '../../components/ui/Slider.js';
+import { Toggle } from '../../components/ui/Toggle.js';
 import { ToolBar } from '../../components/ui/ToolBar.js';
-import { ToolButton } from '../../components/ui/ToolButton.js';
 import { t } from '../../i18n/t.js';
 import { SIZE_MAX, SIZE_MIN } from '../editorState.js';
 import type { Tool, ToolOptionKey, ToolOptions } from '../tools/types.js';
@@ -13,7 +12,8 @@ import type { Tool, ToolOptionKey, ToolOptions } from '../tools/types.js';
 /**
  * One row of options for the tool in hand (docs/ARCHITECTURE.md §7, "The
  * interface"): the keys the tool names, in its order, each as the control its
- * kind takes. The bar is there even for a tool with no options, so the canvas
+ * kind takes: a slider, a color field, or a toggle with its name beside its
+ * check box. The bar is there even for a tool with no options, so the canvas
  * does not jump when the tool changes.
  *
  * After them, while something is selected and the tool is one that selects,
@@ -102,11 +102,10 @@ const Option = ({
 	}
 	if (isToggle(option)) {
 		return (
-			<ToolButton
-				icon={<CheckIcon />}
+			<Toggle
 				label={label}
 				pressed={options[option]}
-				onClick={() => onChange(option, !options[option])}
+				onChange={(pressed) => onChange(option, pressed)}
 			/>
 		);
 	}

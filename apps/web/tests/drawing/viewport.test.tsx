@@ -663,6 +663,36 @@ describe('the viewport', () => {
 		input.remove();
 	});
 
+	it('leaves Space to a button the keyboard is on, and keeps it the hand on one a pointer just pressed', () => {
+		const { behavior } = recorder();
+		const { region } = setup(fakeTool('pencil', { vector: behavior }));
+		const button = document.createElement('button');
+		const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		button.append(icon);
+		document.body.appendChild(button);
+		// Reached by the keyboard: Space presses it, as a browser's button.
+		act(() => {
+			button.focus();
+		});
+		expect(keyDown(' ', button).defaultPrevented).toBe(false);
+		expect(region.style.cursor).toBe('crosshair');
+		// Pressed by a pointer, on its icon, which keeps the focus on it in Chrome: Space is the hand.
+		fire(icon, new PointerEvent('pointerdown', { bubbles: true }));
+		expect(keyDown(' ', button).defaultPrevented).toBe(true);
+		expect(region.style.cursor).toBe('grab');
+		keyUp(' ');
+		// The focus gone elsewhere and back by the keyboard: the press is forgotten.
+		const other = document.createElement('button');
+		document.body.appendChild(other);
+		act(() => {
+			other.focus();
+			button.focus();
+		});
+		expect(keyDown(' ', button).defaultPrevented).toBe(false);
+		button.remove();
+		other.remove();
+	});
+
 	it('abandons the stroke on Escape', () => {
 		const { behavior, names } = recorder();
 		const { region, overlay } = setup(fakeTool('pencil', { vector: behavior }));
