@@ -297,14 +297,28 @@ describe('the pen', () => {
 		expect(context.overlay.children.length).toBe(0);
 	});
 
-	it('strokes an open path in the fill colour where there is no stroke colour, which would show nothing', () => {
+	it('makes an open path with no stroke colour a line in the fill colour, with no fill', () => {
 		const { context, layer, pen } = setUp({ fill: '#123456', stroke: 'none', strokeWidth: 4 });
 		click(pen, context, 0, 0);
 		click(pen, context, 50, 0);
+		click(pen, context, 50, 50);
 		press('Enter');
 		const path = layer.firstElementChild;
 		expect(path?.getAttribute('stroke')).toBe('#123456');
 		expect(path?.getAttribute('stroke-width')).toBe('4');
+		expect(path?.getAttribute('fill')).toBe('none');
+	});
+
+	it('keeps the fill of a closed path with no stroke colour', () => {
+		const { context, layer, pen } = setUp({ fill: '#123456', stroke: 'none', strokeWidth: 4 });
+		click(pen, context, 0, 0);
+		click(pen, context, 50, 0);
+		click(pen, context, 50, 50);
+		click(pen, context, 0, 0);
+		const path = layer.firstElementChild;
+		expect(path?.getAttribute('d')).toContain('Z');
+		expect(path?.getAttribute('fill')).toBe('#123456');
+		expect(path?.getAttribute('stroke')).toBeNull();
 	});
 
 	it('keeps what is drawn on Escape, and drops a path of one point', () => {

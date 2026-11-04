@@ -123,6 +123,33 @@
 	padding-inline: var(--gutter) var(--space-2xs);
 }
 
+/*
+ * In a narrow panel, the dock's among them, the title and the close control
+ * keep the first row and the actions take the rows under it, wrapping, so
+ * none is cut off: seven of the layers panel's are wider than the dock.
+ */
+@container panel (width < 22rem) {
+	.panel-header {
+		display: grid;
+		grid-template-areas: 'title close' 'actions actions';
+		grid-template-columns: minmax(0, 1fr) auto;
+		padding-block-end: var(--space-2xs);
+	}
+
+	.panel-title {
+		grid-area: title;
+	}
+
+	.panel-close {
+		grid-area: close;
+	}
+
+	.panel-actions {
+		flex-wrap: wrap;
+		grid-area: actions;
+	}
+}
+
 .panel-title,
 .menu-item-label {
 	flex: 1;

@@ -5,6 +5,7 @@ import type { PointerSample, ToolBehaviour, ToolContext, ToolOptions } from '../
 import { apply, constrainLine, constrainRect, distance, type Point, rectFrom } from './geometry.js';
 import { guardLayer, layerSpace, targetLayer } from './guard.js';
 import { type Attributes, createSvg, inkOf, opacityOf, paintOf, setAttributes } from './svg.js';
+import { rounded } from './textMarkup.js';
 
 /**
  * The shape tools on a vector layer (docs/decisions/0004-the-interface.md): a
@@ -38,10 +39,10 @@ const attributesOf = (
 	if (kind === 'line') {
 		// A line has no inside, so it always has a stroke: the fill colour where none is set.
 		return {
-			x1: from.x,
-			y1: from.y,
-			x2: to.x,
-			y2: to.y,
+			x1: rounded(from.x),
+			y1: rounded(from.y),
+			x2: rounded(to.x),
+			y2: rounded(to.y),
 			stroke: inkOf(options, 'stroke'),
 			'stroke-width': options.strokeWidth,
 			opacity: opacityOf(options),
@@ -51,20 +52,20 @@ const attributesOf = (
 	if (kind === 'rectangle') {
 		const radius = options.cornerRadius > 0 ? options.cornerRadius : undefined;
 		return {
-			x: box.x,
-			y: box.y,
-			width: box.width,
-			height: box.height,
+			x: rounded(box.x),
+			y: rounded(box.y),
+			width: rounded(box.width),
+			height: rounded(box.height),
 			rx: radius,
 			ry: radius,
 			...paintOf(options),
 		};
 	}
 	return {
-		cx: box.x + box.width / 2,
-		cy: box.y + box.height / 2,
-		rx: box.width / 2,
-		ry: box.height / 2,
+		cx: rounded(box.x + box.width / 2),
+		cy: rounded(box.y + box.height / 2),
+		rx: rounded(box.width / 2),
+		ry: rounded(box.height / 2),
 		...paintOf(options),
 	};
 };

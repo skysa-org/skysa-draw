@@ -32,4 +32,5 @@ For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` her
 - The layer operations: group and ungroup, clip to the layer below, merge down, rasterize, and an adjustment stack on each layer as SVG filter primitives named in the app's namespace (`decisions/0003-layers.md`, amended).
 - Export to PNG, JPEG, WebP and SVG through an `<img>` of a `blob:` URL, and a picture placed from a file, a paste or a drop.
 - Learned on the way: the viewport told a tool only about strokes, so a tool with state between strokes (the pen, the text field) watches for itself; `putImageData` ignores a clip, so the fill floods through a coverage mask; no fill rule subtracts one arbitrary path from another, so the area adds and does not subtract.
-- Tests: core 7128 (6103 of them the engine's), web 1187, API 423, all under jsdom; nothing yet run in a real browser.
+- Tests: core 7128 (6103 of them the engine's), web 1189, API 423, all under jsdom.
+- Then driven in headless Chromium under the real Content-Security-Policy, which raised no violation; it found the layers panel's actions cut off by the dock (a narrow panel's header now puts them on rows of their own), shapes written to every float digit (now two decimals, as paths are), and an open pen path filled into a wedge (now a line in the fill colour).

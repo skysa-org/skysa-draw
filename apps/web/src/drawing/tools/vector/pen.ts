@@ -74,15 +74,20 @@ const pointOf = (sample: PointerSample): Point => ({ x: sample.x, y: sample.y })
 
 /**
  * The paint a pen path gets: the shape tools' (`paintOf`), the fill and the
- * stroke and its width from the options, with one exception. A path that
- * would show nothing, an open one with no stroke, whose fill alone may cover
- * nothing, or one with neither colour, is stroked in the fill colour, as the
- * line tool's line is (`shapes.ts`).
+ * stroke and its width from the options, with one exception. An open path
+ * with no stroke, whose fill would make a wedge of a line, or a path with
+ * neither colour, is a line in the fill colour with no fill, as the line
+ * tool's line is (`shapes.ts`) and as Figma's pen draws.
  */
 const paintFor = (options: ToolOptions, closed: boolean): Attributes => {
 	const paint = paintOf(options);
 	if (options.stroke !== 'none' || (closed && options.fill !== 'none')) return paint;
-	return { ...paint, stroke: inkOf(options, 'stroke'), 'stroke-width': options.strokeWidth };
+	return {
+		...paint,
+		fill: 'none',
+		stroke: inkOf(options, 'stroke'),
+		'stroke-width': options.strokeWidth,
+	};
 };
 
 /** The press let go of: the point it placed taken out, or the handles it pulled put back. */

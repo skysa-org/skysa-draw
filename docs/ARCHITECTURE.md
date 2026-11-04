@@ -445,7 +445,7 @@ What comes next, in order:
 
 Known gaps in what is built, each for an issue:
 
-- Not yet seen in a real browser: everything was tested under jsdom, which has no 2D canvas, no `getBBox`, no `DOMMatrix` and no stylesheets from an SVG `<style>`.
+- Tested under jsdom, which has no 2D canvas, no `getBBox`, no `DOMMatrix` and no stylesheets from an SVG `<style>`, and driven once by hand in headless Chromium under the real Content-Security-Policy (vector and raster strokes, smudge, pen, text, merge down, rasterize, undo, PNG export, the frame at three widths); not yet on a touch screen, with a stylus, or in Safari or Firefox.
 - Renaming a drawing reopens it and loses its undo history, since `renameDrawing` rewrites the row's text.
 - A tool that does nothing on the active layer's kind says so when pressed, but its button is not shown as unavailable.
 - The library drawer's own rows (`Sidebar`, `DrawingList`) are below the 44 px target.

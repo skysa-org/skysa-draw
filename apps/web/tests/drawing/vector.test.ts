@@ -594,6 +594,21 @@ describe('the shapes', () => {
 		expect(context.overlay.children.length).toBe(0);
 	});
 
+	it('writes a shape to two decimals, as a path is written, from a pointer between pixels', () => {
+		const { root, layer } = createDrawing();
+		const info = layerInfo('layer-1');
+		const { context } = createFake(root, [info], info);
+		stroke(tool('rectangle'), context, [
+			{ x: 209.9547511312217, y: 401.3574660633484 },
+			{ x: 571.9457013574661, y: 672.8506787330317 },
+		]);
+		const rect = layer.firstElementChild;
+		expect(rect?.getAttribute('x')).toBe('209.95');
+		expect(rect?.getAttribute('y')).toBe('401.36');
+		expect(rect?.getAttribute('width')).toBe('361.99');
+		expect(rect?.getAttribute('height')).toBe('271.49');
+	});
+
 	it('leaves the stroke off a filled shape with no stroke colour, and previews while dragging', () => {
 		const { root, layer } = createDrawing();
 		const info = layerInfo('layer-1');
