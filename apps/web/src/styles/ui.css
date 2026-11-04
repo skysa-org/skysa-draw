@@ -421,6 +421,19 @@
 	inset-inline: auto 0;
 }
 
+/*
+ * Open in the top layer (the Popover API, `Menu`'s `raise`): out of the
+ * flow of the panel it was opened in, placed by the menu beside its button.
+ * A popover takes the system's colours and is centred unless told otherwise.
+ */
+.menu-list:popover-open {
+	color: var(--fg);
+	inset: auto;
+	margin: 0;
+	overflow: auto;
+	position: fixed;
+}
+
 .menu-item {
 	align-items: center;
 	border-radius: var(--radius-s);

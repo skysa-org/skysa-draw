@@ -55,6 +55,54 @@ const alignFor = (root: HTMLElement, list: HTMLElement): Align => {
 	return overflows ? 'end' : 'start';
 };
 
+/** Where a menu in the top layer sits: from the window's top left, and as tall as it may be. */
+type Place = Readonly<{ top: number; left: number; maxHeight: number }>;
+
+/** Between the button and its menu, and between a menu and the window's edge, in CSS pixels. */
+const GAP = 4;
+const MARGIN = 8;
+
+/**
+ * Where a menu in the top layer goes: under its button, on the side `align`
+ * says, or over it where there is more room above than the menu needs below,
+ * and never past the window's edges.
+ */
+const placeFor = (button: HTMLElement, list: HTMLElement, align: Align): Place => {
+	const box = button.getBoundingClientRect();
+	const view = document.documentElement;
+	const width = list.offsetWidth;
+	const height = list.scrollHeight;
+	const rtl = getComputedStyle(button).direction === 'rtl';
+	const startsAtLeft = (align === 'start') !== rtl;
+	const left = startsAtLeft ? box.left : box.right - width;
+	const below = view.clientHeight - box.bottom - GAP - MARGIN;
+	const above = box.top - GAP - MARGIN;
+	const under = height <= below || below >= above;
+	const room = Math.max(0, under ? below : above);
+	return {
+		top: under ? box.bottom + GAP : box.top - GAP - Math.min(height, room),
+		left: Math.max(MARGIN, Math.min(left, view.clientWidth - width - MARGIN)),
+		maxHeight: room,
+	};
+};
+
+/**
+ * Whether the browser has the Popover API. jsdom has not, and yet hides an
+ * element that asks for it, so the attribute is given only where it works.
+ */
+const HAS_POPOVER = typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
+
+/**
+ * Puts the menu in the top layer, out of every panel's overflow and over
+ * everything, where the browser can; whether it could. Elsewhere the menu
+ * stays where it is in the page.
+ */
+const raise = (list: HTMLElement): boolean => {
+	if (!HAS_POPOVER) return false;
+	list.showPopover();
+	return true;
+};
+
 /**
  * A menu under an icon button (docs/ARCHITECTURE.md §7, "The interface"): the
  * top bar's More, a layer's own. After the WAI-ARIA menu button pattern
@@ -63,7 +111,8 @@ const alignFor = (root: HTMLElement, list: HTMLElement): Align => {
  * choose, Escape closes and gives the focus back, so does choosing, and a
  * press anywhere else closes it where it is. `align` says which side of the
  * button the menu lines up with; without it the menu finds the side that
- * keeps it in the window.
+ * keeps it in the window. Open, it is in the top layer (`raise`), so a panel
+ * that clips what overflows it, as the dock does, does not cut it off.
  */
 export const Menu = ({
 	label,
@@ -78,15 +127,38 @@ export const Menu = ({
 }) => {
 	const [open, setOpen] = useState<Open>('closed');
 	const [fitted, setFitted] = useState<Align>('start');
+	const [place, setPlace] = useState<Place | undefined>(undefined);
 	const root = useRef<HTMLDivElement>(null);
 	const button = useRef<HTMLButtonElement>(null);
 	const list = useRef<HTMLDivElement>(null);
 	const id = useId();
 
 	// Measured before the menu is first painted, so it never shows on the wrong side.
+	// Each opening is placed afresh, before it is painted, so a place kept from
+	// the last one is never seen.
 	useLayoutEffect(() => {
-		if (open === 'closed' || root.current === null || list.current === null) return;
-		setFitted(alignFor(root.current, list.current));
+		if (open === 'closed') return;
+		if (root.current === null || list.current === null || button.current === null) return;
+		const side = align ?? alignFor(root.current, list.current);
+		setFitted(side);
+		setPlace(raise(list.current) ? placeFor(button.current, list.current, side) : undefined);
+	}, [open, align]);
+
+	// A menu in the top layer is placed once, by its button: when the page
+	// under it scrolls or the window changes size, it closes rather than float
+	// away from what opened it.
+	useEffect(() => {
+		if (open === 'closed') return undefined;
+		const onMoved = (event: Event) => {
+			if (event.target instanceof Node && list.current?.contains(event.target)) return;
+			setOpen('closed');
+		};
+		window.addEventListener('resize', onMoved);
+		document.addEventListener('scroll', onMoved, true);
+		return () => {
+			window.removeEventListener('resize', onMoved);
+			document.removeEventListener('scroll', onMoved, true);
+		};
 	}, [open]);
 
 	useEffect(() => {
@@ -175,6 +247,8 @@ export const Menu = ({
 					role="menu"
 					aria-label={label}
 					tabIndex={-1}
+					popover={HAS_POPOVER ? 'manual' : undefined}
+					style={place}
 					className={classes('menu-list', `menu-${align ?? fitted}`)}
 					onKeyDown={onMenuKeyDown}
 				>
