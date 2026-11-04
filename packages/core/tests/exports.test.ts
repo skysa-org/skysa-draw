@@ -1,0 +1,132 @@
+import { describe, expect, expectTypeOf, it } from 'vitest';
+
+import type * as Core from '../src/index.js';
+import * as core from '../src/index.js';
+
+/**
+ * Every value core's main entry offers the apps, in order. Here so a name added
+ * to or taken out of `src/index.ts` shows in review as a line in this list: the
+ * surface is chosen, not whatever a module exports.
+ */
+const SURFACE = [
+	'API_ERROR_CODES',
+	'APP_FOLDER_NAME',
+	'AUTH_MODES',
+	'AuthError',
+	'ConflictError',
+	'CursorResetError',
+	'DEFAULT_DRAWING_SIZE',
+	'DRAWING_EXTENSION',
+	'DRAWING_NAMESPACE',
+	'ENTITLEMENT_CODES',
+	'GATE_LIMITS',
+	'MAX_CODE_HOLD_SECONDS',
+	'MAX_CODE_REASON',
+	'MAX_CONNECT_CODE',
+	'NotFoundError',
+	'PROVIDER_KINDS',
+	'RELAY_CHANGED',
+	'RELAY_CLOSE',
+	'RELAY_PING',
+	'RELAY_PONG',
+	'RELAY_PUSHED',
+	'RELAY_PUSHED_INTERVAL_MS',
+	'ROOT',
+	'RateLimitError',
+	'SVG_NAMESPACE',
+	'UNTITLED_SLUG',
+	'UnreadableError',
+	'alwaysAllowed',
+	'ancestorPaths',
+	'attachmentName',
+	'basename',
+	'bytesHash',
+	'cell',
+	'clusters',
+	'conflictFilePath',
+	'conflictFolderPath',
+	'conflictPath',
+	'contentHash',
+	'createDropboxProvider',
+	'createGDriveProvider',
+	'createOneDriveProvider',
+	'drawingFilename',
+	'emptyDrawing',
+	'extensionForType',
+	'extensionOf',
+	'foldName',
+	'imageInfo',
+	'isAuthError',
+	'isConflictError',
+	'isCursorResetError',
+	'isDrawingName',
+	'isDrawingText',
+	'isHidden',
+	'isImageExtension',
+	'isNotFoundError',
+	'isRateLimitError',
+	'isUnreadableError',
+	'isWithin',
+	'joinPath',
+	'mediaOf',
+	'messageOf',
+	'neverLimited',
+	'normalizePath',
+	'parentPath',
+	'pathSegments',
+	'pictureVariant',
+	'readDrawingId',
+	'readDrawingSize',
+	'readDrawingTitle',
+	'rebasePath',
+	'replaceBasename',
+	'sanitizeFolderName',
+	'slugify',
+	'titleFromFilename',
+	'uniqueFilename',
+	'withDrawingId',
+	'withDrawingTitle',
+	'withoutNul',
+];
+
+/** Every type the entry offers; see the last test. */
+type Types = [
+	Core.ApiErrorCode,
+	Core.AuthMode,
+	Core.Cell<unknown>,
+	Core.ChangeEntry,
+	Core.ChangeSet,
+	Core.ConnectCodeCheck,
+	Core.ConnectGate,
+	Core.CreateFileOptions,
+	Core.DrawingSize,
+	Core.EntitlementCode,
+	Core.EntitlementContext,
+	Core.EntitlementDecision,
+	Core.EntitlementProvider,
+	Core.EntitlementSubject,
+	Core.EntryRef,
+	Core.FetchLike,
+	Core.FileKind,
+	Core.PictureInfo,
+	Core.PictureVariant,
+	Core.ProviderKind,
+	Core.RateLimitDecision,
+	Core.RateLimiter,
+	Core.RemoteEntry,
+	Core.StorageProvider,
+	Core.WriteOptions,
+];
+
+describe('core’s main entry', () => {
+	it('offers these values and no others', () => {
+		expect(Object.keys(core).sort()).toEqual(SURFACE);
+	});
+
+	it('offers these types', () => {
+		// Types leave nothing at run time to list, so these are named instead:
+		// one taken out of the entry fails typecheck here, whether or not an app
+		// uses it — the entitlement types are for an operator's code, not ours.
+		expectTypeOf<Types>().not.toBeNever();
+	});
+});

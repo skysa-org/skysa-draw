@@ -1,0 +1,60 @@
+# Placeholders only. A self-hoster fills in database_id after `wrangler d1 create`
+# and sets every secret with `wrangler secret put` (see .dev.vars.example).
+name = "skysa-draw"
+main = "src/worker.ts"
+# No nodejs_compat: the Worker uses only Web Crypto and fetch (docs/ARCHITECTURE.md §6).
+compatibility_date = "2026-09-14"
+
+# The SPA is served from this same Worker so /api/* and the app share an origin
+# and the connect flow's cookies stay first-party.
+# https://developers.cloudflare.com/workers/static-assets/routing/worker-script/
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "skysa-draw"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# The change relay's hub (docs/ARCHITECTURE.md §6, "Change relay"): one object
+# per connection. Declared whether or not the relay is on — an object nobody
+# addresses costs nothing, and turning the relay on is then one value,
+# `RELAY = "true"` in [vars] below. Removing the class later takes a migration
+# of its own (`deleted_classes`); docs/self-hosting.md says how.
+# https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/
+[[durable_objects.bindings]]
+name = "RELAY_HUB"
+class_name = "ConnectionRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConnectionRelay"]
+
+[vars]
+AUTH_MODE = "storage-first"
+# Only what this deployment can actually do. Dropbox, OneDrive and Google
+# Drive are implemented; WebDAV is deferred (docs/ARCHITECTURE.md §5.4).
+#
+# Listing a provider commits the deployment to having its credentials —
+# `parseEnv` refuses to boot without them — so a clean clone answers 500 until
+# the operator registers a Dropbox app and sets the two secrets. That is the
+# intended failure: it names the missing key at boot. Listing something
+# credential-free instead would boot and then turn Dropbox off even for an
+# operator who had set it up, and `/auth/connect/dropbox/start` would answer
+# 404 `unsupported_provider` with nothing to say why.
+ENABLED_PROVIDERS = "dropbox"
+# Off by default: it tells the server when each connection is edited, and on
+# Workers Free it spends the request cap token refresh shares. Read
+# docs/self-hosting.md, "Instant updates between devices", before turning it on.
+RELAY = "false"
+
+[observability]
+enabled = true
+
+# Workers Paid only: caps runaway CPU cost. Harmless to leave set on Free.
+[limits]
+cpu_ms = 50

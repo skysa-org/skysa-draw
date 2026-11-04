@@ -1,0 +1,44 @@
+# Response headers for the static app (the SPA shell, its assets, and the
+# service worker), applied by Cloudflare's static assets.
+# https://developers.cloudflare.com/workers/static-assets/headers/
+#
+# Not applied to what the Worker answers (/api/*, `run_worker_first` in
+# apps/api/wrangler.toml): those responses are JSON or redirects, never a page.
+# A WebDAV proxy, if ever built (deferred, docs/ARCHITECTURE.md §5.4), would set its
+# own headers.
+#
+# The policy (docs/ARCHITECTURE.md §9), checked by tests/csp.test.ts:
+# - script-src 'self' only. zod would probe for `new Function` at startup and
+#   report a violation even though it catches the refusal, so src/jitless.ts
+#   turns the probe off before any schema is built.
+# - style-src 'unsafe-inline': the editor sets element styles, and an SVG from
+#   another tool can carry a <style> element. Neither can run script.
+# - img-src https: a drawing can show an image from anywhere, as SVG does;
+#   blob: is how the app shows a drawing (`DrawingView`).
+# - connect-src: this origin (the API) and the provider hosts the browser
+#   syncs with directly. A provider's hosts arrive with its adapter.
+#   Dropbox: *.dropboxapi.com (api. for metadata, content. for bytes).
+#   OneDrive: graph.microsoft.com for everything but file bytes, which come
+#   from the item's pre-authenticated download URL on another host —
+#   *.files.1drv.com or my.microsoftpersonalcontent.com for personal accounts,
+#   *.sharepoint.com for work and school ones (docs/ARCHITECTURE.md §5.2).
+#   Google Drive: www.googleapis.com, the one host the adapter asks — file
+#   bytes (`alt=media`) and uploads included (docs/ARCHITECTURE.md §5.1). Whether
+#   Google redirects a download elsewhere waits on the live check; don't add
+#   *.googleusercontent.com ahead of it, as it takes in Apps Script web apps.
+# Strict-Transport-Security: the shell holds the device's per-connection
+# credentials in IndexedDB (docs/ARCHITECTURE.md §6), so an origin an attacker can
+# answer for once is an origin they can read them from. Two years, for this
+# host alone. `includeSubDomains` and `preload` are deliberately absent: each
+# is a commitment on behalf of whoever self-hosts this — served from an apex
+# domain, the first forces HTTPS on every subdomain they own, for two years,
+# and taking it back means every browser that saw it coming back over HTTPS
+# to be told `max-age=0` — and it is theirs to make (docs/self-hosting.md).
+# What it would protect is already kept to the origin: the credentials are in
+# IndexedDB, and the flow cookie is `__Host-`, which no other host can set.
+# A plain-HTTP local deployment is unaffected — browsers ignore the header off
+# https, and these rules are Cloudflare's static-asset headers, which local dev
+# does not serve through.
+/*
+  Strict-Transport-Security: max-age=63072000
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.dropboxapi.com https://graph.microsoft.com https://*.files.1drv.com https://my.microsoftpersonalcontent.com https://*.sharepoint.com https://www.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'

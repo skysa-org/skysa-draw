@@ -1,0 +1,494 @@
+# Self-hosting skysa-draw
+
+Everything in this repository is meant to run on your own Cloudflare account.
+There is no hosted instance to fall back to and nothing withheld from the open
+source: `wrangler.toml` carries placeholders, `.dev.vars.example` lists every
+key, and no operator-specific behaviour exists outside the seams `docs/ARCHITECTURE.md`
+§6 describes.
+
+Budget about fifteen minutes, plus however long the provider app registration
+takes — Dropbox is minutes, Google is the longest.
+
+> **Two things about the commands below.** They are all run **from the
+> repository root** — `wrangler` is a dependency of `apps/api` and not of the
+> root, which is why they reach it as `pnpm --filter @skysa/draw-api exec wrangler`
+> rather than by changing directory; run `pnpm run deploy` from inside
+> `apps/api` and you get that package's own `deploy`, which is not the one you
+> want. And it is **`pnpm run setup`, not `pnpm setup`**: both `setup` and
+> `deploy` are pnpm's own built-in commands, so the `run` is required or pnpm
+> does something else entirely.
+
+## What you need
+
+- A **Cloudflare account**. Workers Free is enough indefinitely for personal
+  use; see [Cost](#cost) before running an instance for other people.
+- **Node 22.13 or later and pnpm 10** (`corepack enable`).
+- **An app registration at each storage provider you want to offer.** Every
+  OAuth provider needs its own; there is no way around this, and it is why
+  `ENABLED_PROVIDERS` defaults to just `dropbox`.
+- A **domain** on Cloudflare, if you want something other than
+  `<worker>.<subdomain>.workers.dev`.
+
+## 1. Clone and configure
+
+```bash
+git clone https://github.com/skysa-org/skysa-draw.git
+cd skysa-draw
+pnpm install
+pnpm run setup        # asks for what it needs, writes apps/api/.dev.vars
+```
+
+`pnpm run setup` asks which providers you want and only asks for the credentials
+of those. That is not politeness: listing a provider in `ENABLED_PROVIDERS`
+commits the deployment to having its credentials, and the Worker **refuses to
+boot** without them rather than starting up and failing at the first connect.
+
+It also generates `SECRETS_KEY` — 32 random bytes, base64 — wherever `openssl`
+is on the path, and tells you how to generate one yourself where it is not. A
+value that does not decode to exactly 32 bytes is refused at boot.
+
+It will not write a file the Worker would refuse to boot from. An empty answer
+to a required key, or to all three providers, is asked again rather than
+written down.
+
+You can write `apps/api/.dev.vars` by hand instead. Copy `.dev.vars.example`,
+which documents every key including the exact redirect URI, scopes and account
+types each provider wants.
+
+## 2. Register the provider apps
+
+The full instructions for each live in
+[`.dev.vars.example`](../.dev.vars.example) next to the key they fill in, so
+they cannot drift from the code that reads them. In summary:
+
+| Provider | Where | The thing people get wrong |
+|---|---|---|
+| **Dropbox** | App Console → Scoped access, App folder | The app name is **immutable** and must be `skysa-draw` |
+| **OneDrive** | Entra app registration | Platform is **Web**, not SPA — the exchange happens on the server, with the secret |
+| **Google Drive** | Cloud console → OAuth client, Web application | Testing status caps you at 100 test users and expires refresh tokens after 7 days |
+
+Each redirect URI is `<APP_ORIGIN>/api/auth/connect/<provider>/callback`, so
+they all change when you move from `http://localhost:5173` to your real domain.
+Register both if you want to keep developing against the same app.
+
+Google is involved enough to have its own walk-through, including leaving
+Testing status without needing verification:
+[`docs/google-oauth.md`](google-oauth.md).
+
+## 3. Run it locally first
+
+```bash
+pnpm db:migrate       # create and migrate the local D1 database
+pnpm dev              # Vite on :5173, wrangler dev on :8787
+```
+
+Vite proxies `/api` to the Worker so the app and the API share an origin, which
+is what production does too — one Worker serves both.
+
+Connect an account and create a drawing. If it syncs here, the only things left
+that can be wrong in production are the origin, the secrets and the database.
+
+## 4. Create the D1 database
+
+```bash
+pnpm --filter @skysa/draw-api exec wrangler login
+pnpm --filter @skysa/draw-api exec wrangler d1 create skysa-draw
+```
+
+That prints a `database_id`. Put it in `apps/api/wrangler.toml`, replacing the
+placeholder:
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "skysa-draw"
+database_id = "paste-it-here"
+```
+
+This is the one edit to a tracked file that self-hosting requires. It is not a
+secret — it names a database only your account can reach.
+
+## 5. Set the secrets
+
+`.dev.vars` is for local development and is gitignored. A deployed Worker reads
+secrets from Cloudflare, so set each one:
+
+```bash
+w() { pnpm --filter @skysa/draw-api exec wrangler "$@"; }
+
+w secret put APP_ORIGIN               # https://draw.example.com
+w secret put SECRETS_KEY
+w secret put DROPBOX_CLIENT_ID
+w secret put DROPBOX_CLIENT_SECRET
+# …and the pair for each other provider in ENABLED_PROVIDERS
+```
+
+**`APP_ORIGIN` has no default and the Worker will not boot without it.** That is
+deliberate: every OAuth redirect URI is derived from it, and a wrong guess sends
+users' consent to somewhere that is not you.
+
+`AUTH_MODE` and `ENABLED_PROVIDERS` are not secrets and live in `[vars]` in
+`wrangler.toml`. Edit them there. `WEBDAV_ALLOW_PRIVATE` is deprecated and does
+nothing — WebDAV is not built — so remove it if you have it; the Worker logs a
+warning at boot while it is set, and likewise for `webdav` in
+`ENABLED_PROVIDERS`, which is accepted but not offered.
+
+`SECRETS_KEY_ID` defaults to `k1` and only needs setting when you rotate
+`SECRETS_KEY`, which is what it exists for. `MICROSOFT_TENANT` defaults to
+`common` and only needs setting for a single-tenant Entra registration — and it
+has to be set as a secret like the rest, because `wrangler.toml` has no `[vars]`
+entry for it.
+
+Treat `SECRETS_KEY` with the same weight as the database itself: it is what
+encrypts every stored refresh token, and whoever holds both holds every
+connected account on the instance.
+
+## 6. Deploy
+
+```bash
+pnpm --filter @skysa/draw-api exec wrangler d1 migrations apply skysa-draw --remote
+pnpm run deploy
+```
+
+`pnpm run deploy` builds the core package, then the web bundle, then the Worker,
+then deploys. The order matters, and so does being at the repository root:
+`apps/api`'s own `deploy` script is also called `deploy` and does not build the
+SPA, so reaching that one — by running it from inside `apps/api` — ships
+whatever stale `apps/web/dist` happens to be lying around, or nothing at all.
+
+For a custom domain, add a route in the Cloudflare dashboard (Workers → your
+Worker → Settings → Domains & Routes), then make `APP_ORIGIN` match it exactly,
+scheme and all, and add the matching redirect URIs at each provider.
+
+The shell is served with `Strict-Transport-Security: max-age=63072000`: a
+browser that has loaded it once will not reach that host over plain HTTP again
+for two years. It says nothing about your other hosts, on purpose. If every
+subdomain under the one you serve from is yours to commit to HTTPS, add
+`; includeSubDomains` to that line in `apps/web/public/_headers` before you
+deploy — and `; preload` only if you mean to submit the domain to the preload
+list, which is slow to undo. Served from an apex domain, `includeSubDomains`
+covers every subdomain you own. `apps/web/tests/csp.test.ts` holds the default
+and will fail on your fork once you change it; change its assertion with it.
+
+Migrations are separate from deploys on purpose. `pnpm --filter @skysa/draw-api run
+deploy:migrate` does both in order when you want them together.
+
+## 7. Check it
+
+- The app loads and creates drawings offline.
+- Connecting an account redirects to the provider and comes back to
+  `?connect=ok`.
+- A drawing appears in the app folder in your storage within a few seconds.
+- `wrangler tail` shows no errors. Drawing content never appears in the logs,
+  because it never reaches the Worker at all.
+
+## Cost
+
+Workers Free is enough for one person indefinitely. The Worker is only involved
+in connecting an account and in minting access tokens — never in reading or
+writing a drawing, which goes straight from the browser to the storage provider —
+so a browser costs it tens of requests a day rather than thousands, against a
+100k/day limit. Static assets are free and unlimited on both plans.
+
+Running an instance for other people, two things to know:
+
+- **Free hard-stops at 100k requests/day until 00:00 UTC**, which would break
+  token refresh for every user at once. Workers Paid bills per request instead,
+  lifts the CPU limit, extends logs to 7 days and enables Logpush.
+  `wrangler.toml` already sets `limits.cpu_ms = 50` to cap runaway cost; it is
+  harmless on Free.
+- **Back up D1.** `wrangler d1 export` on a cron trigger. The database holds
+  encrypted refresh tokens and connection metadata — never drawing content, which
+  is in the user's own storage and their browser.
+
+Pricing verified 2026-09; check Cloudflare's own pages before relying on it.
+
+## Your own brand
+
+The app builds as "Draw", in gray, with generic icons and the system's fonts.
+To give your instance its own name and look, write a `brand.json` of your own,
+outside this repository, and point `DRAW_BRAND` at it when you build:
+
+```bash
+DRAW_BRAND="$PWD/../my-brand/brand.json" pnpm run deploy
+```
+
+```jsonc
+{
+	"$schema": "<path to this repo>/apps/web/brand/brand.schema.json",
+	"name": "Acme Draw",
+	"shortName": "Acme Draw", // under a home-screen icon: 12 characters at most
+	"description": "Acme's drawings, in your own storage.",
+	"colors": {
+		"light": { "brand": "#B91C1C", "onBrand": "#FFFFFF", "theme": "#FFFFFF" },
+		"dark": { "brand": "#F87171", "onBrand": "#1F2937", "theme": "#111827" },
+		"background": "#FFFFFF",
+	},
+	"icons": "icons", // a folder beside this file
+	"fonts": {
+		// optional: either, both or neither
+		"sans": {
+			"family": "Inter",
+			"files": [
+				{ "src": "fonts/inter-latin-400.woff2", "weight": 400, "unicodeRange": "U+0000-00FF" },
+				{ "src": "fonts/inter-latin-700.woff2", "weight": 700, "unicodeRange": "U+0000-00FF" },
+			],
+		},
+	},
+}
+```
+
+(The file itself is plain JSON; the comments are only for this page.)
+
+- `brand` fills buttons and colours links, `onBrand` is the text on it, and
+  `theme` colours the browser's and the installed app's title bar. The
+  installed app's navigation bar on Android takes one colour for both themes:
+  `background`, the splash's colour, on Android 15 and later, and the light
+  theme's `brand` on Android 14 and older. Give `background` the light
+  `brand`'s value for one bar on every phone, or another that reads under the
+  app in both themes; a light one is a pale strip in dark mode. Pick
+  `brand` and `onBrand` with enough contrast between them, and `brand`
+  against the page, in each theme.
+- The icon folder holds six PNGs at these names and sizes: `favicon-16x16.png`,
+  `favicon-32x32.png`, `apple-touch-icon.png` (180), `pwa-192x192.png`,
+  `pwa-512x512.png` and `pwa-maskable-512x512.png`, which keeps its artwork
+  inside the central 80% circle. To put the default artwork on your own
+  colour, see `apps/web/brand/recolour.mjs`.
+- Fonts are `.woff2` files served from your instance, never from a font CDN,
+  which the Content-Security-Policy would refuse.
+- A relative `DRAW_BRAND` is resolved from the directory the build runs in;
+  an absolute path avoids the question.
+
+The build stops with the file and the problem if anything in it is wrong.
+The brand changes what people see and nothing about their data: the folder in
+their storage and the app's local database keep their names, so changing the
+brand later keeps every connected library. On names and marks, see
+[`TRADEMARK.md`](../TRADEMARK.md).
+
+## Restricting who can sync
+
+By default every account that connects may sync. To choose which ones, give
+`createApp` an `EntitlementProvider` of your own. It is asked when an account
+connects and each time a device mints a token. It can say no with a `reason`
+in your words and a `code` from a fixed list: `not_allowed`, `lapsed` or
+`limit_reached`.
+
+The app words a refusal by its code in both places it can come. Your `reason`
+reaches only one of them: the storage panel, for an account that is already
+connected and refused a token later. An account refused as it first connects
+sees only the code's wording, because that refusal comes back in a URL, and a
+URL does not carry free text. `docs/ARCHITECTURE.md` §6, "Entitlement seam",
+has the details.
+
+Give it a `gate` too, and people see your message and one link where the
+connect buttons are, before a provider's consent screen ends in a refusal. A
+device that already has an account syncing on your instance still sees the
+buttons, with the gate beside them. Every other device sees the gate, plus an
+"Already have access?" control that shows the buttons. Showing them grants
+nothing, because your policy still decides.
+
+```ts
+import type { EntitlementProvider } from '@skysa/draw-core';
+
+const invited = new Set(['dbid:AAH4f99T0taONIb-OurWxbNQ6ywGRopQngc']);
+
+export const entitlements: EntitlementProvider = {
+	check: ({ accountId }) =>
+		Promise.resolve(
+			invited.has(accountId)
+				? { allowed: true }
+				: { allowed: false, code: 'not_allowed', reason: 'This server syncs invited accounts.' }
+		),
+	gate: {
+		message: 'This server syncs invited accounts only.',
+		action: { label: 'Ask for an invite', url: 'https://example.com/invite' },
+	},
+};
+```
+
+A gate can ask for a code as well, when your policy lets accounts in by
+something other than the account itself: an invite, or a code your own page
+sends to someone who has paid. Give it `connectCode: { label: 'Invite code' }`
+and the app shows a field under that label where the gate is. A gate that asks
+for a code needs `checkCode` beside it, which the app asks as the code is used,
+so a wrong one is said at once rather than after the provider's consent screen;
+it answers how many seconds the app should keep the code (at most a year), or
+why not. That is advice: whatever the app kept reaches your policy again at the
+callback, as `check(subject, { connectCode })`, trimmed, at most 256 characters,
+and never blank, and that is where it decides. `/token` does not pass it, so a
+policy that accepts a code has to remember the account it let in:
+
+```ts
+export const entitlements: EntitlementProvider = {
+	check: async ({ provider, accountId }, context) => {
+		if (await admitted(provider, accountId)) return { allowed: true };
+		if (context?.connectCode !== undefined && (await redeem(context.connectCode))) {
+			await admit(provider, accountId);
+			return { allowed: true };
+		}
+		return { allowed: false, code: 'not_allowed' };
+	},
+	checkCode: async (code) =>
+		(await isOpen(code))
+			? { accepted: true, expiresIn: 15 * 60 }
+			: { accepted: false, reason: 'That invite code is not valid.' },
+	gate: {
+		message: 'This server syncs invited accounts only.',
+		action: { label: 'Ask for an invite', url: 'https://example.com/invite' },
+		connectCode: { label: 'Invite code' },
+	},
+};
+```
+
+`admitted`, `redeem`, `admit` and `isOpen` are yours: somewhere your Worker
+keeps what it has let in. `checkCode` only reads; the callback is where an
+invite is spent. The app words a plain refusal to a connect that carried a code
+as "The code you entered was not accepted".
+
+An accepted answer may also carry `hold`: something the app keeps and sends in
+place of what was typed, with connects and to `checkCode`, for `expiresIn`.
+An invite that becomes a pass for the device it was typed on is one use: the
+invite is good once, briefly, and the pass, which your Worker issues and can
+check without keeping, lets that device connect more accounts later without
+another invite. The app never shows a held value, and asks about it again as
+it loads, at most once an hour, keeping what you answer (a fresh `hold` keeps a
+pass alive while the device is used) and letting it go if you refuse it. Don't
+have a fresh `hold` end the one it replaces: two tabs loading together can
+leave the earlier one held. A held value is a bearer: anyone who copies it out
+of the browser can use it as that device would, until your policy stops taking
+it. Apps from before holds existed refuse an answer longer than a day, so give
+long holds once your deployment's app has been updated.
+
+This goes in a Worker entry of your own. Copy `apps/api/src/worker.ts`, change
+its `createApp({ … })` call to pass `entitlements` as well, and point `main` in
+`wrangler.toml` at your copy. Beside the original in `apps/api/src`, its
+relative imports work as they are. Anywhere else, import `createApp` and
+`parseEnv` from `@skysa/draw-api` instead, and `ConnectionRelay` and
+`durableObjectRelay` from `@skysa/draw-api/relay`. Keep the copy's
+`export { ConnectionRelay }` whether or not you run the relay: `wrangler.toml`
+binds that class, and a deploy whose entry does not export it is refused. The
+stock entry never sets a gate.
+
+Keep the copy's `try`/`catch`. `createApp` checks the gate and throws on any of
+these:
+
+- a message that is blank or over 500 characters;
+- a label that is blank or over 40 characters;
+- a link that is not an `https:` URL, or is over 2048 characters;
+- a code field whose label is blank or over 40 characters;
+- a code field without `checkCode`.
+
+The entry then logs the problem and answers `server_misconfigured`, rather
+than showing a broken link to your users. The link is served in its
+normalized form, so `https:example.com` goes out as `https://example.com/`.
+
+## Instant updates between devices (optional)
+
+Off by default. With it off, a device finds another device's edits the next
+time it syncs: within a minute while the app is open, and at once when it is
+brought back to the front. With it on, it finds them within a second or two.
+A device that has just sent its changes says so over a WebSocket to the Worker,
+and the Worker tells the account's other devices, which then sync.
+
+**What it costs you in privacy terms.** No drawing content and no file names pass
+through it: the message is "something changed", nothing else. But the Worker
+does learn *when* each connected account is edited, and from which device,
+which it otherwise would not — without it, it sees a token refresh about once
+an hour. Nothing per message is logged by the app; Cloudflare's own request
+logs record each socket being opened. Tell your users if that matters to them.
+
+**What it costs in requests.** Each device opens a socket each time the app
+comes to the front: a ticket request, the upgrade, and a Durable Object
+request. Roughly 80 Worker requests per active user per day, plus a few hundred
+WebSocket messages billed at 20:1 as Durable Object requests.
+
+- On **Workers Paid** that is about $0.0007 per active user per month
+  (Cloudflare's published prices, 2026-10).
+- On **Workers Free** the cost is the daily cap instead. 80 requests per user
+  per day against 100k, shared with token refresh, puts an instance with a
+  thousand daily users most of the way to the cap — and at the cap, sync stops
+  for everyone until 00:00 UTC. For more than a handful of people, turn this on
+  only on Paid. Durable Objects themselves are available on Free.
+
+**Turning it on.** The Durable Object it needs (`ConnectionRelay`, bound as
+`RELAY_HUB`) is already declared in `wrangler.toml`, so there is nothing to
+create. Set `RELAY = "true"` in `[vars]` in `wrangler.toml`, deploy, and check:
+
+```sh
+curl -s https://draw.example.com/api/config
+# … "relay":true …
+```
+
+Apps open at the time pick it up the next time they load. Polling carries on
+as before: the relay hears nothing about edits made in the folder by other
+tools, such as the provider's own app, and a device whose socket has dropped
+still syncs. Locally, put `RELAY="true"` in `apps/api/.dev.vars`.
+
+**Turning it off** is `RELAY = "false"` and a deploy. The class can stay
+declared; an object nothing addresses costs nothing. To remove it entirely,
+delete the `[[durable_objects.bindings]]` block and add a migration that
+deletes the class, then deploy:
+
+```toml
+[[migrations]]
+tag = "v2"
+deleted_classes = ["ConnectionRelay"]
+```
+
+The `[[migrations]]` block with `tag = "v1"` stays: Cloudflare applies
+migrations in order and remembers which it has.
+
+## The fill bookmarklet
+
+Passwords' **Fill on sites** gives each user a bookmark that fills a site's
+sign-in form from their passwords. Two things about it are yours:
+
+- **It names your instance's address.** The bookmark holds the origin it was
+  made on, so if your instance moves to another address, its users set it up
+  again from Passwords.
+- **Send no `Cross-Origin-Opener-Policy` on `/fill`**, nor on `/*`, which
+  includes it. The fill window talks to the page that opened it through
+  `window.opener`, and any value but `unsafe-none` cuts the two apart: the
+  window then says it could not reach the page. `apps/web/public/_headers`
+  sends none, and `apps/web/tests/csp.test.ts` holds that.
+
+Once a browser has opened the app, its service worker answers `/fill` itself.
+Before that, `/fill` is asked of your instance like any page, and the request
+carries the site the user is signing in to as its `Referer`, which your
+Cloudflare logs may keep.
+
+## Updating
+
+```bash
+git pull
+pnpm install
+pnpm --filter @skysa/draw-api exec wrangler d1 migrations apply skysa-draw --remote
+pnpm run deploy
+```
+
+Deploy from a release tag rather than from `main` (`git tag --list 'v*'`,
+then `git checkout vX.Y.Z`); each release's notes say whether it carries a
+migration. The security of your instance is the security of the commit you
+deployed. See [`SECURITY.md`](../SECURITY.md).
+
+## When it will not boot
+
+The Worker refuses to start rather than starting up wrong. Every failure is
+reported as `Invalid environment:` followed by one line per problem — all of
+them, not just the first. The three that catch people:
+
+| The line | What to do |
+|---|---|
+| `APP_ORIGIN: Invalid input: expected string, received undefined` | No default exists; set it. (`Invalid URL` instead means it is set but malformed — the scheme is what is usually missing.) |
+| `SECRETS_KEY: SECRETS_KEY must be base64 of exactly 32 bytes` | Regenerate: `openssl rand -base64 32` |
+| `DROPBOX_CLIENT_SECRET: required because ENABLED_PROVIDERS includes "dropbox"` | Register that provider's app, or drop it from `ENABLED_PROVIDERS` |
+| `RELAY: true, but the RELAY_HUB Durable Object binding is missing from wrangler.toml` | Put back the `[[durable_objects.bindings]]` block, or set `RELAY = "false"` |
+
+`AUTH_MODE=account-first` is refused the same way — *"account-first is not
+implemented and will not be"*. Sign-in separate from storage was dropped in
+skysa-notes in September 2026 and never existed here: on this instance a person
+**is** their storage account, and accepting the setting would leave you
+believing connections were gated behind a sign-in when they were not.
+`storage-first` is the only value, and the variable itself will go when the
+layer this app carries from skysa-notes drops it
+([skysa-org/skysa-notes#118](https://github.com/skysa-org/skysa-notes/issues/118)).

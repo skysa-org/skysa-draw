@@ -1,0 +1,36 @@
+# skysa-draw — instructions for Claude Code
+
+Local-first drawing and image editing PWA syncing to an app-owned folder on Google Drive, OneDrive, or Dropbox (WebDAV is deferred indefinitely — `docs/ARCHITECTURE.md` §5.4). Read `docs/ARCHITECTURE.md` before any non-trivial task; it is the source of truth for the architecture, and it links the decision behind each feature in `docs/decisions/`; `docs/history.md` is how it was built; open work is in GitHub issues. If a task requires deviating from it, say so and propose the edit to it, or to the decision record, in the same PR.
+
+The repository started as a copy of the content-agnostic layers of [skysa-notes](https://github.com/skysa-org/skysa-notes) (`docs/decisions/0002-carried-over-from-skysa-notes.md`): the API whole, the provider adapters, the naming and path rules, the PWA and brand build. A fix to one of those layers is a fix in both repositories until a shared package exists; say in the PR which side it came from.
+
+## Stack (do not substitute)
+- pnpm workspace: `apps/web` (Vite + React + TS, TanStack Router, Dexie, vite-plugin-pwa), `apps/api` (Hono on Cloudflare Workers, D1 via Drizzle), `packages/core` (framework-free TS).
+- The drawing file is SVG (`docs/decisions/0001-the-drawing-file.md`): one `.svg` per drawing, the app's own metadata in its own XML namespace on the root element, read and written by `packages/core/src/drawing/document.ts` without a DOM.
+- Identity: there is none, and that is the design, not a gap — each connected storage account is its own silo, reached by a credential the device holds (docs/ARCHITECTURE.md §6, "Per-connection credentials"). Do not add an identity layer, a `users` subject, or a second OAuth flow; if a task seems to need one, say so rather than building it. Storage OAuth, which is a different thing, is hand-rolled over Web Crypto and installs no dependency. Validation: zod. Tests: Vitest.
+
+## Hard rules
+- `packages/core` imports nothing from `apps/*` and has no framework, DOM, or Node-only dependencies. It must run in browser, Node, and Workers. The drawing module parses SVG with a scanner over the prolog and the root tag, never `DOMParser`.
+- `apps/api` code never touches `process.env` or Workers env except in `src/worker.ts`. Everything else receives config through `createApp(options)`.
+- The SVG text is the only source of truth for a drawing. The editor is a view. A drawing becomes dirty only on a user's edit, never on load or re-serialization, and `saveDrawing` ignores a save of the same text.
+- Never lose user data. On sync conflict, remote keeps the path; local is written as `<name> (conflict <timestamp>).svg`. A file the app cannot read as a drawing is shown, never rewritten.
+- An SVG from elsewhere is untrusted. It is shown through an `<img>` (`blob:`), or put into the DOM only through a sanitizer that strips script, event handlers and external references (docs/ARCHITECTURE.md §7, "The editor"; §9).
+- No drawing content is ever sent to or stored by `apps/api`. Only tokens and connection metadata.
+- **Three kinds of secret, three homes, and one of them is a knowing compromise.**
+  1. *Provider access tokens* — memory + IndexedDB, never localStorage. Short-lived and re-mintable.
+  2. *Refresh tokens* — only ever encrypted in D1, decrypted only in `POST /api/token`, never returned to the client.
+  3. *The per-connection credential* (`sk1_…`, docs/ARCHITECTURE.md §6) — generated in the browser, held in IndexedDB, and sent to the server **only as its SHA-256**. The server never holds the plaintext: not in D1, not in a log, not in a `Location`, a `Set-Cookie` or a body. There is a test that proves it by generating a known secret and grepping every response in the flow; do not delete it.
+
+  This third one replaced an `httpOnly` session cookie, and that is a real loss, stated plainly so nobody later reads this list as saying IndexedDB is safe. It is not. An XSS can copy the credential out and use it until the device is revoked. What keeps the trade honest is **`script-src 'self'` with nothing inline or eval'd — a hard requirement, not a good default**. Nothing may be added to `script-src` in `apps/web/public/_headers`, and no inline script, `eval`, or `new Function` may be introduced into the shell. SVG is the way script gets in here: an SVG in the DOM runs its `<script>` and its `on*` handlers unless a sanitizer took them out first.
+- No operator-specific or deployment-specific code in this repo. Anything one deployment needs enters only through the `EntitlementProvider` and `RateLimiter` seams passed to `createApp`, the `ENABLED_PROVIDERS` env flag, the `RELAY` env flag and `RelayHub` seam (the optional change relay, `docs/ARCHITECTURE.md` §6), and the `DRAW_BRAND` build input (a `brand.json` outside the repo: name, colours, icons, fonts; `docs/ARCHITECTURE.md` §8, "Brand"). The default brand names no deployment.
+- Never commit secrets. `.dev.vars` is gitignored; `.dev.vars.example` lists every key.
+- Every provider adapter must pass `packages/core/tests/providers/contract.test.ts`. Every change to the drawing file's shape must keep `packages/core/tests/drawing/document.test.ts` green, and a file given its id twice must be the same bytes.
+
+## Working style
+- Work one issue at a time, and check the change against `docs/ARCHITECTURE.md` before starting. Start in plan mode for anything touching more than one package.
+- Prefer small PRs against `main`. Each PR: tests for new behavior, an amendment to `docs/ARCHITECTURE.md` or the record in `docs/decisions/` if a recorded decision changes, and — if it changes anything under `apps/` or `packages/` — a changeset (`pnpm run changeset`, or `--empty` when nothing observable moved). CI fails a PR that changes a package without one. The three workspace packages share one version and one `vX.Y.Z` tag; `.changeset/README.md` says why and how a release is cut.
+- Commands: `pnpm dev` (web + wrangler dev), `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm db:migrate`, `pnpm build`, `pnpm verify` before every commit.
+- When unsure about a provider API detail (scopes, endpoints, conflict semantics), check the current vendor docs rather than assuming; note the URL in a code comment.
+- Words the user reads come from the catalog, `t('…')` from `apps/web/src/i18n/t.ts` (`docs/ARCHITECTURE.md` §7, "The app's words"): whole sentences with `{placeholders}`, and `{ one, other }` for a count — never fragments joined in code, never English grammar (`count === 1 ? 'it' : 'them'`) in a component.
+- The house style is functional: no `let`, no loops and no mutation outside tests, `cell()` from core for a value that changes, arrow functions, one sentence per line in the docs. ESLint says the rest.
+- Do not add dependencies without stating why in the PR description. Check license (MIT/Apache/ISC only).

@@ -1,0 +1,76 @@
+# Copy to apps/api/.dev.vars and fill in. Never commit the real file.
+# In production set each of these with `wrangler secret put <KEY>`.
+#
+# The Worker's `Env` type is generated from this file's keys, not from your own
+# .dev.vars (`pnpm --filter @skysa/draw-api run cf-typegen`), so a key added here
+# needs that run and its result committed.
+
+# Public origin of this deployment. OAuth redirect URIs are derived from it.
+APP_ORIGIN="http://localhost:5173"
+
+# storage-first — the only value. `account-first` refuses to boot: sign-in
+# separate from storage was dropped, and here a person *is* their storage
+# account (docs/ARCHITECTURE.md §6). The variable itself is going (issue #118).
+AUTH_MODE="storage-first"
+
+# Any of: gdrive,onedrive,dropbox,webdav. `dropbox`, `onedrive` and `gdrive`
+# are implemented — webdav is deferred indefinitely, and listing it connects
+# nothing (docs/ARCHITECTURE.md §5.4) — and each OAuth provider listed here must have
+# its credentials below or the app refuses to boot.
+ENABLED_PROVIDERS="dropbox"
+
+# 32 random bytes, base64. Generate with: openssl rand -base64 32
+# Checked at boot: anything that does not decode to exactly 32 bytes is refused
+# there rather than at the first attempt to connect an account.
+SECRETS_KEY=""
+# Names the current key so rows encrypted with an older one stay readable.
+SECRETS_KEY_ID="k1"
+
+# Deprecated, and does nothing: it was for the deferred WebDAV proxy
+# (docs/ARCHITECTURE.md §5.4). Setting it only logs a warning at boot; it is
+# removed in the breaking change #118 tracks.
+# WEBDAV_ALLOW_PRIVATE="false"
+
+# The change relay: other devices update within seconds of a push. Off by
+# default — it tells the server when each account is edited, and on Workers
+# Free it spends the request cap token refresh shares. Read
+# docs/self-hosting.md, "Instant updates between devices", before turning it on.
+RELAY="false"
+
+# Google Cloud console — required when ENABLED_PROVIDERS includes gdrive.
+# Create an OAuth client of type *Web application* with this redirect URI:
+#   <APP_ORIGIN>/api/auth/connect/gdrive/callback
+# enable the Google Drive API, and add the scopes openid, email and
+# https://www.googleapis.com/auth/drive.file to the consent screen. While the
+# app is in Testing, only listed test users can connect and every refresh token
+# expires after 7 days. docs/google-oauth.md has the whole walk-through,
+# including leaving Testing.
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+
+# Entra app registration — required when ENABLED_PROVIDERS includes onedrive.
+# The registration's display name must be "skysa-draw": OneDrive derives the
+# app folder name from it. Supported account types: "Accounts in any
+# organizational directory and personal Microsoft accounts". Add a *Web*
+# platform (not SPA — the exchange happens on this server, with the secret)
+# with this redirect URI:
+#   <APP_ORIGIN>/api/auth/connect/onedrive/callback
+# Delegated Microsoft Graph permissions: Files.ReadWrite.AppFolder,
+# offline_access, openid, email. Create a client secret and put its *value*
+# here; it expires, so note when — an expired one fails every refresh, which
+# the API logs as `invalid_client`. Work and school accounts usually cannot
+# consent to a multi-tenant app from an unverified publisher: verify the
+# publisher (or have a tenant admin consent) if they need to connect. Personal
+# Microsoft accounts are unaffected.
+MICROSOFT_CLIENT_ID=""
+MICROSOFT_CLIENT_SECRET=""
+# common (personal and work accounts), consumers, organizations, or a tenant id.
+MICROSOFT_TENANT="common"
+
+# Dropbox App Console — required when ENABLED_PROVIDERS includes dropbox.
+# Create the app with the name "skysa-draw"; Dropbox app names are immutable.
+# Choose Scoped access / App folder, grant the five storage scopes listed in
+# apps/api/src/oauth/dropbox.ts, and register this redirect URI:
+#   <APP_ORIGIN>/api/auth/connect/dropbox/callback
+DROPBOX_CLIENT_ID=""
+DROPBOX_CLIENT_SECRET=""

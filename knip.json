@@ -1,0 +1,11 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"workspaces": {
+		"apps/web": {
+			"entry": ["brand/recolour.mjs", "brand/icons.mjs"]
+		},
+		"apps/api": {
+			"ignoreDependencies": ["cloudflare"]
+		}
+	}
+}

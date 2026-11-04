@@ -1,0 +1,221 @@
+/* The one screen: three panes side by side, and stacked on a narrow window. */
+html,
+body,
+#root,
+.app {
+	height: 100%;
+	margin: 0;
+}
+
+body {
+	background: var(--bg);
+	color: var(--fg);
+	font-family: var(--font-sans);
+	font-size: var(--text-m);
+}
+
+.home {
+	display: grid;
+	grid-template-columns: 14rem 18rem minmax(0, 1fr);
+	height: 100%;
+}
+
+@media (width < 60rem) {
+	.home {
+		grid-template-columns: 1fr;
+		grid-template-rows: auto auto minmax(0, 1fr);
+	}
+}
+
+.sidebar,
+.drawing-list {
+	border-inline-end: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-s);
+	min-height: 0;
+	overflow: auto;
+	padding: var(--space-m);
+}
+
+.sidebar ul,
+.drawing-list ul {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3xs);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.folder-row,
+.drawing-row {
+	background: none;
+	border: 0;
+	border-radius: var(--radius-s);
+	color: inherit;
+	cursor: pointer;
+	display: flex;
+	flex-direction: column;
+	font: inherit;
+	gap: var(--space-3xs);
+	padding: var(--row-block) var(--space-s);
+	text-align: start;
+	width: 100%;
+}
+
+.folder-row:hover,
+.drawing-row:hover {
+	background: var(--hover-bg);
+}
+
+.folder-row[aria-current],
+.drawing-row[aria-current] {
+	background: var(--on-bg);
+	color: var(--on-fg);
+}
+
+.drawing-row-when {
+	color: var(--muted);
+	font-size: var(--text-xs);
+}
+
+.drawing-view {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.pane-bar {
+	align-items: center;
+	border-block-end: 1px solid var(--border);
+	display: flex;
+	gap: var(--space-s);
+	min-height: calc(var(--control) + 2 * var(--bar-block));
+	padding: var(--bar-block) var(--gutter);
+}
+
+.drawing-list .pane-bar {
+	border: 0;
+	padding: 0;
+}
+
+.drawing-title {
+	flex: 1;
+	font-size: var(--text-l);
+	font-weight: 600;
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.drawing-canvas {
+	align-items: center;
+	background: var(--surface);
+	display: flex;
+	flex: 1;
+	justify-content: center;
+	min-height: 0;
+	overflow: auto;
+	padding: var(--space-l);
+}
+
+.drawing-canvas img {
+	background: #ffffff;
+	box-shadow: var(--shadow-m);
+	max-height: 100%;
+	max-width: 100%;
+}
+
+.pane-empty {
+	color: var(--muted);
+	margin: var(--space-l) var(--gutter);
+}
+
+/* Controls, in the few shapes the screen has. */
+button {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	background: var(--surface);
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	min-height: var(--control);
+	padding: 0 var(--space-m);
+}
+
+button.primary {
+	background: var(--brand);
+	border-color: transparent;
+	color: var(--on-brand);
+}
+
+button.ghost {
+	background: none;
+	border-color: transparent;
+}
+
+button.ghost:hover,
+button:not(.primary):hover {
+	background: var(--hover-bg);
+}
+
+.inline-form {
+	display: flex;
+	flex: 1;
+	flex-wrap: wrap;
+	gap: var(--space-s);
+}
+
+.inline-form input {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	background: var(--bg);
+	color: inherit;
+	flex: 1;
+	font: inherit;
+	font-size: var(--text-field-floor);
+	min-height: var(--control);
+	min-width: 8rem;
+	padding: 0 var(--space-s);
+}
+
+.inline-actions {
+	display: flex;
+	gap: var(--space-xs);
+}
+
+.form-error {
+	color: var(--bad);
+	flex-basis: 100%;
+	font-size: var(--text-s);
+	margin: 0;
+}
+
+.visually-hidden {
+	clip: rect(0 0 0 0);
+	height: 1px;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
+
+/* The bar that says a new build is waiting (`UpdatePrompt`). */
+.update-prompt {
+	align-items: center;
+	background: var(--surface);
+	border-block-start: 1px solid var(--border);
+	bottom: 0;
+	display: flex;
+	gap: var(--space-s);
+	inset-inline: 0;
+	padding: var(--space-s) var(--gutter);
+	position: fixed;
+	z-index: var(--z-float);
+}
+
+.update-prompt span {
+	flex: 1;
+}
