@@ -43,6 +43,8 @@ export const EDIT_ACTIONS = [
 	'swapColours',
 	'newLayer',
 	'duplicate',
+	'selectAll',
+	'deselect',
 ] as const;
 
 export type EditAction = (typeof EDIT_ACTIONS)[number];
@@ -101,7 +103,9 @@ const PRIMARY_ACTIONS: Readonly<Record<string, EditAction>> = {
 	'=': 'zoomIn',
 	'+': 'zoomIn',
 	'-': 'zoomOut',
-	d: 'duplicate',
+	j: 'duplicate',
+	a: 'selectAll',
+	d: 'deselect',
 };
 
 /**

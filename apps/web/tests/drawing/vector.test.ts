@@ -152,6 +152,8 @@ const createFake = (
 			pixelRatio: 1,
 		},
 		viewport: { scale, zoomBy: noop, panBy: noop, fit: noop, actualSize: noop },
+		region: { path: undefined, set: noop },
+		host: document.createElement('div'),
 		selection: {
 			get elements() {
 				return selected.current;

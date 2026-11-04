@@ -174,6 +174,7 @@ export const Viewport = ({
 	const fitted = useRef<Fitted | undefined>(undefined);
 	const [views] = useState(() => observable(IDENTITY_VIEW));
 	const [selections] = useState(() => observable(NO_SELECTION));
+	const [regions] = useState(() => observable<string | undefined>(undefined));
 	const [spaceHeld, setSpaceHeld] = useState(false);
 	const view = useSyncExternalStore(views.subscribe, views.get);
 	const snapshot = useSyncExternalStore(document.subscribe, document.snapshot);
@@ -346,7 +347,9 @@ export const Viewport = ({
 	const activeLayer = () => snapshot.layers.find((layer) => layer.id === layerId);
 
 	const toolContext = (): ToolContext | undefined => {
-		if (overlay.current === null || screen.current === null) return undefined;
+		if (overlay.current === null || screen.current === null || region.current === null) {
+			return undefined;
+		}
 		return createToolContext({
 			document,
 			layer: activeLayer(),
@@ -356,6 +359,8 @@ export const Viewport = ({
 			pixelRatio: () => window.devicePixelRatio,
 			view: views,
 			selection: selections,
+			region: regions,
+			host: region.current,
 			fit,
 			actualSize,
 			setColour: onColour,

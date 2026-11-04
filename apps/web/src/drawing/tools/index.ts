@@ -1,6 +1,7 @@
 import type { LayerKind } from '@skysa/draw-core';
 
 import { t } from '../../i18n/t.js';
+import { cropBehaviour } from './common/crop.js';
 import { handBehaviour } from './common/hand.js';
 import { zoomBehaviour } from './common/zoom.js';
 import { rasterBehaviours } from './raster/index.js';
@@ -41,13 +42,20 @@ const CROSSHAIR = 'crosshair';
 
 export const TOOLS: readonly Tool[] = [
 	tool('select', [], 'default'),
+	tool('node', [], 'default'),
+	tool('marquee', ['constrain'], CROSSHAIR),
+	tool('lasso', [], CROSSHAIR),
 	tool('hand', [], 'grab', handBehaviour),
 	tool('zoom', [], 'zoom-in', zoomBehaviour),
+	tool('crop', ['constrain'], CROSSHAIR, cropBehaviour()),
 	tool('pencil', ['size', 'smoothing', 'stroke', 'opacity'], CROSSHAIR),
 	tool('brush', ['size', 'opacity', 'hardness', 'pressure', 'smoothing', 'fill'], CROSSHAIR),
 	tool('eraser', ['size', 'hardness'], CROSSHAIR),
+	tool('smudge', ['size', 'strength', 'hardness'], CROSSHAIR),
 	tool('fill', ['fill', 'tolerance'], CROSSHAIR),
 	tool('eyedropper', [], CROSSHAIR),
+	tool('pen', ['fill', 'stroke', 'strokeWidth'], CROSSHAIR),
+	tool('text', ['fill', 'fontSize'], 'text'),
 	tool('rectangle', ['fill', 'stroke', 'strokeWidth', 'cornerRadius', 'constrain'], CROSSHAIR),
 	tool('ellipse', ['fill', 'stroke', 'strokeWidth', 'constrain'], CROSSHAIR),
 	tool('line', ['stroke', 'strokeWidth', 'constrain'], CROSSHAIR),

@@ -129,6 +129,9 @@ const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean
 	zoomOut: ({ viewport }) => withViewport(viewport, (view) => view.zoomOut()),
 	delete: () => false,
 	escape: () => false,
+	// The area selection is the viewport's, as the element selection is.
+	selectAll: () => false,
+	deselect: () => false,
 	sizeUp: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: 1 })),
 	sizeDown: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: -1 })),
 	swapColours: ({ dispatch }) => always(() => dispatch({ type: 'swapColours' })),

@@ -391,6 +391,8 @@ const createFake = (setup: Setup = {}): Fake => {
 			actualSize: noop,
 		},
 		selection: { elements: [], set: noop, clear: noop },
+		region: { path: undefined, set: noop },
+		host: document.createElement('div'),
 		setColour: (which, value) => colours.push([which, value]),
 		notify: (message) => notices.push(message),
 	};

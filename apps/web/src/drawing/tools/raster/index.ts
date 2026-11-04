@@ -1,8 +1,14 @@
-import type { Behaviours } from '../types.js';
+import type { Behaviours, ToolBehaviour } from '../types.js';
 import { brushBehaviour } from './brush.js';
 import { eyedropper, fill } from './fill.js';
+import { regionBehaviour } from './region.js';
 import { select } from './select.js';
 import { shapeBehaviour } from './shapes.js';
+import { smudgeBehaviour } from './smudge.js';
+
+/** The tools that are built, of those named: a stub that is not yet is left out. */
+const defined = (behaviours: Readonly<Record<string, ToolBehaviour | undefined>>): Behaviours =>
+	Object.fromEntries(Object.entries(behaviours).filter(([, each]) => each !== undefined));
 
 /**
  * What each tool does on a raster layer (docs/decisions/0004-the-interface.md).
@@ -11,6 +17,11 @@ import { shapeBehaviour } from './shapes.js';
  * asynchronous and a save waits for it (docs/ARCHITECTURE.md §7, "The editor").
  */
 export const rasterBehaviours: Behaviours = {
+	...defined({
+		marquee: regionBehaviour('marquee'),
+		lasso: regionBehaviour('lasso'),
+		smudge: smudgeBehaviour(),
+	}),
 	select,
 	pencil: brushBehaviour('pencil'),
 	brush: brushBehaviour('brush'),

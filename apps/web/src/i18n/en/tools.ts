@@ -35,6 +35,8 @@ export const tools = {
 		tolerance: 'Tolerance',
 		/** A shape or a selection kept to a square, a circle, a straight angle. */
 		constrain: 'Constrain',
+		fontSize: 'Font size',
+		strength: 'Strength',
 	},
 	/** A tool that does nothing on the active layer's kind. */
 	notOnVector: '{tool} does not work on a vector layer.',

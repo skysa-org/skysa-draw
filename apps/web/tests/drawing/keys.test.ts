@@ -154,7 +154,9 @@ describe('editActionFor', () => {
 		expect(editActionFor(key('+', { ...held, shiftKey: true }), isMac)).toBe('zoomIn');
 		expect(editActionFor(key('-', held), isMac)).toBe('zoomOut');
 		expect(editActionFor(key('N', { ...held, shiftKey: true }), isMac)).toBe('newLayer');
-		expect(editActionFor(key('d', held), isMac)).toBe('duplicate');
+		expect(editActionFor(key('j', held), isMac)).toBe('duplicate');
+		expect(editActionFor(key('a', held), isMac)).toBe('selectAll');
+		expect(editActionFor(key('d', held), isMac)).toBe('deselect');
 		expect(editActionFor(key('n', held), isMac)).toBeUndefined();
 		expect(editActionFor(key('D', { ...held, shiftKey: true }), isMac)).toBeUndefined();
 		expect(editActionFor(key('z', { ...held, altKey: true }), isMac)).toBeUndefined();

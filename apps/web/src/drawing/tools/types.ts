@@ -71,6 +71,10 @@ export interface ToolOptions {
 	readonly tolerance: number;
 	/** Shapes kept square or round, lines to 45°. */
 	readonly constrain: boolean;
+	/** A new text's size, in user units. */
+	readonly fontSize: number;
+	/** How far the smudge drags colour, 0 to 1. */
+	readonly strength: number;
 }
 
 export type ToolOptionKey = keyof ToolOptions;
@@ -87,6 +91,8 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
 	cornerRadius: 0,
 	tolerance: 0.1,
 	constrain: false,
+	fontSize: 48,
+	strength: 0.5,
 };
 
 /** The viewport, as a tool may move it. */
@@ -106,6 +112,17 @@ export interface SelectionControl {
 	readonly elements: readonly Element[];
 	readonly set: (elements: readonly Element[]) => void;
 	readonly clear: () => void;
+}
+
+/**
+ * The area selection the marquee and the lasso make: a closed path in user
+ * units, or none. It outlives the tool that made it, as in every editor, so
+ * the raster tools paint inside it and Delete clears it, until it is dropped.
+ */
+export interface RegionControl {
+	/** An SVG path's `d`, closed, in the drawing's user units. */
+	readonly path: string | undefined;
+	readonly set: (path: string | undefined) => void;
 }
 
 /** A canvas over the viewport, in device pixels, for a live raster stroke. */
@@ -131,6 +148,12 @@ export interface ToolContext {
 	readonly screen: ScreenCanvas;
 	readonly viewport: ViewportControl;
 	readonly selection: SelectionControl;
+	readonly region: RegionControl;
+	/**
+	 * The viewport's own element, for a tool that needs HTML over the canvas:
+	 * the text tool's field. What a tool adds here it removes when it ends.
+	 */
+	readonly host: HTMLElement;
 	/** The eyedropper's way of setting a colour. */
 	readonly setColour: (which: 'fill' | 'stroke', value: string) => void;
 	/** A line to the user: a locked layer, a tool that does not apply here. Already in the user's words. */

@@ -44,7 +44,7 @@ The tools are the ones users of Figma, Illustrator, Photoshop, Procreate and Kri
 | Marquee, Lasso | M, Q | Select elements in a region | Select pixels in a region |
 | Crop | C | The canvas's `viewBox` | The canvas's `viewBox` |
 
-Undo and redo are Ctrl or ⌘ Z and Shift with it; `[` and `]` change a brush's size; X swaps the two colours; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
+Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and D drops the selection, and J duplicates the layer, as in Photoshop; `[` and `]` change a brush's size; X swaps the two colours; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
 A new layer is Insert, Krita's key, with no modifier, since Shift and Ctrl with Insert are paste and copy on Windows and Linux; Photoshop's Ctrl or ⌘ Shift N is kept for an installed window, but a browser tab never receives it, and a Mac keyboard has no Insert, so on a Mac in a tab the layers panel is the way.
 The map is one file, `drawing/keys.ts`, so a dispute about a key is settled in one place.
 A tool that does nothing on the active layer's kind says so and is not available, rather than doing something else.

@@ -24,20 +24,26 @@ const LENGTHS = {
 	size: [SIZE_MIN, SIZE_MAX],
 	strokeWidth: [0, 50],
 	cornerRadius: [0, 100],
+	fontSize: [6, 400],
 } as const;
 
 type LengthKey = keyof typeof LENGTHS;
-type FractionKey = 'opacity' | 'hardness' | 'smoothing' | 'tolerance';
+type FractionKey = 'opacity' | 'hardness' | 'smoothing' | 'tolerance' | 'strength';
 type ToggleKey = 'pressure' | 'constrain';
 
 const isLength = (key: ToolOptionKey): key is LengthKey => key in LENGTHS;
 const isFraction = (key: ToolOptionKey): key is FractionKey =>
-	key === 'opacity' || key === 'hardness' || key === 'smoothing' || key === 'tolerance';
+	key === 'opacity' ||
+	key === 'hardness' ||
+	key === 'smoothing' ||
+	key === 'tolerance' ||
+	key === 'strength';
 const isToggle = (key: ToolOptionKey): key is ToggleKey =>
 	key === 'pressure' || key === 'constrain';
 
 /** A shape's fill may be none, as its stroke may; a brush's fill is the paint itself. */
-const fillMayBeNone = (tool: Tool): boolean => tool.id === 'rectangle' || tool.id === 'ellipse';
+const fillMayBeNone = (tool: Tool): boolean =>
+	tool.id === 'rectangle' || tool.id === 'ellipse' || tool.id === 'pen';
 
 const Option = ({
 	tool,

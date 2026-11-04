@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
 	addLayer,
+	compound,
 	duplicateLayer,
 	editLayer,
 	moveLayer,
@@ -487,5 +488,28 @@ describe('the layer helpers the commands are made of', () => {
 			parentId: 'folder',
 			loose: false,
 		});
+	});
+});
+
+describe('compound', () => {
+	it('applies its parts in order, reverts them in reverse, and costs what they cost', () => {
+		const order: string[] = [];
+		const part = (name: string, bytes: number) => ({
+			label: name,
+			apply: () => {
+				order.push(`apply ${name}`);
+			},
+			revert: () => {
+				order.push(`revert ${name}`);
+			},
+			bytes,
+		});
+		const both = compound('layers.add', [part('a', 3), part('b', 4)]);
+		const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		both.apply(root);
+		both.revert(root);
+		expect(order).toEqual(['apply a', 'apply b', 'revert b', 'revert a']);
+		expect(both.bytes).toBe(7);
+		expect(both.label).toBe('layers.add');
 	});
 });

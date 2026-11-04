@@ -262,7 +262,7 @@ describe('the editor frame', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Harbour at dusk');
 	});
 
-	it('presses a tool with its key, and leaves a key for a tool not built yet alone', async () => {
+	it('presses a tool with its key', async () => {
 		await renderEditor('expanded');
 		const brush = screen.getByRole('button', { name: 'Brush' });
 		const select = screen.getByRole('button', { name: 'Select' });
@@ -273,9 +273,13 @@ describe('the editor frame', () => {
 		await waitFor(() => expect(brush.getAttribute('aria-pressed')).toBe('true'));
 		expect(select.getAttribute('aria-pressed')).toBe('false');
 
-		// The pen's key: no pen in the bar, so nothing changes.
 		fireEvent.keyDown(window, { key: 'p' });
-		expect(brush.getAttribute('aria-pressed')).toBe('true');
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Pen' }).getAttribute('aria-pressed')).toBe(
+				'true'
+			)
+		);
+		expect(brush.getAttribute('aria-pressed')).toBe('false');
 	});
 
 	it('takes no key typed into a field', async () => {

@@ -60,13 +60,20 @@ describe('TOOLS', () => {
 		});
 		expect(ids).toEqual([
 			'select',
+			'node',
+			'marquee',
+			'lasso',
 			'hand',
 			'zoom',
+			'crop',
 			'pencil',
 			'brush',
 			'eraser',
+			'smudge',
 			'fill',
 			'eyedropper',
+			'pen',
+			'text',
 			'rectangle',
 			'ellipse',
 			'line',
@@ -130,10 +137,10 @@ describe('TOOLS', () => {
 		});
 	});
 
-	it('finds a tool by id, and nothing for one the bar does not show', () => {
-		expect(toolById('pencil')?.id).toBe('pencil');
-		expect(toolById('smudge')).toBeUndefined();
-		expect(toolById('node')).toBeUndefined();
+	it('finds every tool the bar shows by its id', () => {
+		TOOL_IDS.forEach((id) => {
+			expect(toolById(id)?.id).toBe(id);
+		});
 	});
 });
 

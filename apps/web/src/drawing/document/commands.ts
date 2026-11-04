@@ -542,3 +542,21 @@ export const wrapLooseLayer = (
 		},
 	};
 };
+
+/**
+ * Several commands as one step of the history: applied in order, reverted in
+ * the reverse, so a picture placed as a new layer, or a merge that makes one
+ * layer of two, is one undo. Each part still finds its elements by id.
+ */
+export const compound = (label: string, parts: readonly Command[]): Command => ({
+	label,
+	apply: (root) => {
+		parts.forEach((part) => part.apply(root));
+	},
+	revert: (root) => {
+		[...parts].reverse().forEach((part) => part.revert(root));
+	},
+	get bytes() {
+		return parts.reduce((total, part) => total + part.bytes, 0);
+	},
+});

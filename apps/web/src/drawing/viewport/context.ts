@@ -1,5 +1,6 @@
 import type { EditorDocument, LayerInfo } from '../document/model.js';
 import type {
+	RegionControl,
 	ScreenCanvas,
 	SelectionControl,
 	ToolContext,
@@ -25,6 +26,8 @@ type ContextDeps = Readonly<{
 	pixelRatio: () => number;
 	view: Observable<View>;
 	selection: Observable<readonly Element[]>;
+	region: Observable<string | undefined>;
+	host: HTMLElement;
 	fit: () => void;
 	actualSize: () => void;
 	setColour: ToolContext['setColour'];
@@ -80,6 +83,15 @@ const selectionControl = (selection: Observable<readonly Element[]>): SelectionC
 	},
 });
 
+const regionControl = (region: Observable<string | undefined>): RegionControl => ({
+	get path() {
+		return region.get();
+	},
+	set: (path) => {
+		region.set(path);
+	},
+});
+
 export const createToolContext = (deps: ContextDeps): ToolContext => ({
 	document: deps.document,
 	layer: deps.layer,
@@ -88,6 +100,8 @@ export const createToolContext = (deps: ContextDeps): ToolContext => ({
 	screen: screenCanvas(deps.canvas, deps.view, deps.pixelRatio),
 	viewport: viewportControl(deps.view, deps.fit, deps.actualSize),
 	selection: selectionControl(deps.selection),
+	region: regionControl(deps.region),
+	host: deps.host,
 	setColour: deps.setColour,
 	notify: deps.notify,
 });
