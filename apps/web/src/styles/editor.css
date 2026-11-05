@@ -460,22 +460,14 @@
 	width: 1px;
 }
 
-/* Feather… and Modify…: the hint, the radius as a slider and a number
-   together, and the buttons. */
-.feather-form,
+/* Modify…: the ways, the radius as a slider and a number together, and
+   the buttons. */
 .modify-form {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-s);
 }
 
-.feather-hint {
-	color: var(--muted);
-	font-size: var(--text-s);
-	margin: 0;
-}
-
-.feather-radius,
 .modify-radius {
 	align-items: center;
 	display: flex;
@@ -483,19 +475,16 @@
 	min-width: 0;
 }
 
-.feather-radius .slider,
 .modify-radius .slider {
 	flex: 1;
 }
 
 /* The number field beside the slider says its value, and is the one to
    type in: the slider's own read-out would only be squeezed under it. */
-.feather-radius .slider output,
 .modify-radius .slider output {
 	display: none;
 }
 
-.feather-field,
 .modify-field {
 	background: var(--bg);
 	border: 1px solid var(--border);
@@ -510,7 +499,6 @@
 	width: 5.5rem;
 }
 
-.feather-actions,
 .modify-actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -519,13 +507,12 @@
 	margin-block-start: var(--space-s);
 }
 
-.feather-actions button,
 .modify-actions button {
 	min-height: var(--target);
 	min-width: 6rem;
 }
 
-/* Modify…'s four ways, each a whole row to press, the radio, the name and
+/* Modify…'s five ways, each a whole row to press, the radio, the name and
    its line under it, as Fill…'s contents are rows. */
 .modify-ways {
 	border: 0;

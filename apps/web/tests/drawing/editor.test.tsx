@@ -471,7 +471,6 @@ describe('the selection bar', () => {
 			expect(barButtons()).toEqual([
 				'Deselect',
 				'Select inverse',
-				'Feather…',
 				'Modify…',
 				'Transform selection',
 				'Layer via copy',
@@ -489,22 +488,34 @@ describe('the selection bar', () => {
 		}
 	);
 
-	it('feathers the area from the bar, starting the dialog at its feather', async () => {
+	it('feathers the area with Shift F6, in Modify… opened at Feather and starting at the area’s feather', async () => {
 		const user = userEvent.setup();
 		fake.settings.kind = 'raster';
 		await renderEditor('expanded');
 		selectAll();
-		await user.click(await screen.findByRole('button', { name: 'Feather…' }));
-		const dialog = await screen.findByRole('dialog', { name: 'Feather selection' });
+		await screen.findByRole('button', { name: 'Modify…' });
+		fireEvent.keyDown(window, { key: 'F6', shiftKey: true });
+		const dialog = await screen.findByRole('dialog', { name: 'Modify selection' });
 		expect(dialog.classList.contains('panel-drawer')).toBe(true);
+		expect(within(dialog).getByRole('radio', { name: 'Feather' })).toHaveProperty(
+			'checked',
+			true
+		);
 		const field = within(dialog).getByRole('spinbutton', { name: 'Feather radius in pixels' });
 		expect(field).toHaveProperty('value', '0');
 		fireEvent.change(field, { target: { value: '12' } });
 		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(areaOps.modifyArea).toHaveBeenCalledWith(
+			expect.objectContaining({ feather: 0 }),
+			'feather',
+			12,
+			expect.anything()
+		);
 
-		await user.click(screen.getByRole('button', { name: 'Feather…' }));
-		const again = await screen.findByRole('dialog', { name: 'Feather selection' });
+		// Modify… opens where it was last applied, at the area's feather now.
+		await user.click(screen.getByRole('button', { name: 'Modify…' }));
+		const again = await screen.findByRole('dialog', { name: 'Modify selection' });
 		expect(
 			within(again).getByRole('spinbutton', { name: 'Feather radius in pixels' })
 		).toHaveProperty('value', '12');
@@ -512,7 +523,7 @@ describe('the selection bar', () => {
 		fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 		selectAll();
-		await screen.findByRole('button', { name: 'Feather…' });
+		await screen.findByRole('button', { name: 'Modify…' });
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
@@ -545,11 +556,12 @@ describe('the selection bar', () => {
 		expect(areaOps.modifyArea).toHaveBeenLastCalledWith(WHOLE, 'contract', 20, CANVAS);
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-		// The area is the one Modify… made: Feather… starts at its feather.
-		await user.click(screen.getByRole('button', { name: 'Feather…' }));
-		const feather = await screen.findByRole('dialog', { name: 'Feather selection' });
+		// The area is the one Modify… made: its Feather starts at that area's feather.
+		await user.click(screen.getByRole('button', { name: 'Modify…' }));
+		const again = await screen.findByRole('dialog', { name: 'Modify selection' });
+		await user.click(within(again).getByRole('radio', { name: 'Feather' }));
 		expect(
-			within(feather).getByRole('spinbutton', { name: 'Feather radius in pixels' })
+			within(again).getByRole('spinbutton', { name: 'Feather radius in pixels' })
 		).toHaveProperty('value', '7');
 	});
 
@@ -571,12 +583,23 @@ describe('the selection bar', () => {
 		expect(bar()).not.toBeNull();
 	});
 
-	it('shows Apply and Cancel while the area is transformed with any tool in hand, and the top bar’s Undo steps the transform', async () => {
+	it('shows Apply and Cancel alone while the area is transformed, with any tool in hand, and the top bar’s Undo steps the transform', async () => {
 		const user = userEvent.setup();
 		fake.settings.kind = 'raster';
 		await renderEditor('expanded');
 		selectAll();
+		fireEvent.keyDown(window, { key: 'm' });
 		await waitFor(() => expect(bar()).not.toBeNull());
+		// With the marquee: its own options give way to Apply and Cancel while it lasts.
+		expect(screen.getByRole('group', { name: 'Selection mode' })).toBeDefined();
+		await user.click(screen.getByRole('button', { name: 'Transform selection' }));
+		await waitFor(() => expect(barButtons()).toEqual(['Apply', 'Cancel']));
+		expect(screen.queryByRole('group', { name: 'Selection mode' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Constrain' })).toBeNull();
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		await waitFor(() =>
+			expect(screen.getByRole('group', { name: 'Selection mode' })).toBeDefined()
+		);
 		fireEvent.keyDown(window, { key: 'b' });
 		await waitFor(() => expect(bar()).toBeNull());
 		const canvas = screen.getByRole('region', { name: 'Canvas' });

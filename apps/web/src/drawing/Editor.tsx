@@ -41,7 +41,6 @@ import {
 import { ExportDialog } from './export/ExportDialog.js';
 import { type EditAction, editActionFor, isTyping, shortcutFor, toolFor } from './keys.js';
 import { ColorPanel } from './panels/ColorPanel.js';
-import { FeatherDialog } from './panels/FeatherDialog.js';
 import { FillDialog } from './panels/FillDialog.js';
 import { LayersPanel } from './panels/LayersPanel.js';
 import { ModifyDialog } from './panels/ModifyDialog.js';
@@ -50,12 +49,12 @@ import { PropertiesPanel } from './panels/PropertiesPanel.js';
 import { ToolButtons } from './panels/ToolButtons.js';
 import { SELECTION_TOOLS, selectionModeOf, useSelectionActions } from './selectionActions.js';
 import { toolById } from './tools/index.js';
+import type { AreaModify } from './tools/raster/areaOps.js';
 import type { Region, Tool } from './tools/types.js';
 import { TopBar } from './TopBar.js';
 import type { ViewportHandle } from './types.js';
 import { useOpenDrawing } from './useOpenDrawing.js';
 import { Viewport } from './Viewport.js';
-import { regionControl } from './viewport/context.js';
 import { isMac } from './viewport/pointer.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 
@@ -285,11 +284,12 @@ type FrameProps = Readonly<{
  * works (`viewport/selectionState.ts`), so that while something is selected
  * under a tool that selects, the options strip shows the actions the
  * viewport's context menu shows: one list (`selectionActions.ts`), done by the
- * viewport through its handle. Feather…, Modify… and Fill… each open a dialog
- * of the frame's, kept open only while the area it was opened for is the one
- * there; Feather…'s and Modify…'s Apply set the area, which is not part of the
- * history, and Fill…'s is the viewport's, through its handle. Modify… that
- * leaves nothing of the area drops it, and says so.
+ * viewport through its handle. Modify…, which Shift F6 opens at Feather, and
+ * Fill… each open a dialog of the frame's, kept open only while the area it
+ * was opened for is the one there; Modify…'s Apply sets the area, which is
+ * not part of the history, and Fill…'s is the viewport's, through its
+ * handle. A Modify… that would leave nothing of the area keeps it, and says
+ * so.
  */
 const Frame = ({
 	sizeClass,
@@ -316,8 +316,10 @@ const Frame = ({
 	const closeDock = () => dispatch({ type: 'setDockOpen', open: false });
 	const [selection] = useState(createViewportSelection);
 	const facts = useSelectionFacts(selection, snapshot, activeLayerId);
-	const [feathering, setFeathering] = useState<Region | undefined>(undefined);
-	const [modifying, setModifying] = useState<Region | undefined>(undefined);
+	// The area Modify… was opened on, and the way it was asked at: Shift F6's Feather.
+	const [modifying, setModifying] = useState<
+		Readonly<{ region: Region | undefined; way?: AreaModify }> | undefined
+	>(undefined);
 	const [filling, setFilling] = useState<Region | undefined>(undefined);
 	// Through the handle, when an item is chosen: the viewport does it.
 	const items = useSelectionActions(facts, (action) => viewport.current?.perform(action), MAC);
@@ -351,6 +353,7 @@ const Frame = ({
 			options={state.options}
 			onChange={(key, value) => dispatch(setOption(key, value))}
 			actions={selecting ? items : []}
+			transforming={facts.transforming === true}
 		/>
 	);
 	const layers = (onClose: () => void) => (
@@ -392,8 +395,7 @@ const Frame = ({
 					onNotify={notify}
 					onScale={onScale}
 					onActivateLayer={(id) => dispatch({ type: 'setActiveLayer', id })}
-					onFeather={() => setFeathering(selection.region.get())}
-					onModify={() => setModifying(selection.region.get())}
+					onModify={(way) => setModifying({ region: selection.region.get(), way })}
 					onFill={() => setFilling(selection.region.get())}
 					onTool={(toolId) => dispatch({ type: 'setTool', toolId })}
 					onOptions={(change) => dispatch({ type: 'setOptions', change })}
@@ -436,17 +438,11 @@ const Frame = ({
 					/>
 				}
 			/>
-			<FeatherDialog
-				placement={compact ? 'sheet' : 'drawer'}
-				open={feathering !== undefined && feathering === facts.region}
-				feather={facts.region?.feather ?? 0}
-				onApply={(feather) => regionControl(selection.region).update({ feather })}
-				onClose={() => setFeathering(undefined)}
-			/>
 			<ModifyDialog
 				placement={compact ? 'sheet' : 'drawer'}
-				open={modifying !== undefined && modifying === facts.region}
-				region={modifying}
+				open={modifying !== undefined && modifying.region === facts.region}
+				region={modifying?.region}
+				way={modifying?.way}
 				canvas={canvasBoxOf(document.root, document.size)}
 				onApply={(region) => {
 					// An area is not a step of the history, so one modified to nothing

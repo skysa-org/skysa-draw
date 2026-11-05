@@ -3,6 +3,7 @@ import type { Ref } from 'react';
 import type { EditorDocument } from './document/model.js';
 import type { SelectionActionId } from './selectionActions.js';
 import type { FillSpec } from './tools/raster/areaFill.js';
+import type { AreaModify } from './tools/raster/areaOps.js';
 import type { Tool, ToolId, ToolOptions } from './tools/types.js';
 import type { ViewportSelection } from './viewport/selectionState.js';
 
@@ -61,8 +62,6 @@ export interface ViewportProps {
 	 * press was canceled.
 	 */
 	readonly onActivateLayer?: (id: string) => void;
-	/** Feather… was asked for, by the context menu, the selection bar or Shift+F6: the frame opens its dialog. */
-	readonly onFeather?: () => void;
 	/**
 	 * Fill… was asked for, by the context menu, the selection bar, Shift+F5 or
 	 * Shift+Backspace, on a layer it may fill: the frame opens its dialog. A
@@ -71,10 +70,11 @@ export interface ViewportProps {
 	readonly onFill?: () => void;
 	/**
 	 * Modify… was asked for, by the context menu or the selection bar, with an
-	 * area selected: the frame opens its dialog. A viewport given none does
-	 * nothing for Modify….
+	 * area selected, or Feather by Shift+F6, which is `way`: the frame opens
+	 * its dialog, at that way where there is one. A viewport given none does
+	 * nothing for Modify… or Feather.
 	 */
-	readonly onModify?: () => void;
+	readonly onModify?: (way?: AreaModify) => void;
 	/**
 	 * A tool asked for another to be in hand (`ToolContext.useTool`): the
 	 * select tool's double press on a text or a path. The frame puts it in

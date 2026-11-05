@@ -384,7 +384,8 @@ Neither is a clip, since a clip cannot take a complement where subpaths overlap:
 So a brush stroke, a fill, Delete and the smudge change each pixel by as much as the area covers it, and a feathered edge keeps its partial alpha; where the canvas has no `filter` (Safari before 18) the edge is hard.
 The live stroke is exact for a plain or an inverted area, and shows a feather's edge hard, on the outline, until the stroke lands.
 The marching ants trace the outline, and for an inverse the canvas's edge too.
-Modify… (`modifyArea`, `tools/raster/areaOps.ts`) expands, contracts, smooths or borders the area, as Photoshop's Select > Modify does, by a radius in whole units held to Photoshop's limits (`MODIFY_LIMITS`: 1 to 500, Border 1 to 200).
+Modify… (`modifyArea`, `tools/raster/areaOps.ts`) expands, contracts, smooths, borders or feathers the area, as Photoshop's Select > Modify does, by a radius in whole units held to Photoshop's limits (`MODIFY_LIMITS`: 1 to 500, Border 1 to 200, Feather 0 to 250).
+Feather sets the area's feather and leaves its outline as it is; Shift F6 opens Modify… at it.
 Expand, Contract and Border measure the exact Euclidean distance between the cells' centers, by the transform of Felzenszwalb and Huttenlocher, linear in the cells, so a corner grown is round (`tools/raster/morph.ts`).
 Smooth keeps a cell where most of the square of the radius either side of it is selected, which takes off specks and fills notches; Border is a band the radius wide on the outline, the odd unit inside.
 An inverse expands by contracting its outline and contracts by expanding it, so the canvas's own edge stays; its Smooth smooths the outline, and its Border is a plain band on the outline.
@@ -433,7 +434,7 @@ A selection is dropped when another layer is made active unless it is that layer
 Ctrl or ⌘ A selects all, the elements on a vector layer and the canvas elsewhere, and D drops both.
 The selection's actions are one list (`drawing/selectionActions.ts`) built from the area, the selected elements, the active layer and the history; the canvas's context menu and the options strip's selection bar both show it (`decisions/0004-the-interface.md`, "The context menu").
 What each action does is the viewport's (`viewport/selectionCommands.ts`), reached through `ViewportHandle.perform`, so a key, a menu item and a bar button do the same thing.
-The frame holds the selection (`viewport/selectionState.ts`) and passes it to the viewport, so the bar and the feather dialog can see it.
+The frame holds the selection (`viewport/selectionState.ts`) and passes it to the viewport, so the bar and the dialogs can see it.
 Layer via copy and cut on a vector layer is one command (`document/layerVia.ts`) that keeps only the selected elements in a copy of the layer, and for a cut takes them from the source, and undoes to the file's exact bytes; on a raster layer it is the raster tools' `layerViaArea`.
 Smudge pushes the layer's own pixels, each dab picking up what lies under the one before, in one command when the stroke ends.
 

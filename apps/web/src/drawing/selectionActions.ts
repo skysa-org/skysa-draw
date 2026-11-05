@@ -133,7 +133,6 @@ const areaEntries = (facts: SelectionFacts, region: Region): readonly Entry[] =>
 	return [
 		{ id: 'deselect', enabled: true },
 		{ id: 'selectInverse', enabled: true },
-		{ id: 'feather', enabled: true },
 		{ id: 'modify', enabled: true },
 		// The outline's own box, which an inverse, the canvas outside it, has none of.
 		{ id: 'transformSelection', enabled: !region.inverted },

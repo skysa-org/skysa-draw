@@ -47,7 +47,7 @@ An option that is on or off, Auto-select, Contiguous, Pressure or Constrain, is 
 | Magic wand | W | Select the elements painted in a color near the one clicked, in the four selection modes | Select the pixels of a color near the one clicked, joined to it or anywhere, in the four selection modes |
 | Crop | C | The canvas's `viewBox` | The canvas's `viewBox` |
 
-Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and D drops the selection, Shift with I inverts it, J makes a new layer of what is selected (Layer via copy) and duplicates the layer when nothing is, and Shift with J cuts what is selected to a new layer (Layer via cut), as in Photoshop; the arrows nudge the selected pixels with the select tool, a pixel at a time or ten with Shift; Shift F6 feathers the selection; Shift F5 or Shift Backspace opens Fill…; Alt or Option Backspace fills it at once with the fill color, the one Alt chord the map takes, and Ctrl or ⌘ Backspace with the stroke color; inside a text field all three stay the field's; Shift Delete still deletes; `[` and `]` change a brush's size; X swaps the two colors and D puts back the default ones; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
+Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and D drops the selection, Shift with I inverts it, J makes a new layer of what is selected (Layer via copy) and duplicates the layer when nothing is, and Shift with J cuts what is selected to a new layer (Layer via cut), as in Photoshop; the arrows nudge the selected pixels with the select tool, a pixel at a time or ten with Shift; Shift F6 opens Modify… at Feather, as Photoshop's Shift F6 opens Feather; Shift F5 or Shift Backspace opens Fill…; Alt or Option Backspace fills it at once with the fill color, the one Alt chord the map takes, and Ctrl or ⌘ Backspace with the stroke color; inside a text field all three stay the field's; Shift Delete still deletes; `[` and `]` change a brush's size; X swaps the two colors and D puts back the default ones; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
 A new layer is Insert, Krita's key, with no modifier, since Shift and Ctrl with Insert are paste and copy on Windows and Linux; Photoshop's Ctrl or ⌘ Shift N is kept for an installed window, but a browser tab never receives it, and a Mac keyboard has no Insert, so on a Mac in a tab the layers panel is the way.
 The map is one file, `drawing/keys.ts`, so a dispute about a key is settled in one place.
 Chrome on Windows and Linux keeps Ctrl Shift I for its developer tools in a tab, so there the context menu and the selection bar are the way to Select inverse, as the layers panel is to a new layer on a Mac.
@@ -70,7 +70,7 @@ Shift keeps the ratio and snaps a rotation to 15°, as with the select tool; Alt
 Each handle takes a press 44 px across on the screen, the nearest winning, and the middle half of the box always moves, so a box too small for its handles can still be moved.
 The marching ants follow every sample and the feather is kept; an inverted area has no outline of its own to put a box on, and is not transformed.
 While the box is up the tool in hand does nothing on the canvas and Auto-select picks no layer; Space still pans, and two fingers still pan and pinch, the second putting back the drag the first began.
-Enter, or Apply in the selection bar or the menu, keeps the outline, and Escape or Cancel puts it back; while the box is up the menu and the bar show only those two, as Photoshop's options bar does, and the bar shows them whatever tool is in hand.
+Enter, or Apply in the selection bar or the menu, keeps the outline, and Escape or Cancel puts it back; while the box is up the menu and the options strip show only those two, the tool's own options hidden, as Photoshop's options bar shows the transform's, and the strip shows them whatever tool is in hand.
 Enter aimed at a field, or at a control the keyboard is on, is that control's, as Space is.
 The arrows nudge the outline a unit, or ten with Shift.
 Ctrl or ⌘ Z, and the top bar's Undo, step back through the drags and nudges, and the redo forward again, as Photoshop does during a transform; while the box is up neither reaches the drawing's history, nor does a two-finger tap.
@@ -123,7 +123,7 @@ A right-click, a barrel button and, on a Mac, a Control-click start no stroke, a
 A keyboard's `contextmenu` is told from a pointer's by its `pointerType`, which is empty for the keyboard (Pointer Events 3), or, where the browser still sends a plain `MouseEvent`, by the Menu key or Shift F10 having come just before.
 A menu the keyboard opens sits at the middle of what is selected, or of the canvas when nothing is, kept inside the canvas.
 What it lists depends on what is selected.
-With an area selected: Deselect, Select inverse, Feather…, Modify…, Transform selection; Layer via copy, Layer via cut; Fill…, Clear; Crop to selection.
+With an area selected: Deselect, Select inverse, Modify…, Transform selection; Layer via copy, Layer via cut; Fill…, Clear; Crop to selection.
 With elements selected on a vector layer: Deselect, Select inverse; Layer via copy, Layer via cut; Delete.
 With nothing selected: Select all; Undo, Redo; New layer, Duplicate layer.
 An action that cannot be done is shown disabled, never hidden: the pixels' actions on a vector, locked or hidden layer (a copy only reads, so a locked raster layer allows it), and Crop to selection on an inverted area.
@@ -131,16 +131,18 @@ The list is made in one place, `drawing/selectionActions.ts`, and the options st
 After Layer via copy or Layer via cut, the selection is dropped and the new layer is the active one.
 The menu is a button's menu without the button (`components/ui/MenuList.tsx` is the list both show, its keys and its rules between groups), opened in the top layer under the point, or left of it and above it where the window has not the room, never past an edge, and as tall as fits with the rest scrolling.
 Escape, Tab, a choice, a press, a scroll or a wheel outside it, a resize or the window losing the focus close it, and the focus goes back where it was; a choice closes it before the item acts, so a dialog the item opens has the focus.
-Fill… is a dialog of the frame's, a sheet on compact and a drawer elsewhere, as Feather… is.
+Fill… is a dialog of the frame's, a sheet on compact and a drawer elsewhere.
 It asks the contents first, the fill color, the stroke color, Color… with a color field of its own, or Content-Aware, each with its swatch, then the blending: a mode from the layers' own list, an opacity and Preserve transparency.
 The focus starts on the contents chosen, Enter applies from any control but a button or a text field, and Escape or Cancel leaves the layer as it was.
 It opens at what was last applied, for the page's life, as Photoshop's does; a Cancel changes nothing.
 Rejected: a Fill submenu of the context menu, which cannot hold a mode and an opacity, and a fill option on the fill tool, which floods by tolerance and is not the area's.
-Modify… is a dialog of the frame's too, Photoshop's Select > Modify less Feather, in one dialog rather than four: Expand, Contract, Smooth or Border, each with a line saying what it does, and one radius in px, 1 to 500, or to 200 for Border, as Photoshop's are.
-One radius serves the four, and a way with a smaller range shows it at that range's end without forgetting it.
-The focus starts on the way chosen, Enter applies from any control but a button or a text field, and it opens at what was last applied, for the page's life.
+Modify… is a dialog of the frame's too, Photoshop's Select > Modify in one dialog rather than five: Expand, Contract, Smooth, Border or Feather, each with a line saying what it does, and a radius in px, 1 to 500, or to 200 for Border, and 0 to 250 for Feather, as Photoshop's are.
+One radius serves the four that change the outline, and a way with a smaller range shows it at that range's end without forgetting it.
+Feather's is the area's own feather, which it sets rather than changes by, so it starts at what the area has, and 0 is a hard edge.
+The focus starts on the way chosen, Enter applies from any control but a button or a text field, and it opens at what was last applied, for the page's life, or at Feather from Shift F6.
+Feather was a dialog and an item of its own until 2026-11-05; it joined Modify… so the menu and the selection bar carry one item for the area's shape and edge, as Photoshop's Select > Modify holds Feather with the other four.
 A Modify that would leave nothing selected is not applied, and a notice says so, since an area is not a step of the history and could not be had back.
-Rejected: a submenu of four dialogs, which is four places for one radius.
+Rejected: a submenu of five dialogs, which is five places for one radius.
 A tool that does nothing on the active layer's kind says so and is not available, rather than doing something else.
 
 Rejected: a component library, which brings tokens of its own to reconcile with the brand's and more than this app uses, when the set here is small and in the house style already; an icon font or icon package, when thirty line icons at 24 px are drawn by hand in `icons.tsx` and cost nothing to load; touch and mouse events beside pointer events, which is the same stroke handled twice; a "simplified" phone editor with fewer tools, since the tools are the product and the screen only decides where they sit.

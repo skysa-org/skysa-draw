@@ -211,6 +211,7 @@ export const OptionsStrip = ({
 	options,
 	onChange,
 	actions = [],
+	transforming = false,
 	mac = MAC,
 }: Readonly<{
 	tool: Tool;
@@ -218,6 +219,13 @@ export const OptionsStrip = ({
 	onChange: OnOptionChange;
 	/** The selection's actions, while something is selected; none otherwise. */
 	actions?: readonly MenuItem[];
+	/**
+	 * Whether Transform selection is on, while which the tool in hand does
+	 * nothing on the canvas: its options are hidden and the selection's
+	 * Apply and Cancel are all there is, as Photoshop's options bar shows the
+	 * transform's own.
+	 */
+	transforming?: boolean;
 	/** Whether the keys in a tooltip are a Mac's; the platform's by default. */
 	mac?: boolean;
 }>) => (
@@ -227,7 +235,7 @@ export const OptionsStrip = ({
 			label={t('editor.panes.options')}
 			className="options-strip"
 		>
-			{tool.options.map((option) => (
+			{(transforming ? [] : tool.options).map((option) => (
 				<Option
 					key={option}
 					tool={tool}

@@ -1344,13 +1344,13 @@ describe('the context menu', () => {
 		expect(menu()).not.toBeNull();
 	});
 
-	it('with an area: inverts it, feathers it through the frame, and crops the canvas to it', () => {
+	it('with an area: inverts it, modifies it through the frame, and crops the canvas to it', () => {
 		const { behavior, calls } = marking();
-		const onFeather = vi.fn();
+		const onModify = vi.fn();
 		const fake = fakeDocument(['raster', 'vector']);
 		const { region } = setup(fakeTool('marquee', { raster: behavior }), {
 			document: fake.document,
-			onFeather,
+			onModify,
 		});
 		click(region, 10, 20);
 		const area = () => calls[0]?.context?.region.region;
@@ -1358,7 +1358,6 @@ describe('the context menu', () => {
 		expect(itemNames()).toEqual([
 			'Deselect',
 			'Select inverse',
-			'Feather…',
 			'Modify…',
 			'Transform selection',
 			'Layer via copy',
@@ -1377,8 +1376,8 @@ describe('the context menu', () => {
 		).toBe('true');
 		choose('Select inverse');
 		rightClick(region, 40, 30);
-		choose('Feather…');
-		expect(onFeather).toHaveBeenCalledTimes(1);
+		choose('Modify…');
+		expect(onModify).toHaveBeenCalledExactlyOnceWith(undefined);
 		rightClick(region, 40, 30);
 		choose('Crop to selection');
 		expect(fake.calls).toEqual(['execute']);
@@ -1447,9 +1446,9 @@ describe('the selection’s keys', () => {
 		};
 	};
 
-	it('inverts the area with Ctrl or ⌘ Shift I, and feathers it with Shift F6', () => {
-		const onFeather = vi.fn();
-		const { area } = withArea({ onFeather });
+	it('inverts the area with Ctrl or ⌘ Shift I, and opens Modify… at Feather with Shift F6', () => {
+		const onModify = vi.fn();
+		const { area } = withArea({ onModify });
 		expect(primaryShiftDown('I').defaultPrevented).toBe(true);
 		expect(area()?.inverted).toBe(true);
 		const feather = fire(
@@ -1457,19 +1456,19 @@ describe('the selection’s keys', () => {
 			new KeyboardEvent('keydown', { key: 'F6', shiftKey: true, cancelable: true })
 		);
 		expect(feather.defaultPrevented).toBe(true);
-		expect(onFeather).toHaveBeenCalledTimes(1);
+		expect(onModify).toHaveBeenCalledExactlyOnceWith('feather');
 	});
 
 	it('leaves Shift F6 and Ctrl or ⌘ Shift I to the browser with nothing selected', () => {
-		const onFeather = vi.fn();
-		setup(fakeTool('brush', { vector: recorder().behavior }), { onFeather });
+		const onModify = vi.fn();
+		setup(fakeTool('brush', { vector: recorder().behavior }), { onModify });
 		expect(primaryShiftDown('I').defaultPrevented).toBe(false);
 		const feather = fire(
 			window,
 			new KeyboardEvent('keydown', { key: 'F6', shiftKey: true, cancelable: true })
 		);
 		expect(feather.defaultPrevented).toBe(false);
-		expect(onFeather).not.toHaveBeenCalled();
+		expect(onModify).not.toHaveBeenCalled();
 	});
 
 	it('fills the area with Alt Backspace', () => {

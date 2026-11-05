@@ -6,6 +6,7 @@ import type { EditorDocument, LayerInfo } from '../document/model.js';
 import { type SelectionActionId, selectionModeOf } from '../selectionActions.js';
 import { areaPolygons, rectPath } from '../tools/raster/area.js';
 import { canFillArea, fillAreaWith, type FillSpec } from '../tools/raster/areaFill.js';
+import type { AreaModify } from '../tools/raster/areaOps.js';
 import { clearArea, fillArea, layerViaArea } from '../tools/raster/index.js';
 import type { ToolContext, ToolId } from '../tools/types.js';
 import type { Point } from '../tools/vector/geometry.js';
@@ -49,8 +50,6 @@ export type SelectionCommandDeps = Readonly<{
 	notify: (message: string) => void;
 	/** A layer was made that the user now works on. */
 	activate: (id: string) => void;
-	/** Feather… was asked for: the frame's dialog opens. */
-	feather: () => void;
 	/**
 	 * Fill… was asked for, on a layer the fill may change: the frame's dialog
 	 * opens. None where the viewport has no frame to ask, and Fill… does
@@ -59,10 +58,12 @@ export type SelectionCommandDeps = Readonly<{
 	fill?: () => void;
 	/**
 	 * Modify… was asked for: the frame's dialog opens, which expands,
-	 * contracts, smooths or borders the area (`tools/raster/areaOps.ts`).
-	 * None where the viewport has no frame to ask, and Modify… does nothing.
+	 * contracts, smooths, borders or feathers the area
+	 * (`tools/raster/areaOps.ts`), at `way` where one was asked for: Shift F6
+	 * asks for Feather. None where the viewport has no frame to ask, and
+	 * Modify… does nothing.
 	 */
-	modify?: () => void;
+	modify?: (way?: AreaModify) => void;
 	/**
 	 * Transform selection, the viewport's: `start` puts a box and handles on
 	 * the area's outline, `apply` keeps what they did, `cancel` puts the
@@ -194,18 +195,15 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		return true;
 	};
 
-	const feather = (): boolean => {
-		if (selection.region.get() === undefined) return false;
-		deps.feather();
-		return true;
-	};
-
-	/** Modify…: the frame's dialog, where there is an area and no stroke under way. */
-	const modify = (): boolean => {
+	/**
+	 * Modify…: the frame's dialog, where there is an area and no stroke under
+	 * way, at `way` where one was asked for.
+	 */
+	const modify = (way?: AreaModify): boolean => {
 		if (selection.region.get() === undefined || deps.busy() || deps.modify === undefined) {
 			return false;
 		}
-		deps.modify();
+		deps.modify(way);
 		return true;
 	};
 
@@ -335,8 +333,9 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 	const ACTIONS: Readonly<Record<SelectionActionId, () => boolean>> = {
 		deselect,
 		selectInverse,
-		feather,
-		modify,
+		// Shift F6, Photoshop's Feather: Modify… opened at it.
+		feather: () => modify('feather'),
+		modify: () => modify(),
 		transformSelection: () => deps.transform.start(),
 		applyTransform: () => deps.transform.apply(),
 		cancelTransform: () => deps.transform.cancel(),

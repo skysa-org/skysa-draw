@@ -188,6 +188,34 @@ describe('the options strip', () => {
 		expect(deselect).toHaveBeenCalledTimes(1);
 	});
 
+	it('shows only the selection’s Apply and Cancel while Transform selection is on, none of the tool’s options', () => {
+		const actions: readonly MenuItem[] = [
+			{ id: 'applyTransform', label: 'Apply', onSelect: vi.fn() },
+			{ id: 'cancelTransform', label: 'Cancel', onSelect: vi.fn() },
+		];
+		const marqueeLike: Tool = {
+			id: 'marquee',
+			options: ['areaMode', 'constrain'],
+			behaviors: {},
+		};
+		render(
+			<OptionsStrip
+				tool={marqueeLike}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+				actions={actions}
+				transforming
+			/>
+		);
+		const strip = screen.getByRole('toolbar', { name: 'Tool options' });
+		expect(screen.queryByRole('group', { name: 'Selection mode' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Constrain' })).toBeNull();
+		expect([...strip.querySelectorAll('button')].map((button) => button.textContent)).toEqual([
+			'Apply',
+			'Cancel',
+		]);
+	});
+
 	it('shows the selection tools’ mode first, as a group of four buttons named in words, the one in force pressed', () => {
 		const marqueeLike: Tool = {
 			id: 'marquee',

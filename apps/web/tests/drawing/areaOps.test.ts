@@ -527,6 +527,7 @@ describe('modifyArea: radius', () => {
 			contract: { min: 1, max: 500 },
 			smooth: { min: 1, max: 500 },
 			border: { min: 1, max: 200 },
+			feather: { min: 0, max: 250 },
 		});
 	});
 
@@ -540,6 +541,10 @@ describe('modifyArea: radius', () => {
 		expect(modifyRadius('smooth', Number.NaN)).toBe(1);
 		expect(modifyRadius('border', Number.POSITIVE_INFINITY)).toBe(200);
 		expect(modifyRadius('contract', Number.NEGATIVE_INFINITY)).toBe(1);
+		expect(modifyRadius('feather', 0)).toBe(0);
+		expect(modifyRadius('feather', -2)).toBe(0);
+		expect(modifyRadius('feather', 7.6)).toBe(8);
+		expect(modifyRadius('feather', 900)).toBe(250);
 	});
 
 	it('is held as modifyArea takes it', () => {
@@ -553,6 +558,21 @@ describe('modifyArea: radius', () => {
 		expect(modifyArea(plain(rect(0, 0, 10, 10)), 'contract', 0, CANVAS)).toEqual(
 			plain('M 1 1 L 9 1 L 9 9 L 1 9 Z')
 		);
+	});
+});
+
+describe('modifyArea: feather', () => {
+	it('sets how far the edge fades and changes nothing else, on a plain area or an inverse', () => {
+		const lasso = 'M 3.3 2.1 L 77.7 9.9 L 52.25 61.5 L 14 40.75 Z';
+		expect(modifyArea(plain(lasso, 4), 'feather', 12, CANVAS)).toEqual(plain(lasso, 12));
+		expect(modifyArea(inverse(lasso), 'feather', 6, CANVAS)).toEqual(inverse(lasso, 6));
+		expect(modifyArea(inverse(''), 'feather', 3, CANVAS)).toEqual(inverse('', 3));
+	});
+
+	it('takes 0 as a hard edge, and is held to its limits', () => {
+		const there = plain(rect(0, 0, 10, 10), 9);
+		expect(modifyArea(there, 'feather', 0, CANVAS)).toEqual(plain(rect(0, 0, 10, 10)));
+		expect(modifyArea(there, 'feather', 1000, CANVAS)?.feather).toBe(250);
 	});
 });
 

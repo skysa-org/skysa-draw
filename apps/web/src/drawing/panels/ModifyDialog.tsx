@@ -16,26 +16,31 @@ import type { Box } from '../tools/vector/geometry.js';
 
 /**
  * Modify… (docs/decisions/0004-the-interface.md, "The context menu"):
- * Photoshop's Select > Modify less Feather…, which has its own, in one dialog
- * rather than four. The four ways are rows to press, as Fill…'s contents are,
- * each with a line on what it does; then the radius, a slider for the hand
- * and a number field for the exact value, as Feather… has it, in the drawing's
- * units, named as Photoshop names it in that way's own dialog, and kept to
- * that way's range. Apply, or Enter, makes the area `modifyArea` makes of it
- * on the drawing's canvas and closes, none where nothing is left; Cancel,
- * Escape or a tap beside it leave the area as it was. The focus starts on the
- * way chosen.
+ * Photoshop's Select > Modify in one dialog rather than five. The five ways
+ * are rows to press, as Fill…'s contents are, each with a line on what it
+ * does; then the radius, a slider for the hand and a number field for the
+ * exact value, in the drawing's units, named as Photoshop names it in that
+ * way's own dialog, and kept to that way's range. Apply, or Enter, makes the
+ * area `modifyArea` makes of it on the drawing's canvas and closes, none where
+ * nothing is left; Cancel, Escape or a tap beside it leave the area as it
+ * was. The focus starts on the way chosen.
  *
  * It starts each time at what was last applied, for the page's life, as
- * Photoshop's dialogs do: the memory is this module's (`lastApplied`), written
- * on Apply alone, so a Cancel forgets nothing. One radius serves the four, and
- * a way with a smaller range shows it at that range's end without forgetting
- * it, so going back to the way before finds it as it was. In a sheet on
- * compact and a drawer elsewhere, as the frame places it.
+ * Photoshop's dialogs do, or at the way it was opened for (Shift F6 opens it
+ * at Feather): the memory is this module's (`lastApplied`), written on Apply
+ * alone, so a Cancel forgets nothing. One radius serves the four ways that
+ * change the outline, and a way with a smaller range shows it at that range's
+ * end without forgetting it, so going back to the way before finds it as it
+ * was. Feather's is the area's own feather, which it sets rather than changes
+ * by, as the area holds one: 0 is a hard edge. In a sheet on compact and a
+ * drawer elsewhere, as the frame places it.
  */
 
-/** In the order the dialog lists them: the two that grow and shrink, then the two that reshape. */
-const WAYS: readonly AreaModify[] = ['expand', 'contract', 'smooth', 'border'];
+/**
+ * In the order the dialog lists them: the two that grow and shrink, the two
+ * that reshape, then the edge's fade, last as in Photoshop's submenu.
+ */
+const WAYS: readonly AreaModify[] = ['expand', 'contract', 'smooth', 'border', 'feather'];
 
 const WORDS = {
 	expand: {
@@ -62,14 +67,26 @@ const WORDS = {
 		radius: 'selection.modify.border.radius',
 		radiusValue: 'selection.modify.border.radiusValue',
 	},
+	feather: {
+		name: 'selection.modify.feather.name',
+		hint: 'selection.modify.feather.hint',
+		radius: 'selection.modify.feather.radius',
+		radiusValue: 'selection.modify.feather.radiusValue',
+	},
 } as const;
 
 /** What the dialog asks, as the user last applied it. */
 type ModifyChoices = Readonly<{
 	how: AreaModify;
-	/** In user units, as the user last set it, which a way with a smaller range shows at its end. */
+	/**
+	 * The four outline ways' radius, in user units, as the user last set it,
+	 * which a way with a smaller range shows at its end.
+	 */
 	radius: number;
 }>;
+
+/** What the open dialog holds: the choices, and the feather it would set. */
+type FormChoices = ModifyChoices & Readonly<{ feather: number }>;
 
 /** The first opening: Expand, by the least it takes. */
 const FIRST_CHOICES: ModifyChoices = { how: 'expand', radius: MODIFY_LIMITS.expand.min };
@@ -112,27 +129,35 @@ const useFormKeys = (form: RefObject<HTMLFormElement | null>): void => {
 /** The form, mounted while the dialog is open, so each opening starts from what was last applied. */
 const ModifyForm = ({
 	region,
+	way,
 	canvas,
 	onApply,
 	onClose,
 }: Readonly<{
 	region: Region | undefined;
+	way: AreaModify | undefined;
 	canvas: Box;
 	onApply: (region: Region | undefined) => void;
 	onClose: () => void;
 }>) => {
 	const group = useId();
 	const form = useRef<HTMLFormElement>(null);
-	const [choices, setChoices] = useState(() => lastApplied.current);
+	const [choices, setChoices] = useState<FormChoices>(() => ({
+		...lastApplied.current,
+		how: way ?? lastApplied.current.how,
+		feather: region?.feather ?? 0,
+	}));
 	useFormKeys(form);
 
 	const { how } = choices;
-	const radius = modifyRadius(how, choices.radius);
-	const setRadius = (value: number) => setChoices((was) => ({ ...was, radius: value }));
+	const feathering = how === 'feather';
+	const radius = modifyRadius(how, feathering ? choices.feather : choices.radius);
+	const setRadius = (value: number) =>
+		setChoices((was) => (feathering ? { ...was, feather: value } : { ...was, radius: value }));
 
 	const onSubmit = (event: SyntheticEvent) => {
 		event.preventDefault();
-		lastApplied.current = { how, radius };
+		lastApplied.current = { how, radius: feathering ? choices.radius : radius };
 		if (region !== undefined) onApply(modifyArea(region, how, radius, canvas));
 		onClose();
 	};
@@ -203,6 +228,7 @@ export const ModifyDialog = ({
 	placement,
 	open,
 	region,
+	way,
 	canvas,
 	onApply,
 	onClose,
@@ -211,6 +237,8 @@ export const ModifyDialog = ({
 	open: boolean;
 	/** The area the dialog was opened on, which Apply modifies. */
 	region: Region | undefined;
+	/** The way it opens at, where it was asked for one (Shift F6, Feather); else the last applied. */
+	way?: AreaModify;
 	/** The drawing's canvas in user units, which an inverted area is the rest of. */
 	canvas: Box;
 	/** The area Apply made, or none when nothing of it is left. */
@@ -223,6 +251,6 @@ export const ModifyDialog = ({
 		onClose={onClose}
 		label={t('selection.modify.title')}
 	>
-		<ModifyForm region={region} canvas={canvas} onApply={onApply} onClose={onClose} />
+		<ModifyForm region={region} way={way} canvas={canvas} onApply={onApply} onClose={onClose} />
 	</PanelHost>
 );

@@ -242,7 +242,7 @@ const BARE_ACTIONS: Readonly<Record<string, EditAction>> = {
 };
 
 /**
- * With Shift and nothing else, Photoshop's: Feather… is Shift+F6, and Fill…
+ * With Shift and nothing else, Photoshop's: Feather is Shift+F6, and Fill…
  * Shift+F5 and Shift+Backspace. F6 alone is the browser's, to its address
  * bar, and F5 alone its reload; Shift+F5 is a reload past the cache in
  * Chrome on Windows and Linux, which the viewport keeps from the browser only

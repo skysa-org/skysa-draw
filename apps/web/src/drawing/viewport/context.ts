@@ -88,7 +88,7 @@ const selectionControl = (selection: Observable<readonly Element[]>): SelectionC
 	},
 });
 
-/** The area as a tool works it; the frame's feather dialog changes it through this too. */
+/** The area as a tool works it. */
 export const regionControl = (region: Observable<Region | undefined>): RegionControl => ({
 	get path() {
 		return region.get()?.path;

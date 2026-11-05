@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ModifyDialog } from '../../src/drawing/panels/ModifyDialog.js';
 import { rectPath } from '../../src/drawing/tools/raster/area.js';
 import * as areaOps from '../../src/drawing/tools/raster/areaOps.js';
-import { MODIFY_LIMITS } from '../../src/drawing/tools/raster/areaOps.js';
+import { type AreaModify, MODIFY_LIMITS } from '../../src/drawing/tools/raster/areaOps.js';
 import type { Region } from '../../src/drawing/tools/types.js';
 import { t } from '../../src/i18n/t.js';
 
@@ -36,7 +36,9 @@ const AREA: Region = {
 	feather: 0,
 };
 
-const open = (setup: Readonly<{ region?: Region; placement?: 'sheet' | 'drawer' }> = {}) => {
+const open = (
+	setup: Readonly<{ region?: Region; placement?: 'sheet' | 'drawer'; way?: AreaModify }> = {}
+) => {
 	const onApply = vi.fn<(region: Region | undefined) => void>();
 	const onClose = vi.fn();
 	const view = render(
@@ -44,6 +46,7 @@ const open = (setup: Readonly<{ region?: Region; placement?: 'sheet' | 'drawer' 
 			placement={setup.placement ?? 'drawer'}
 			open
 			region={setup.region ?? AREA}
+			way={setup.way}
 			canvas={CANVAS}
 			onApply={onApply}
 			onClose={onClose}
@@ -83,7 +86,7 @@ describe('the modify dialog', () => {
 	it('names each way from the catalog, in order, with its line as its description', () => {
 		const { dialog } = open();
 		const group = within(dialog).getByRole('group', { name: 'How to modify the selection' });
-		const ways = ['expand', 'contract', 'smooth', 'border'] as const;
+		const ways = ['expand', 'contract', 'smooth', 'border', 'feather'] as const;
 		expect(
 			within(group)
 				.getAllByRole('radio')
@@ -202,5 +205,61 @@ describe('the modify dialog', () => {
 		const third = open();
 		expect(third.way('Border')).toHaveProperty('checked', true);
 		expect(third.field()).toHaveProperty('value', '40');
+	});
+
+	it('opens at the way asked for, Feather at the area’s own feather, from a hard edge to Photoshop’s most', async () => {
+		const user = userEvent.setup();
+		const feathered: Region = { ...AREA, feather: 9 };
+		const { dialog, way, slider, field, apply, onApply } = open({
+			region: feathered,
+			way: 'feather',
+		});
+		expect(way('Feather')).toHaveProperty('checked', true);
+		await waitFor(() => expect(document.activeElement).toBe(way('Feather')));
+		expect(within(dialog).getByRole('slider', { name: 'Feather radius' })).toBe(slider());
+		expect(within(dialog).getByRole('spinbutton', { name: 'Feather radius in pixels' })).toBe(
+			field()
+		);
+		expect(field()).toHaveProperty('value', '9');
+		expect(slider().getAttribute('min')).toBe(String(MODIFY_LIMITS.feather.min));
+		expect(slider().getAttribute('max')).toBe(String(MODIFY_LIMITS.feather.max));
+		fireEvent.change(field(), { target: { value: '0' } });
+		expect(field()).toHaveProperty('value', '0');
+		fireEvent.change(field(), { target: { value: '400' } });
+		expect(field()).toHaveProperty('value', String(MODIFY_LIMITS.feather.max));
+		await user.click(apply);
+		expect(areaOps.modifyArea).toHaveBeenCalledExactlyOnceWith(
+			feathered,
+			'feather',
+			MODIFY_LIMITS.feather.max,
+			CANVAS
+		);
+		expect(onApply).toHaveBeenCalledExactlyOnceWith({
+			...feathered,
+			feather: MODIFY_LIMITS.feather.max,
+		});
+	});
+
+	it('keeps the four ways’ radius apart from the feather, and remembers Feather as the way', async () => {
+		const user = userEvent.setup();
+		const first = open({ region: { ...AREA, feather: 9 } });
+		await user.click(first.way('Expand'));
+		fireEvent.change(first.field(), { target: { value: '25' } });
+		await user.click(first.way('Feather'));
+		expect(first.field()).toHaveProperty('value', '9');
+		fireEvent.change(first.field(), { target: { value: '30' } });
+		await user.click(first.way('Expand'));
+		expect(first.field()).toHaveProperty('value', '25');
+		await user.click(first.way('Feather'));
+		expect(first.field()).toHaveProperty('value', '30');
+		await user.click(first.apply);
+		first.view.unmount();
+
+		// The feather is the area's, read anew; the four's radius is the one set beside it.
+		const second = open({ region: { ...AREA, feather: 30 } });
+		expect(second.way('Feather')).toHaveProperty('checked', true);
+		expect(second.field()).toHaveProperty('value', '30');
+		await user.click(second.way('Expand'));
+		expect(second.field()).toHaveProperty('value', '25');
 	});
 });

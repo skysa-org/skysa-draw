@@ -40,19 +40,23 @@ import type { Point } from './pixels.js';
  * smooths the outline; Border is the band on the outline, a plain area.
  */
 
-/** How Modify… changes the area, Photoshop's Select > Modify less Feather, which has its own. */
-export type AreaModify = 'expand' | 'contract' | 'smooth' | 'border';
+/**
+ * How Modify… changes the area, Photoshop's Select > Modify: four ways that
+ * change its outline, and Feather, which sets how far its edge fades.
+ */
+export type AreaModify = 'expand' | 'contract' | 'smooth' | 'border' | 'feather';
 
 /**
  * The radius each Modify… takes, in user units, whole ones, as Photoshop's
  * Select > Modify takes pixels: Expand, Contract and Smooth from 1 to 500,
- * Border from 1 to 200.
+ * Border from 1 to 200, and Feather from 0, a hard edge, to 250.
  */
 export const MODIFY_LIMITS: Readonly<Record<AreaModify, Readonly<{ min: number; max: number }>>> = {
 	expand: { min: 1, max: 500 },
 	contract: { min: 1, max: 500 },
 	smooth: { min: 1, max: 500 },
 	border: { min: 1, max: 200 },
+	feather: { min: 0, max: 250 },
 };
 
 /** A radius as Modify… takes it: rounded to a whole unit and held to `MODIFY_LIMITS`; the least for one that is not a number. */
@@ -259,7 +263,8 @@ const contractInverse = (
  * an inverted area is the rest of: its expand is the outline contracted and
  * its contract the outline expanded, so the canvas's edge stays where it is;
  * its smooth smooths the outline, and its border is the outline's. Keeps the
- * feather; none where nothing is left.
+ * feather; none where nothing is left. `feather` changes the outline not at
+ * all: it is the area as it was, faded `radius` either side of its outline.
  */
 export const modifyArea = (
 	region: Region,
@@ -268,6 +273,7 @@ export const modifyArea = (
 	canvas: Box
 ): Region | undefined => {
 	const units = modifyRadius(how, radius);
+	if (how === 'feather') return { ...region, feather: units };
 	const polygons = areaPolygons(region.path);
 	if (how === 'border') {
 		return withPath({ ...region, inverted: false }, traced(bordered(polygons, units)));

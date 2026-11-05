@@ -70,7 +70,6 @@ describe('the selection’s actions', () => {
 		expect(ids(given)).toEqual([
 			'deselect',
 			'selectInverse',
-			'feather',
 			'modify',
 			'transformSelection',
 			'layerViaCopy',
@@ -84,7 +83,6 @@ describe('the selection’s actions', () => {
 		expect(items(given).map((item) => item.label)).toEqual([
 			'Deselect',
 			'Select inverse',
-			'Feather…',
 			'Modify…',
 			'Transform selection',
 			'Layer via copy',
@@ -95,9 +93,10 @@ describe('the selection’s actions', () => {
 		]);
 	});
 
-	it('reaches the two fills a key does at once by id, and lists neither', () => {
+	it('reaches the two fills a key does at once, and Feather, Modify…’s with Shift F6, by id, and lists none', () => {
 		expect(SELECTION_ACTIONS).toContain('fill');
 		expect(SELECTION_ACTIONS).toContain('fillWithStroke');
+		expect(SELECTION_ACTIONS).toContain('feather');
 		[
 			facts({ region: AREA }),
 			facts({ elements: 2, layer: layer({ kind: 'vector' }) }),
@@ -105,6 +104,7 @@ describe('the selection’s actions', () => {
 		].forEach((given) => {
 			expect(ids(given)).not.toContain('fill');
 			expect(ids(given)).not.toContain('fillWithStroke');
+			expect(ids(given)).not.toContain('feather');
 		});
 		expect(t('selection.actions.fill')).toBe('Fill with the fill color');
 		expect(t('selection.actions.fillWithStroke')).toBe('Fill with the stroke color');
@@ -116,12 +116,11 @@ describe('the selection’s actions', () => {
 		['no layer', undefined],
 	])('shows the pixels’ actions disabled, not hidden, on %s', (_name, active) => {
 		const given = facts({ region: AREA, layer: active });
-		expect(ids(given)).toHaveLength(10);
+		expect(ids(given)).toHaveLength(9);
 		// The outline's own, which change no pixel, stay.
 		expect(enabled(given)).toEqual([
 			'deselect',
 			'selectInverse',
-			'feather',
 			'modify',
 			'transformSelection',
 			'crop',
@@ -133,7 +132,6 @@ describe('the selection’s actions', () => {
 		expect(enabled(given)).toEqual([
 			'deselect',
 			'selectInverse',
-			'feather',
 			'modify',
 			'transformSelection',
 			'layerViaCopy',
@@ -193,7 +191,6 @@ describe('the selection’s actions', () => {
 		expect(shortcuts(facts({ region: AREA }), false)).toEqual({
 			deselect: 'Ctrl+D',
 			selectInverse: 'Ctrl+Shift+I',
-			feather: 'Shift+F6',
 			layerViaCopy: 'Ctrl+J',
 			layerViaCut: 'Ctrl+Shift+J',
 			fillDialog: 'Shift+F5',
@@ -213,9 +210,9 @@ describe('the selection’s actions', () => {
 	it('tells `run` which was chosen', () => {
 		const run = vi.fn<(action: SelectionActionId) => void>();
 		selectionActions(facts({ region: AREA }), run, false)
-			.find((item) => item.id === 'feather')
+			.find((item) => item.id === 'modify')
 			?.onSelect();
-		expect(run).toHaveBeenCalledWith('feather');
+		expect(run).toHaveBeenCalledWith('modify');
 		expect(t('selection.menu')).toBe('Canvas actions');
 	});
 });

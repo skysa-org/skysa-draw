@@ -13,8 +13,9 @@ export const selection = {
 	actions: {
 		deselect: 'Deselect',
 		selectInverse: 'Select inverse',
+		/** Shift F6's alone, which no list shows: Modify… opened at Feather. */
 		feather: 'Feather…',
-		/** Modify…: the dialog that expands, contracts, smooths or borders the area, as Photoshop's Select > Modify. */
+		/** Modify…: the dialog that expands, contracts, smooths, borders or feathers the area, as Photoshop's Select > Modify. */
 		modify: 'Modify…',
 		/** A box and handles on the area's outline, to scale, rotate and move it, as Photoshop's Select > Transform Selection. */
 		transformSelection: 'Transform selection',
@@ -42,25 +43,15 @@ export const selection = {
 		newLayer: 'New layer',
 		duplicateLayer: 'Duplicate layer',
 	},
-	/** Feather…: how far the area's edge fades. */
-	feather: {
-		title: 'Feather selection',
-		/** The slider's label. */
-		radius: 'Feather radius',
-		/** The number field beside the slider, for a screen reader. */
-		radiusValue: 'Feather radius in pixels',
-		hint: 'How far the edge of the selection fades, on either side of it. 0 is a hard edge.',
-		apply: 'Apply',
-	},
 	/**
-	 * Modify…: the selection expanded, contracted, smoothed or made a border,
-	 * as Photoshop's Select > Modify, in one dialog. Each way has its name, a
-	 * line on what it does, and the radius's label as Photoshop's own dialog
-	 * for that way names it.
+	 * Modify…: the selection expanded, contracted, smoothed, made a border or
+	 * feathered, as Photoshop's Select > Modify, in one dialog. Each way has
+	 * its name, a line on what it does, and the radius's label as Photoshop's
+	 * own dialog for that way names it.
 	 */
 	modify: {
 		title: 'Modify selection',
-		/** The four ways, as a group, named for a screen reader: the title says it to the eye. */
+		/** The five ways, as a group, named for a screen reader: the title says it to the eye. */
 		ways: 'How to modify the selection',
 		expand: {
 			name: 'Expand',
@@ -89,6 +80,13 @@ export const selection = {
 			hint: 'Selects only a band along the edge.',
 			radius: 'Width',
 			radiusValue: 'Border width in pixels',
+		},
+		feather: {
+			name: 'Feather',
+			/** How far the edge fades, on either side of the outline; the selection's own, set rather than changed by. */
+			hint: 'Fades the edge on either side. 0 is a hard edge.',
+			radius: 'Feather radius',
+			radiusValue: 'Feather radius in pixels',
 		},
 		apply: 'Apply',
 		/** After an Apply that would leave nothing of the area, most often a Contract wider than it: the area is kept as it was. */
