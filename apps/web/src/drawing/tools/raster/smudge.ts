@@ -28,15 +28,20 @@ import type { RasterSurface } from './surface.js';
  * it (`areaMask`): nothing outside, less over a feathered edge, and for an
  * inverse the canvas outside the outline. Its pointer is the brush's
  * outline (`tools/common/brushOutline.ts`), a dab's size in the drawing's
- * units on any layer.
+ * units on any layer. Past the layer's pixels, on the drawing's canvas, are
+ * transparent pixels of the layer: a dab there pulls transparency in, and
+ * color pushed out there grows the pixels to hold it (`RasterSurface.extend`).
  */
+
+/** The area's coverage of the layer's pixels, and the canvas of them it was drawn for. */
+type Mask = Readonly<{ on: HTMLCanvasElement; ctx: CanvasRenderingContext2D | undefined }>;
 
 interface Stroke {
 	readonly surface: RasterSurface;
 	/** The area selected when the stroke began; none for anywhere. */
 	readonly area: Area | undefined;
-	/** The area's coverage of the layer's pixels, once they can be read; none for no area. */
-	readonly mask: CanvasRenderingContext2D | undefined;
+	/** The area's coverage, once the pixels can be read; none for no area. Drawn again once they grow. */
+	readonly mask: Mask | undefined;
 	/** Where the next dab picks up from, in user units: the last dab, or where the stroke began. */
 	readonly from: Point;
 	/** Where the pointer last was, and what `stampsAlong` carries from there. */
@@ -48,6 +53,8 @@ interface Stroke {
 	readonly ready: boolean;
 	/** Whether any dab changed a pixel. */
 	readonly changed: boolean;
+	/** Whether the layer's pixels were made larger for the stroke (`RasterSurface.extend`). */
+	readonly grew: boolean;
 	/** Which stroke this is on the screen canvas. */
 	readonly serial: number;
 }
@@ -72,12 +79,15 @@ const spacingOf = (surface: RasterSurface, options: ToolOptions): number => {
 	return unit > 0 ? stampSpacing(radiusOf(surface, options)) / unit : 0;
 };
 
-/** The mask's context, where an area is selected and the browser can draw it. */
-const maskFor = (
-	surface: RasterSurface,
-	area: Area | undefined
-): CanvasRenderingContext2D | undefined =>
-	area === undefined ? undefined : (areaMask(surface, area)?.getContext('2d') ?? undefined);
+/** The area's mask, where an area is selected, for the pixels as they are now. */
+const maskFor = (surface: RasterSurface, area: Area | undefined): Mask | undefined =>
+	area === undefined
+		? undefined
+		: { on: surface.canvas, ctx: areaMask(surface, area)?.getContext('2d') ?? undefined };
+
+/** The mask there is, where it is still of the pixels as they are; else drawn again. */
+const maskNow = (stroke: Stroke): Mask | undefined =>
+	stroke.mask?.on === stroke.surface.canvas ? stroke.mask : maskFor(stroke.surface, stroke.area);
 
 type DabSettings = Readonly<{
 	radius: number;
@@ -130,23 +140,48 @@ const dabAt = (
 	return box;
 };
 
-type Painted = Readonly<{ from: Point; changed: boolean; box: Box | undefined }>;
+type Painted = Readonly<{
+	from: Point;
+	changed: boolean;
+	box: Box | undefined;
+	mask: Mask | undefined;
+	grew: boolean;
+}>;
 
-/** The queued dabs, in order, each picking up from the one before. */
-const paintDabs = (
-	ctx: CanvasRenderingContext2D,
-	stroke: Stroke,
-	options: ToolOptions,
-	mask: CanvasRenderingContext2D | undefined
-): Painted => {
-	const radius = radiusOf(stroke.surface, options);
+/** The box around disks of `radius` about each point, in user units. */
+const dabsBox = (points: readonly Point[], radius: number): Box | undefined =>
+	unionBox(
+		points.map((p) => ({
+			x: p.x - radius,
+			y: p.y - radius,
+			width: 2 * radius,
+			height: 2 * radius,
+		}))
+	);
+
+/**
+ * The queued dabs, in order, each picking up from the one before, on the
+ * layer's pixels made to reach them first (`RasterSurface.extend`), so a dab
+ * past them pushes color on to the drawing's canvas there, and the mask
+ * drawn again for them where they grew.
+ */
+const paintDabs = (stroke: Stroke, options: ToolOptions): Painted => {
+	const { surface } = stroke;
+	const reach = options.size / 2;
+	const before = surface.canvas;
+	const around = dabsBox([stroke.from, ...stroke.queued], reach + 1);
+	if (around !== undefined) surface.extend(around);
+	const grew = stroke.grew || surface.canvas !== before;
+	const mask = maskNow(stroke);
+	const ctx = surface.canvas.getContext('2d');
+	if (ctx === null) return { from: stroke.from, changed: false, box: undefined, mask, grew };
+	const radius = radiusOf(surface, options);
 	const settings: DabSettings = {
 		radius,
 		hardness: options.hardness,
 		strength: dabStrength(options.strength, stampSpacing(radius), radius),
-		mask,
+		mask: mask?.ctx,
 	};
-	const reach = options.size / 2;
 	return stroke.queued.reduce<Painted>(
 		(painted, center) => {
 			const near = reachesArea(stroke.area, {
@@ -159,6 +194,7 @@ const paintDabs = (
 				? dabAt(ctx, stroke.surface, painted.from, center, settings)
 				: undefined;
 			return {
+				...painted,
 				from: center,
 				changed: painted.changed || box !== undefined,
 				box:
@@ -167,7 +203,7 @@ const paintDabs = (
 						: unionBox([...(painted.box ? [painted.box] : []), box]),
 			};
 		},
-		{ from: stroke.from, changed: false, box: undefined }
+		{ from: stroke.from, changed: false, box: undefined, mask, grew }
 	);
 };
 
@@ -203,17 +239,14 @@ export const smudgeBehavior = (): ToolBehavior => {
 	const flush = (context: ToolContext): void => {
 		const stroke = active.current;
 		if (stroke === undefined || !stroke.ready || stroke.queued.length === 0) return;
-		const ctx = stroke.surface.canvas.getContext('2d');
-		if (ctx === null) {
-			active.current = { ...stroke, queued: [] };
-			return;
-		}
-		const painted = paintDabs(ctx, stroke, context.options, stroke.mask);
+		const painted = paintDabs(stroke, context.options);
 		active.current = {
 			...stroke,
 			from: painted.from,
 			queued: [],
 			changed: stroke.changed || painted.changed,
+			mask: painted.mask,
+			grew: painted.grew,
 		};
 		if (painted.box !== undefined) mirror(context, stroke.surface, painted.box);
 	};
@@ -253,6 +286,7 @@ export const smudgeBehavior = (): ToolBehavior => {
 				queued: [],
 				ready: decoded,
 				changed: false,
+				grew: false,
 				serial,
 			};
 			if (decoded) return;
@@ -277,15 +311,11 @@ export const smudgeBehavior = (): ToolBehavior => {
 			const last = advance(context, stroke, pointOf(sample));
 			const { surface, serial } = last;
 			// After the picture is decoded, so every dab queued meanwhile is painted
-			// on it; the mask is drawn then if it was not yet.
+			// on it; the mask is drawn then if it was not yet. What the stroke
+			// pushed past the layer's pixels grows them as far as it left alpha.
 			const work = surface
-				.paint('tools.smudge', (ctx) => {
-					const painted = paintDabs(
-						ctx,
-						last,
-						context.options,
-						last.mask ?? maskFor(surface, last.area)
-					);
+				.paint('tools.smudge', () => {
+					const painted = paintDabs(last, context.options);
 					if (painted.box !== undefined) mirror(context, surface, painted.box);
 					return last.changed || painted.changed;
 				})
@@ -302,7 +332,7 @@ export const smudgeBehavior = (): ToolBehavior => {
 			const stroke = active.current;
 			active.current = undefined;
 			if (stroke === undefined) return;
-			if (stroke.changed) stroke.surface.discard();
+			if (stroke.changed || stroke.grew) stroke.surface.discard();
 			clearScreen(context.screen);
 		},
 	});

@@ -44,7 +44,10 @@ import { type RasterSurface, surfaceFor } from './surface.js';
  * One command a drag (`regions.move`), written through the surface as any
  * pixel edit is, and refused where the file's picture moved while it was
  * encoded (`RasterSurface.rewrite`), since an undo meanwhile put other pixels
- * there. The pixels float, as in Photoshop and GIMP: the tool keeps, in
+ * there. The pixels go wherever the drag takes them, past the layer's pixels
+ * and off the drawing's canvas too, which grow to hold them in the same
+ * command (`RasterSurface`), so a later drag brings them back whole. The
+ * pixels float, as in Photoshop and GIMP: the tool keeps, in
  * memory, what lay beneath them and the pixels themselves, and every drag
  * after the first is drawn from those at the whole way moved, so moving them
  * on gives back what they covered. The file holds the result after every
@@ -78,9 +81,13 @@ const sameOffset = (a: Offset, b: Offset): boolean => a[0] === b[0] && a[1] === 
 
 const shifted = (box: Box, by: Offset): Box => ({ ...box, x: box.x + by[0], y: box.y + by[1] });
 
-/** The pixels a move took up, and what they leave. */
+/**
+ * The pixels a move took up, and what they leave, placed in the frame of the
+ * layer's pixels (`RasterSurface.origin`), which pixels grown left or up do
+ * not move.
+ */
 interface Lift {
-	/** Where they were, in the layer's pixels. */
+	/** Where they were. */
 	readonly box: Box;
 	/** The area's pixels, by its coverage, the size of `box`. */
 	readonly pixels: HTMLCanvasElement;
@@ -88,6 +95,8 @@ interface Lift {
 	readonly cover: HTMLCanvasElement;
 	/** The layer's pixels under them, the whole layer: the rest of each, or, for a copy, all of it. */
 	readonly beneath: HTMLCanvasElement;
+	/** Where `beneath` is. */
+	readonly beneathAt: Box;
 	readonly copy: boolean;
 }
 
@@ -172,7 +181,15 @@ const liftOf = (surface: RasterSurface, area: Area, copy: boolean): Lift | undef
 	const ctx = beneath.getContext('2d');
 	if (!copy && ctx !== null) eraseCovered(ctx, mask);
 	releaseCanvas(mask);
-	const lift: Lift = { box, pixels, cover, beneath, copy };
+	const [ox, oy] = surface.origin();
+	const lift: Lift = {
+		box: shifted(box, [0 - ox, 0 - oy]),
+		pixels,
+		cover,
+		beneath,
+		beneathAt: { x: 0 - ox, y: 0 - oy, width, height },
+		copy,
+	};
 	const held = pixels.getContext('2d');
 	const whole = { x: 0, y: 0, width: box.width, height: box.height };
 	if (held !== null && holdsColor(held, whole)) return lift;
@@ -180,24 +197,39 @@ const liftOf = (surface: RasterSurface, area: Area, copy: boolean): Lift | undef
 	return undefined;
 };
 
+/** What a move by `offset` writes, in the frame: what lies beneath, and where the pixels go. */
+const movedBox = (lift: Lift, offset: Offset): Box =>
+	unionBox([lift.beneathAt, shifted(lift.box, offset)]) ?? lift.beneathAt;
+
+/** A box in the frame, in the pixels of the surface's canvas as it is now. */
+const onCanvas = (surface: RasterSurface, box: Box): Box => shifted(box, surface.origin());
+
 /**
- * The layer's pixels as the move leaves them, drawn onto `ctx` whole: what
- * lies beneath, and the pixels over it at `offset`. Back where they were
- * lifted, a move's pixels and the rest of each it left add up to the pixels
- * as they were (`lighter`), so a feathered edge taken away and put back is
- * whole again; and a copy put back on itself is no copy.
+ * The layer's pixels as the move leaves them, drawn onto `ctx` whole, whose
+ * canvas has the frame's first pixel at `origin`: what lies beneath, and the
+ * pixels over it at `offset`. Back where they were lifted, a move's pixels
+ * and the rest of each it left add up to the pixels as they were
+ * (`lighter`), so a feathered edge taken away and put back is whole again;
+ * and a copy put back on itself is no copy.
  */
-const composite = (ctx: CanvasRenderingContext2D, lift: Lift, offset: Offset): void => {
+const composite = (
+	ctx: CanvasRenderingContext2D,
+	lift: Lift,
+	offset: Offset,
+	origin: Offset
+): void => {
 	const home = isNone(offset);
+	const under = shifted(lift.beneathAt, origin);
+	const at = shifted(lift.box, plus(offset, origin));
 	ctx.save();
 	ctx.setTransform(1, 0, 0, 1, 0, 0);
 	ctx.globalAlpha = 1;
 	ctx.globalCompositeOperation = 'source-over';
 	ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-	ctx.drawImage(lift.beneath, 0, 0);
+	ctx.drawImage(lift.beneath, under.x, under.y);
 	if (!(home && lift.copy)) {
 		ctx.globalCompositeOperation = home ? 'lighter' : 'source-over';
-		ctx.drawImage(lift.pixels, lift.box.x + offset[0], lift.box.y + offset[1]);
+		ctx.drawImage(lift.pixels, at.x, at.y);
 	}
 	ctx.restore();
 };
@@ -241,19 +273,21 @@ const screenBox = (matrix: Mat, box: Box): Box => {
 
 /**
  * The pixels on the screen canvas where the drag has them, through the
- * layer's place in the view, kept to the layer's pixels as the write keeps
- * them; for a float, over what lay beneath where they were. What the last
- * showing covered is cleared, and nothing more, so a stroke still landing
- * keeps its own.
+ * layer's place in the view, kept to what the layer's pixels can grow to
+ * hold, as the write keeps them (`RasterSurface.room`), off the drawing's
+ * canvas too; for a float, over what lay beneath where they were. What the
+ * last showing covered is cleared, and nothing more, so a stroke still
+ * landing keeps its own.
  */
 const show = (context: ToolContext, drag: Drag): Drag => {
 	const { lift, surface, under } = drag;
 	const ctx = context.screen.canvas.getContext('2d');
 	if (lift === undefined || ctx === null) return drag;
 	const matrix = pixelsToScreen(surface.toPixel, context.screen.toScreen);
-	const at = shifted(lift.box, plus(drag.from, drag.by));
-	const was = shifted(lift.box, drag.from);
+	const at = onCanvas(surface, shifted(lift.box, plus(drag.from, drag.by)));
+	const was = onCanvas(surface, shifted(lift.box, drag.from));
 	const covers = unionBox(under === undefined ? [at] : [at, was]) ?? at;
+	const room = surface.room(at, true);
 	const [a, b, c, d, e, f] = matrix;
 	ctx.save();
 	ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -262,7 +296,7 @@ const show = (context: ToolContext, drag: Drag): Drag => {
 	}
 	ctx.setTransform(a, b, c, d, e, f);
 	ctx.beginPath();
-	ctx.rect(0, 0, surface.canvas.width, surface.canvas.height);
+	ctx.rect(room.x, room.y, room.width, room.height);
 	ctx.clip();
 	if (under !== undefined) ctx.drawImage(under, was.x, was.y);
 	ctx.drawImage(lift.pixels, at.x, at.y);
@@ -270,9 +304,12 @@ const show = (context: ToolContext, drag: Drag): Drag => {
 	return { ...drag, shown: screenBox(matrix, covers) };
 };
 
-/** What lay beneath a float's pixels at `at`, as far as they cover it, for the screen while they move. */
+/**
+ * What lay beneath a float's pixels at `at`, in the frame, as far as they
+ * cover it, for the screen while they move.
+ */
 const underOf = (lift: Lift, at: Box): HTMLCanvasElement => {
-	const canvas = cropOf(lift.beneath, at);
+	const canvas = cropOf(lift.beneath, shifted(at, [0 - lift.beneathAt.x, 0 - lift.beneathAt.y]));
 	keepCovered(canvas, lift.cover);
 	return canvas;
 };
@@ -367,7 +404,13 @@ const lifted = (context: ToolContext, drag: Drag): void => {
 	}
 	const hole = drag.copy
 		? NO_HOLE
-		: showHole(context.document.root, drag.layerId, drag.surface, lift.cover, lift.box);
+		: showHole(
+				context.document.root,
+				drag.layerId,
+				drag.surface,
+				lift.cover,
+				onCanvas(drag.surface, lift.box)
+			);
 	active.current = show(context, { ...drag, lift, hole });
 };
 
@@ -384,17 +427,29 @@ const finish = (context: ToolContext, drag: Drag, by: Offset): void => {
 	placeOutline(context, outlineAt(last, total));
 	const region = context.region.region;
 	const { surface } = drag;
-	const work = surface.rewrite('regions.move', (ctx) => {
-		// Lifted here where the picture was still decoding when the move was made.
-		const lift = last.lift ?? liftOf(surface, drag.area, drag.copy);
-		if (lift === undefined) {
-			context.notify(t('regions.empty', { name: activeLayerName(context) }));
-			return false;
-		}
-		composite(ctx, lift, total);
-		if (last.lift === undefined) releaseLift(lift);
-		return true;
-	});
+	// Lifted in the surface's turn where the picture was still decoding when
+	// the move was made, before the pixels grow to hold where they go.
+	const lifting = cell<Lift | undefined>(last.lift);
+	const reach = (): Box | undefined => {
+		lifting.current = last.lift ?? liftOf(surface, drag.area, drag.copy);
+		return lifting.current === undefined
+			? undefined
+			: onCanvas(surface, movedBox(lifting.current, total));
+	};
+	const work = surface.rewrite(
+		'regions.move',
+		(ctx) => {
+			const lift = lifting.current;
+			if (lift === undefined) {
+				context.notify(t('regions.empty', { name: activeLayerName(context) }));
+				return false;
+			}
+			composite(ctx, lift, total, surface.origin());
+			if (last.lift === undefined) releaseLift(lift);
+			return onCanvas(surface, movedBox(lift, total));
+		},
+		{ reach, offCanvas: true }
+	);
 	const float: Float | undefined =
 		last.lift === undefined || region === undefined
 			? undefined
@@ -509,7 +564,7 @@ const begin: AreaMove['begin'] = (context, sample) => {
 			drag.layerId,
 			drag.surface,
 			drag.lift.cover,
-			at
+			onCanvas(drag.surface, at)
 		);
 		active.current = show(context, { ...drag, under: underOf(drag.lift, at), hole });
 		return true;

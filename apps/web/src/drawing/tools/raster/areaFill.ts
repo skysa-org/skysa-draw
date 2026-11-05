@@ -4,11 +4,28 @@ import type { Args, At } from '../../../i18n/catalog.js';
 import { type English, type MessageKey, t } from '../../../i18n/t.js';
 import { inpaint } from '../../inpaint/index.js';
 import type { ToolContext } from '../types.js';
+import { transformBox } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
-import { type Area, areaMask, areaOf, areaPixelBox, keepCovered, releaseCanvas } from './area.js';
+import {
+	affineOf,
+	type Area,
+	areaMask,
+	areaOf,
+	areaPixelBox,
+	type Grid,
+	keepCovered,
+	releaseCanvas,
+} from './area.js';
+import { shiftBox, wholePixels } from './grow.js';
 import { guardedLayer, guardedSurface, reportFailure } from './guard.js';
 import { parseColor, type Rgba } from './pixels.js';
-import { type RasterSurface, surfaceFor, UnreadablePictureError } from './surface.js';
+import {
+	type Grow,
+	type Painter,
+	type RasterSurface,
+	surfaceFor,
+	UnreadablePictureError,
+} from './surface.js';
 
 /**
  * Fill… (docs/decisions/0004-the-interface.md, "The context menu"; docs/ARCHITECTURE.md
@@ -35,6 +52,11 @@ import { type RasterSurface, surfaceFor, UnreadablePictureError } from './surfac
  * coverage reaches, a status over the canvas with its Stop while it works,
  * Escape aborting it, its result dropped where the layer changed meanwhile,
  * and what it made laid over the layer by the coverage in one command.
+ *
+ * An area, or a stroke, that reaches past the layer's pixels on the
+ * drawing's canvas fills there too: the canvas past them is transparent
+ * pixels of the layer, as the fill tool takes it, and the pixels grow to
+ * hold what lands there with any alpha (`RasterSurface`), in the same command.
  */
 
 export type FillContents = 'fill' | 'stroke' | 'color' | 'contentAware';
@@ -98,32 +120,38 @@ const inkFor = (spec: FillSpec, context: ToolContext): string => {
 	return inkOf(context.options, spec.contents === 'stroke' ? 'stroke' : 'fill');
 };
 
-/** A canvas of `like`'s size, holding `like`'s pixels where it is given them. */
+/** A canvas of `like`'s size, holding `like`'s pixels where it is given a canvas to copy. */
 const canvasLike = (
-	like: HTMLCanvasElement,
-	copy: boolean
+	like: Readonly<{ width: number; height: number }>,
+	copy?: HTMLCanvasElement
 ): readonly [HTMLCanvasElement, CanvasRenderingContext2D] | undefined => {
 	const canvas = document.createElement('canvas');
 	canvas.width = like.width;
 	canvas.height = like.height;
 	const ctx = canvas.getContext('2d');
 	if (ctx === null) return undefined;
-	if (copy) ctx.drawImage(like, 0, 0);
+	if (copy !== undefined) ctx.drawImage(copy, 0, 0);
 	return [canvas, ctx];
 };
 
-/** `image`, the target's size, drawn over the whole of it in `composite` at `alpha`. */
+/** Where a picture is drawn on the layer's pixels: at their corner, or at a box's of them. */
+type Spot = readonly [number, number];
+
+const CORNER: Spot = [0, 0];
+
+/** `image` drawn over the target at `at`, in `composite` at `alpha`. */
 const drawWhole = (
 	ctx: CanvasRenderingContext2D,
 	image: HTMLCanvasElement,
 	composite: GlobalCompositeOperation,
-	alpha: number
+	alpha: number,
+	at: Spot = CORNER
 ): void => {
 	ctx.save();
 	ctx.setTransform(1, 0, 0, 1, 0, 0);
 	ctx.globalAlpha = alpha;
 	ctx.globalCompositeOperation = composite;
-	ctx.drawImage(image, 0, 0);
+	ctx.drawImage(image, at[0], at[1]);
 	ctx.restore();
 };
 
@@ -139,18 +167,19 @@ const layOver = (
 	ctx: CanvasRenderingContext2D,
 	source: HTMLCanvasElement,
 	way: Way,
-	replacing: HTMLCanvasElement | undefined
+	replacing: HTMLCanvasElement | undefined,
+	at: Spot
 ): void => {
 	if (replacing === undefined) {
-		drawWhole(ctx, source, way.composite, way.opacity);
+		drawWhole(ctx, source, way.composite, way.opacity, at);
 		return;
 	}
-	drawWhole(ctx, replacing, 'destination-out', way.opacity);
-	drawWhole(ctx, source, 'lighter', way.opacity);
+	drawWhole(ctx, replacing, 'destination-out', way.opacity, at);
+	drawWhole(ctx, source, 'lighter', way.opacity, at);
 };
 
 /**
- * `source` laid over the pixels on `ctx` as `way` says. Preserving
+ * `source` laid over the pixels on `ctx` at `at` as `way` says. Preserving
  * transparency, it is laid over a copy, and the copy drawn back over the
  * pixels `source-atop`, which keeps each pixel's alpha and takes the copy's
  * color by as much as the copy has, so a transparent pixel stays so.
@@ -159,16 +188,17 @@ const compose = (
 	ctx: CanvasRenderingContext2D,
 	source: HTMLCanvasElement,
 	way: Way,
-	replacing?: HTMLCanvasElement
+	replacing?: HTMLCanvasElement,
+	at: Spot = CORNER
 ): void => {
 	if (!way.preserve) {
-		layOver(ctx, source, way, replacing);
+		layOver(ctx, source, way, replacing, at);
 		return;
 	}
-	const made = canvasLike(ctx.canvas, true);
+	const made = canvasLike(ctx.canvas, ctx.canvas);
 	if (made === undefined) return;
 	const [copy, copyCtx] = made;
-	layOver(copyCtx, source, way, replacing);
+	layOver(copyCtx, source, way, replacing, at);
 	drawWhole(ctx, copy, 'source-atop', 1);
 	releaseCanvas(copy);
 };
@@ -183,18 +213,34 @@ const changedSince = (
 		.getImageData(box.x, box.y, box.width, box.height)
 		.data.some((value, index) => value !== before[index]);
 
-/** The area filled with a color, as `surface.paint` asks: whether a pixel changed. */
+/**
+ * The area filled with a color, as `surface.paint` asks, on the pixels grown
+ * to hold the area first (`areaReach`): the box of the pixels it changed,
+ * or that it changed none.
+ */
 const colorPainter =
-	(surface: RasterSurface, area: Area, color: string, way: Way) =>
-	(ctx: CanvasRenderingContext2D): boolean => {
+	(surface: RasterSurface, area: Area, color: string, way: Way): Painter =>
+	(ctx) => {
 		const box = areaPixelBox(surface, area);
 		const mask = box === undefined ? undefined : areaMask(surface, area);
 		if (box === undefined || mask === undefined) return false;
 		const before = ctx.getImageData(box.x, box.y, box.width, box.height).data;
 		compose(ctx, tinted(mask, color), way);
 		releaseCanvas(mask);
-		return changedSince(ctx, box, before);
+		return changedSince(ctx, box, before) ? box : false;
 	};
+
+/**
+ * Where a fill of the area may land past the layer's pixels, in them: the
+ * whole pixels the area's box touches, which the surface keeps to the
+ * drawing's canvas.
+ */
+const areaReach =
+	(surface: RasterSurface, area: Area): Grow['reach'] =>
+	() =>
+		area.bounds === undefined
+			? undefined
+			: wholePixels(transformBox(affineOf(surface.toPixel), area.bounds));
 
 /**
  * The hole the engine fills: every pixel the coverage reaches at all, so a
@@ -212,10 +258,10 @@ const holeOf = (cover: HTMLCanvasElement): Uint8Array | undefined => {
 /** The engine's pixels on a canvas of their own; none for pixels that are not the picture's size. */
 const pictureOf = (
 	data: Uint8ClampedArray,
-	like: HTMLCanvasElement
+	like: Readonly<{ width: number; height: number }>
 ): HTMLCanvasElement | undefined => {
 	if (data.length !== like.width * like.height * 4) return undefined;
-	const made = canvasLike(like, false);
+	const made = canvasLike(like);
 	if (made === undefined) return undefined;
 	const [canvas, ctx] = made;
 	ctx.putImageData(new ImageData(new Uint8ClampedArray(data), like.width, like.height), 0, 0);
@@ -338,11 +384,15 @@ const watchEngine = (
 type PixelBox = Readonly<{ x: number; y: number; width: number; height: number }>;
 
 /**
- * What the engine makes again of a layer: how much of each of its pixels
- * goes, as the alpha of a canvas the size of the layer's pixels, and the box
- * of them outside which none does.
+ * What the engine makes again of a layer: how much of each pixel of `frame`
+ * goes, as the alpha of a canvas its size, and the box of the canvas
+ * outside which none does. `frame` is a box of the layer's pixels in the
+ * frame of the grid its surface was made with (`RasterSurface.origin`): the
+ * pixels, and past them where what is made again reaches the drawing's
+ * canvas beyond them, which is transparent pixels of the layer there, as it
+ * is to the fill.
  */
-type Coverage = Readonly<{ canvas: HTMLCanvasElement; box: PixelBox }>;
+export type Coverage = Readonly<{ canvas: HTMLCanvasElement; box: PixelBox; frame: PixelBox }>;
 
 /** One making again: the command it is, the user's words for it, and what it makes again. */
 export type MakeAgain = Readonly<{
@@ -357,12 +407,13 @@ export type MakeAgain = Readonly<{
 	coverage: () => Coverage | undefined;
 }>;
 
-/** What the engine is given: the layer's pixels, once decoded, the coverage and the hole it makes. */
+/** What the engine is given: the layer's pixels in the frame, once decoded, the coverage and the hole it makes. */
 type Read = Readonly<{
 	image: ImageData;
 	cover: HTMLCanvasElement;
 	hole: Uint8Array;
 	box: PixelBox;
+	frame: PixelBox;
 }>;
 
 /**
@@ -383,35 +434,49 @@ const readForEngine = async (
 	}
 	const covered = coverage();
 	if (covered === undefined) return undefined;
-	const { canvas: cover, box } = covered;
+	const { canvas: cover, box, frame } = covered;
 	const hole = holeOf(cover);
 	if (hole === undefined || !hole.includes(1)) {
 		releaseCanvas(cover);
 		return undefined;
 	}
-	const image = ctx.getImageData(0, 0, surface.canvas.width, surface.canvas.height);
-	return { image, cover, hole, box };
+	// Outside the canvas `getImageData` reads transparent pixels, which is what
+	// the layer is past its own.
+	const [ox, oy] = surface.origin();
+	const image = ctx.getImageData(frame.x + ox, frame.y + oy, frame.width, frame.height);
+	return { image, cover, hole, box, frame };
 };
 
 /**
- * What the engine made laid over the layer, as `surface.rewrite` asks: kept
- * to the coverage, and in `normal` taking the pixels' place in proportion
- * rather than laid over them. Whether a pixel changed.
+ * What the engine made laid over the layer, as `surface.rewrite` asks, where
+ * its frame is on the pixels now, grown to hold it: kept to the coverage,
+ * and in `normal` taking the pixels' place in proportion rather than laid
+ * over them. The box of the pixels it may have changed, or that it changed none.
  */
 const madePainter =
-	(context: ToolContext, read: Read, made: Uint8ClampedArray, way: Way, words: MakeAgainWords) =>
-	(ctx: CanvasRenderingContext2D): boolean => {
-		const picture = pictureOf(made, ctx.canvas);
+	(
+		context: ToolContext,
+		surface: RasterSurface,
+		read: Read,
+		made: Uint8ClampedArray,
+		way: Way,
+		words: MakeAgainWords
+	): Painter =>
+	(ctx) => {
+		const picture = pictureOf(made, read.frame);
 		if (picture === undefined) {
 			context.notify(t(words.failed));
 			return false;
 		}
-		const { box, cover } = read;
+		const { cover } = read;
+		const [ox, oy] = surface.origin();
+		const at: Spot = [read.frame.x + ox, read.frame.y + oy];
+		const box = shiftBox(read.box, at[0], at[1]);
 		const before = ctx.getImageData(box.x, box.y, box.width, box.height).data;
 		keepCovered(picture, cover);
-		compose(ctx, picture, way, way.composite === 'source-over' ? cover : undefined);
+		compose(ctx, picture, way, way.composite === 'source-over' ? cover : undefined, at);
 		releaseCanvas(picture);
-		return changedSince(ctx, box, before);
+		return changedSince(ctx, box, before) ? box : false;
 	};
 
 /** What the engine made of what it was given; no pixels where it failed or was aborted. */
@@ -465,7 +530,12 @@ const makeAgainWith = async (
 		return;
 	}
 	await surface
-		.rewrite(job.label, madePainter(context, read, pixels, way, job.words))
+		.rewrite(job.label, madePainter(context, surface, read, pixels, way, job.words), {
+			reach: () => {
+				const [ox, oy] = surface.origin();
+				return shiftBox(read.frame, ox, oy);
+			},
+		})
 		.finally(() => releaseCanvas(read.cover));
 };
 
@@ -495,13 +565,37 @@ export const makeAgainUnder = (
 	job: MakeAgain
 ): Promise<void> => counted(() => makeAgainWith(context, surface, job, REPLACING));
 
-/** The area's coverage of the layer's pixels, for the engine to make again. */
+/**
+ * A box of the layer's pixels, in the frame (`Coverage`), as a grid of its
+ * own for a mask: its size, and the map to it from user units.
+ */
+export const frameGrid = (surface: RasterSurface, frame: PixelBox): Grid => {
+	const [ox, oy] = surface.origin();
+	return {
+		canvas: { width: frame.width, height: frame.height },
+		toPixel: (x, y) => {
+			const [px, py] = surface.toPixel(x, y);
+			return [px - ox - frame.x, py - oy - frame.y];
+		},
+	};
+};
+
+/**
+ * The area's coverage of the layer's pixels, for the engine to make again,
+ * in a frame of them that reaches as far past them as the area does on the
+ * drawing's canvas, as far as the layer may grow (`RasterSurface.room`).
+ */
 const areaCoverage =
 	(surface: RasterSurface, area: Area): MakeAgain['coverage'] =>
 	() => {
-		const box = areaPixelBox(surface, area);
-		const canvas = box === undefined ? undefined : areaMask(surface, area);
-		return box === undefined || canvas === undefined ? undefined : { canvas, box };
+		const reach = areaReach(surface, area)();
+		if (reach === undefined) return undefined;
+		const [ox, oy] = surface.origin();
+		const frame = shiftBox(surface.room(reach), -ox, -oy);
+		const grid = frameGrid(surface, frame);
+		const box = areaPixelBox(grid, area);
+		const canvas = box === undefined ? undefined : areaMask(grid, area);
+		return box === undefined || canvas === undefined ? undefined : { canvas, box, frame };
 	};
 
 /**
@@ -556,7 +650,8 @@ export const fillAreaWith = (context: ToolContext, spec: FillSpec): boolean => {
 						area,
 						cssOf(parseColor(inkFor(spec, context)) ?? BLACK),
 						way
-					)
+					),
+					{ reach: areaReach(surface, area) }
 				);
 	context.document.pending(
 		work.catch((error: unknown) => reportFailure(context, surface, error))

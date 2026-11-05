@@ -17,6 +17,7 @@ A layer has a kind, `draw:kind`, written on the layers this app makes.
 A `vector` layer is a `<g>` of SVG's own graphics elements, as any tool writes them.
 A `raster` layer is a `<g>` holding one `<image>`, rather than the `<image>` alone, so the layer carries its transform, opacity, blend mode, mask and filter like any other, and so an empty raster layer exists before its first stroke.
 The image's `width` and `height` are in user units and its pixels are its own: one per user unit, up to `RASTER_MAX_SIDE` on the longer side, past which a large canvas has fewer pixels than units rather than a bitmap no phone can hold.
+Past the image's box the layer is transparent: an edit that lands there grows the box, in the layer's own pixels and units, rather than being cut to it, so a raster layer moved by its `transform` takes paint wherever the canvas is; its `transform` is never touched by a pixel edit.
 A pixel edit re-encodes the image whole as PNG, which is lossless; a picture placed from a file keeps its bytes and its type until a pixel of it changes, so a photo is not re-encoded by being looked at.
 The bytes are a `data:` URL for now; when attachments beside the drawing arrive (§10), a threshold decides which go beside (`INLINE_RASTER_BYTES`), as `0001` planned.
 A `group` is a `<g>` of layers, each by these rules, for the folders every layers panel has.

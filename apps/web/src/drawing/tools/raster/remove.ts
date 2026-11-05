@@ -3,12 +3,20 @@ import { cell } from '@skysa/draw-core';
 import { t } from '../../../i18n/t.js';
 import { withBrushOutline } from '../common/brushOutline.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
-import { type Box, type Mat, unionBox } from '../vector/geometry.js';
+import { type Box, type Mat, multiply, translate, unionBox } from '../vector/geometry.js';
 import { affineOf, type Area, areaOf, reachesArea, releaseCanvas } from './area.js';
-import { makeAgainUnder, type MakeAgainWords, makingAgain } from './areaFill.js';
+import {
+	type Coverage,
+	frameGrid,
+	makeAgainUnder,
+	type MakeAgainWords,
+	makingAgain,
+} from './areaFill.js';
+import { intersect, sameBox, shiftBox } from './grow.js';
 import { claimScreen, clearScreen, guardedSurface, releaseScreen, reportFailure } from './guard.js';
 import type { Point } from './pixels.js';
 import {
+	cropTo,
 	footprintCanvas,
 	keepToArea,
 	pixelBoxOf,
@@ -28,7 +36,8 @@ import type { RasterSurface } from './surface.js';
  * canvas as a translucent highlight, as Photoshop shows its pink, drawn
  * opaque with the canvas made half transparent so that where the stroke
  * crosses itself it is no darker. The same footprint is drawn on a canvas
- * the size of the layer's pixels, through the layer's pixel map and its
+ * as large as painting may grow the layer's pixels to on the drawing's
+ * canvas (`RasterSurface.paintRoom`), through the layer's pixel map and its
  * `transform` (`removeFootprint.ts`); when the stroke ends that is the
  * coverage the content-aware engine makes again, laid over the layer by the
  * coverage at full opacity in one command (`remove.command`), with Fill…'s
@@ -37,7 +46,10 @@ import type { RasterSurface } from './surface.js';
  * the engine stopped. A click without moving is one dab. Where an area is
  * selected the coverage is kept to it, and the highlight to its outline, as
  * every raster tool paints inside the area; a stroke that reaches none of
- * the layer's pixels inside it does nothing and asks nothing of the engine.
+ * the layer's pixels or the canvas inside it does nothing and asks nothing
+ * of the engine. Past the layer's pixels are transparent pixels of the
+ * layer, as for every raster tool, made again from the rest; where what is
+ * made there holds any color, the pixels grow to hold it.
  *
  * Its pointer is the brush's outline, as every tool's with a size is
  * (`tools/common/brushOutline.ts`).
@@ -75,8 +87,14 @@ interface Stroke {
 	readonly surface: RasterSurface;
 	/** The area selected when the stroke began; none for anywhere. */
 	readonly area: Area | undefined;
-	/** The footprint on the layer's pixels: a canvas their size whose alpha is how much of each the stroke covers. */
+	/**
+	 * The footprint on the layer's pixels: a canvas whose alpha is how much of
+	 * each the stroke covers, as large as painting may grow them
+	 * (`RasterSurface.paintRoom`), so a stroke past them is made again too.
+	 */
 	readonly footprint: HTMLCanvasElement;
+	/** Where the footprint is among the layer's pixels, in the frame of their surface (`RasterSurface.origin`). */
+	readonly frame: Box;
 	/** User units to the footprint's pixels, read when the stroke began. */
 	readonly toFootprint: Mat;
 	/** The brush's radius in user units. */
@@ -119,11 +137,10 @@ const extend = (context: ToolContext, stroke: Stroke, to: Point): Stroke => {
  * The stroke ended: its footprint, kept to the area, made again by the
  * engine, which the document waits for before a save. The highlight goes
  * once that is written or stopped, unless a later stroke is on the screen
- * canvas. A footprint that reaches none of the layer's pixels inside the
- * area does nothing.
+ * canvas. A footprint that covers no pixel does nothing.
  */
 const finish = (context: ToolContext, stroke: Stroke): void => {
-	const { area, footprint, serial, surface } = stroke;
+	const { footprint, serial, surface } = stroke;
 	const done = (): void => {
 		releaseCanvas(footprint);
 		releaseScreen(context.screen, serial);
@@ -136,16 +153,34 @@ const finish = (context: ToolContext, stroke: Stroke): void => {
 	const work = makeAgainUnder(context, surface, {
 		label: 'remove.command',
 		words: WORDS,
-		coverage: () => {
-			keepToArea(surface, footprint, area);
-			return { canvas: footprint, box };
-		},
+		coverage: () => coverageOf(surface, stroke, box),
 	})
 		.catch((error: unknown) => {
 			reportFailure(context, surface, error);
 		})
 		.finally(done);
 	context.document.pending(work);
+};
+
+/**
+ * The footprint as the engine takes it, once the layer's pixels are decoded:
+ * cropped to a frame of the pixels and as far past them as `box`, of the
+ * footprint's pixels, reaches on the drawing's canvas, as the layer may grow
+ * there (`RasterSurface.room`), and kept to the area.
+ */
+const coverageOf = (surface: RasterSurface, stroke: Stroke, box: Box): Coverage | undefined => {
+	const { area, footprint } = stroke;
+	const [ox, oy] = surface.origin();
+	const reach = shiftBox(box, stroke.frame.x + ox, stroke.frame.y + oy);
+	const frame = shiftBox(surface.room(reach), -ox, -oy);
+	const inFrame = shiftBox(box, stroke.frame.x - frame.x, stroke.frame.y - frame.y);
+	const kept = intersect(inFrame, { x: 0, y: 0, width: frame.width, height: frame.height });
+	if (kept === undefined) return undefined;
+	const canvas = sameBox(frame, stroke.frame)
+		? footprint
+		: cropTo(footprint, shiftBox(frame, -stroke.frame.x, -stroke.frame.y));
+	keepToArea(frameGrid(surface, frame), canvas, area);
+	return { canvas, box: kept, frame };
 };
 
 /** The Remove tool's behavior on a raster layer, holding the stroke under way. */
@@ -164,11 +199,14 @@ export const removeBehavior = (): ToolBehavior => {
 			}
 			const serial = claimScreen();
 			context.screen.canvas.style.setProperty('opacity', String(HIGHLIGHT_OPACITY));
+			const room = surface.paintRoom();
+			const [ox, oy] = surface.origin();
 			const first: Stroke = {
 				surface,
 				area: areaOf(context),
-				footprint: footprintCanvas(surface.canvas),
-				toFootprint: affineOf(surface.toPixel),
+				footprint: footprintCanvas(room),
+				frame: shiftBox(room, -ox, -oy),
+				toFootprint: multiply(translate(-room.x, -room.y), affineOf(surface.toPixel)),
 				radius,
 				last: at,
 				box: sweepBox(at, at, radius),

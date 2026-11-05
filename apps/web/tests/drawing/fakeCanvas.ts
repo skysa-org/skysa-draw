@@ -8,7 +8,8 @@ import { parseColor, type Rgba } from '../../src/drawing/tools/raster/pixels.js'
  * see what the area's inverse and feather do to pixels, not only which calls
  * were made. Pixels are sampled at their centers, so an edge has no
  * anti-aliasing; a path is the area's own kind, straight subpaths filled by
- * `nonzero`; a `blur(…px)` filter is a Gaussian of that deviation over the
+ * `nonzero`, and one drawn with `moveTo`, `lineTo` and `arcTo` is its
+ * corners, as a rectangle's is at a radius of 0; a `blur(…px)` filter is a Gaussian of that deviation over the
  * shape, drawn as on an infinite bitmap, as the canvas's spec says; and
  * `source-over`, `source-in`, `source-out`, `destination-in`,
  * `destination-out`, `destination-over`, `copy` and `lighter` are
@@ -179,6 +180,13 @@ const createContext = (canvas: HTMLCanvasElement, filters: boolean): FakeContext
 	const calls: Call[] = [];
 	const saved: State[] = [];
 	let path: Inside[] = [];
+	/** The corners of the subpaths drawn since `beginPath`, in the canvas's pixels. */
+	let corners: [number, number][][] = [];
+	const corner = (x: number, y: number): void => {
+		const last = corners.at(-1);
+		if (last === undefined) corners = [[apply(state.transform, x, y)]];
+		else last.push(apply(state.transform, x, y));
+	};
 	let store: Uint8ClampedArray | undefined;
 	const pixels = (): Uint8ClampedArray => {
 		const length = canvas.width * canvas.height * 4;
@@ -292,7 +300,10 @@ const createContext = (canvas: HTMLCanvasElement, filters: boolean): FakeContext
 			};
 		}
 		const current = path;
-		return (x, y) => current.some((inside) => inside(x, y));
+		const drawn = corners.filter((polygon) => polygon.length > 2);
+		const cornered = polygonShape(drawn);
+		return (x, y) =>
+			current.some((inside) => inside(x, y)) || (drawn.length > 0 && cornered(x, y));
 	};
 
 	const rectShape = (x: number, y: number, width: number, height: number): Inside => {
@@ -349,6 +360,7 @@ const createContext = (canvas: HTMLCanvasElement, filters: boolean): FakeContext
 		beginPath: () => {
 			record('beginPath', []);
 			path = [];
+			corners = [];
 		},
 		rect: (x: number, y: number, width: number, height: number) => {
 			record('rect', [x, y, width, height]);
@@ -360,9 +372,18 @@ const createContext = (canvas: HTMLCanvasElement, filters: boolean): FakeContext
 			const r = radius * Math.hypot(state.transform[0], state.transform[1]);
 			path = [...path, (px, py) => Math.hypot(px - cx, py - cy) <= r];
 		},
-		moveTo: (...args: unknown[]) => record('moveTo', args),
-		lineTo: (...args: unknown[]) => record('lineTo', args),
-		arcTo: (...args: unknown[]) => record('arcTo', args),
+		moveTo: (x: number, y: number) => {
+			record('moveTo', [x, y]);
+			corners = [...corners, [apply(state.transform, x, y)]];
+		},
+		lineTo: (x: number, y: number) => {
+			record('lineTo', [x, y]);
+			corner(x, y);
+		},
+		arcTo: (x1: number, y1: number, ...rest: number[]) => {
+			record('arcTo', [x1, y1, ...rest]);
+			corner(x1, y1);
+		},
 		ellipse: (...args: unknown[]) => record('ellipse', args),
 		closePath: () => record('closePath', []),
 		stroke: (...args: unknown[]) => record('stroke', args),

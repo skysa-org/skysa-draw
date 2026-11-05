@@ -94,6 +94,7 @@ Each layer is of one kind, and the app writes the kind on the layers it makes, `
 - `vector`: a `<g>` of SVG's own graphics elements, as any tool writes them: `path`, `rect`, `ellipse`, `line`, `polygon`, `text`.
 - `raster`: a `<g>` holding one `<image>` with `x`, `y`, `width` and `height` in user units and `preserveAspectRatio="none"`, so the layer carries its transform, opacity, blend, mask and filter like any other.
   The pixels are the image's own: one per user unit up to `RASTER_MAX_SIDE` on the longer side, past which a canvas has fewer pixels than units.
+  The pixels grow to hold what is written past them, as a Photoshop layer has no edge of its own: in whole pixels of the layer's own grid at the same pixels per unit, the pixels already there kept where they are, to the byte, and only the `<image>`'s `x`, `y`, `width` and `height` changed, in the same command; painting grows them only on the drawing's canvas, a move wherever its pixels go, and only as far as a pixel was left with any alpha (`tools/raster/grow.ts`).
   A pixel edit re-encodes the image whole as PNG; a picture placed from a file keeps its bytes and its type until a pixel of it changes.
   The bytes are inline, a `data:` URL, until attachments beside the drawing arrive (§10), when `INLINE_RASTER_BYTES` decides which go beside.
 - `group`: a `<g>` of layers, each by these rules.
@@ -345,7 +346,8 @@ The tool bar holds the tools in Photoshop's groups and order, a light rule betwe
 One tool is one tool: the same name, the same key and the same options whether the active layer is vector or raster, doing on each what a user of that tool expects (`decisions/0004-the-interface.md` lists them).
 Pointer Events alone drive them, in user units through the viewport's inverse transform, with `pressure`, `tiltX` and `tiltY` where the device gives them and `getCoalescedEvents()` so a fast stroke keeps every sample.
 On a vector layer a stroke is a `<path>`, a brush stroke a filled path whose width follows pressure, a shape its own element, and selection, move, resize and rotate are `transform`s.
-On a raster layer a stroke is painted on a canvas the size of the layer's pixels, shown live, and written into the `<image>` when the stroke ends; the encoding is asynchronous and a save waits for it.
+On a raster layer a stroke is painted on a canvas as large as the layer's pixels may grow to on the drawing's canvas, shown live, and written into the `<image>` when the stroke ends, the pixels grown to hold it; the encoding is asynchronous and a save waits for it.
+The paint bucket, Fill…, Remove and the smudge take the canvas past the layer's pixels for transparent pixels of the layer, as Photoshop does.
 Writes land in the order the strokes were made, whatever order their encodings finish in, and a stroke that changed no pixel writes nothing, so a picture keeps its bytes until a pixel of it changes (§3).
 Adjustments are a stack of SVG filter primitives on the layer, each previewed live while its slider moves and made one command when it is let go, as opacity is.
 Crop is the canvas's `viewBox`, and `width` and `height` where the file has them, scaled in their own unit; nothing is resampled, and the viewport refits to the new box.

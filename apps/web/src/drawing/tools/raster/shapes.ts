@@ -17,7 +17,9 @@ import type { RasterSurface } from './surface.js';
  * ellipse round and a line to 45°; a drag shorter than a user unit is a click
  * and makes nothing. The preview stays until the new href has landed, as a
  * brush stroke stays on the screen canvas. Where an area is selected the
- * shape is drawn inside it, and one that misses it makes nothing.
+ * shape is drawn inside it, and one that misses it makes nothing. A shape
+ * past the layer's pixels grows them to hold it, on the drawing's canvas
+ * (`RasterSurface`).
  */
 
 type ShapeKind = 'rectangle' | 'ellipse' | 'line';
@@ -163,8 +165,8 @@ const drawShape = (
 ): void => {
 	const ctx = surface.stroke.getContext('2d');
 	if (ctx === null) return;
-	const [ax, ay] = surface.toPixel(start.x, start.y);
-	const [bx, by] = surface.toPixel(end.x, end.y);
+	const [ax, ay] = surface.toStroke(start.x, start.y);
+	const [bx, by] = surface.toStroke(end.x, end.y);
 	ctx.globalAlpha = 1;
 	ctx.lineWidth = options.strokeWidth * surface.ppu;
 	if (kind === 'line') {
@@ -218,14 +220,17 @@ export const shapeBehavior = (kind: ShapeKind): ToolBehavior => {
 				drag.preview.remove();
 				return;
 			}
-			// What stays on screen is what will land.
+			// What stays on screen is what will land, past the layer's pixels too.
 			setGeometry(kind, drag.preview, drag.start, end, context.options);
+			const box = shapeBox(drag.start, end, context.options);
+			drag.surface.extendStroke(box);
 			drawShape(kind, drag.surface, drag.start, end, context.options);
 			const work = drag.surface.commit(
 				label,
 				'source-over',
 				context.options.opacity,
-				drag.area
+				drag.area,
+				box
 			);
 			const landed = work.then(
 				() => drag.preview.remove(),

@@ -6,12 +6,12 @@ import {
 	areaMask,
 	clipToArea,
 	clipToInverse,
+	type Grid,
 	keepCovered,
 	releaseCanvas,
 	takeOutline,
 } from './area.js';
 import type { Point } from './pixels.js';
-import type { RasterSurface } from './surface.js';
 
 /**
  * What a stroke of the Remove tool covers (docs/decisions/0004-the-interface.md;
@@ -118,7 +118,9 @@ export const showSweep = (
 };
 
 /** A clear canvas the size of `like`, for a stroke's footprint on a layer's pixels. */
-export const footprintCanvas = (like: HTMLCanvasElement): HTMLCanvasElement => {
+export const footprintCanvas = (
+	like: Readonly<{ width: number; height: number }>
+): HTMLCanvasElement => {
 	const canvas = document.createElement('canvas');
 	canvas.width = like.width;
 	canvas.height = like.height;
@@ -139,6 +141,13 @@ export const pixelBoxOf = (canvas: HTMLCanvasElement, matrix: Mat, box: Box): Bo
 	return { x: left, y: top, width: right - left, height: bottom - top };
 };
 
+/** The pixels of `canvas` in `box` of them on a canvas of its own, transparent where the box leaves it. */
+export const cropTo = (canvas: HTMLCanvasElement, box: Box): HTMLCanvasElement => {
+	const made = footprintCanvas(box);
+	made.getContext('2d')?.drawImage(canvas, -box.x, -box.y);
+	return made;
+};
+
 /**
  * The footprint kept to the area's coverage, in place, as every raster tool
  * paints inside the area: nothing outside it, less over a feathered edge,
@@ -147,7 +156,7 @@ export const pixelBoxOf = (canvas: HTMLCanvasElement, matrix: Mat, box: Box): Bo
  * is.
  */
 export const keepToArea = (
-	surface: Pick<RasterSurface, 'canvas' | 'toPixel'>,
+	surface: Grid,
 	footprint: HTMLCanvasElement,
 	area: Area | undefined
 ): void => {

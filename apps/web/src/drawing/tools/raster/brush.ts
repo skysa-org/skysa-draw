@@ -2,7 +2,7 @@ import { cell } from '@skysa/draw-core';
 
 import { withBrushOutline } from '../common/brushOutline.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
-import { type Box, distance, pressureWidth } from '../vector/geometry.js';
+import { type Box, distance, pressureWidth, unionBox } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
 import { type Area, areaOf, reachesArea } from './area.js';
 import { type Brush, paintSegment, paintStamp, targetsOf } from './brushEngine.js';
@@ -19,6 +19,9 @@ import { clearCanvas, type CompositeMode, type RasterSurface } from './surface.j
  * the brush committed as `destination-out`, so what it stamps is taken away
  * instead of put down. Where an area is selected (`ToolContext.region`) all
  * three paint inside it, and a stroke that never reaches it writes nothing.
+ * The brush and the pencil paint anywhere on the drawing's canvas, and a
+ * stroke past the layer's pixels grows them to hold it (`RasterSurface`);
+ * the eraser takes away only what is there.
  * The size is in the drawing's user units on any layer (`brushEngine.ts`), and
  * the pointer of all three is the brush's outline, which shows it
  * (`tools/common/brushOutline.ts`).
@@ -38,6 +41,10 @@ interface Stroke {
 	readonly area: Area | undefined;
 	/** Whether any stamp reached the area, so the stroke may have changed a pixel. */
 	readonly reached: boolean;
+	/** What the stroke's stamps cover so far, in user units: how far it may grow the layer's pixels. */
+	readonly box: Box;
+	/** Whether what it paints may land past the layer's pixels and grow them: not the eraser's. */
+	readonly grows: boolean;
 }
 
 /** The screen cannot show pixels going away, so the eraser's live stroke is a neutral veil. */
@@ -99,6 +106,17 @@ const pulled = (from: Point, to: PointerSample, slack: number): Point => {
 	return { x: from.x + (to.x - from.x) * along, y: from.y + (to.y - from.y) * along };
 };
 
+/** The stroke carried on to `to`: where it last stamped, what it covers and whether it reached the area. */
+const carriedTo = (stroke: Stroke, to: Point, brush: Brush): Stroke => {
+	const segment = segmentBox(stroke.last, to, brush.radius);
+	return {
+		...stroke,
+		last: { x: to.x, y: to.y },
+		box: unionBox([stroke.box, segment]) ?? segment,
+		reached: stroke.reached || reachesArea(stroke.area, segment),
+	};
+};
+
 export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 	const active = cell<Stroke | undefined>(undefined);
 	const label = `tools.${kind}`;
@@ -116,7 +134,7 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 			return;
 		}
 		const work = stroke.surface
-			.commit(label, mode, opacityOf(kind, context.options), stroke.area)
+			.commit(label, mode, opacityOf(kind, context.options), stroke.area, stroke.box)
 			.then(clear, (error: unknown) => {
 				clear();
 				reportFailure(context, stroke.surface, error);
@@ -137,15 +155,19 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 				'opacity',
 				String(opacityOf(kind, context.options))
 			);
-			paintStamp(targetsOf(context, surface, area), sample.x, sample.y, brush);
+			const grows = kind !== 'eraser';
+			paintStamp(targetsOf(context, surface, area, grows), sample.x, sample.y, brush);
 			const last = { x: sample.x, y: sample.y };
+			const box = segmentBox(last, last, brush.radius);
 			active.current = {
 				surface,
 				last,
 				carry: 0,
 				serial,
 				area,
-				reached: reachesArea(area, segmentBox(last, last, brush.radius)),
+				reached: reachesArea(area, box),
+				box,
+				grows,
 			};
 		},
 		move: (context, sample) => {
@@ -154,16 +176,13 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 			const to = pulled(stroke.last, sample, slackOf(kind, context));
 			const brush = brushOf(kind, context.options, sample);
 			const carry = paintSegment(
-				targetsOf(context, stroke.surface, stroke.area),
+				targetsOf(context, stroke.surface, stroke.area, stroke.grows),
 				stroke.last,
 				to,
 				brush,
 				stroke.carry
 			);
-			const reached =
-				stroke.reached ||
-				reachesArea(stroke.area, segmentBox(stroke.last, to, brush.radius));
-			active.current = { ...stroke, last: to, carry, reached };
+			active.current = { ...carriedTo(stroke, to, brush), carry };
 		},
 		end: (context, sample) => {
 			const stroke = active.current;
@@ -173,16 +192,13 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 			// the stroke: it keeps its reach, as a smoothed vector stroke does.
 			const brush = brushOf(kind, context.options, sample);
 			paintSegment(
-				targetsOf(context, stroke.surface, stroke.area),
+				targetsOf(context, stroke.surface, stroke.area, stroke.grows),
 				stroke.last,
 				sample,
 				brush,
 				stroke.carry
 			);
-			const reached =
-				stroke.reached ||
-				reachesArea(stroke.area, segmentBox(stroke.last, sample, brush.radius));
-			finish(context, { ...stroke, reached });
+			finish(context, carriedTo(stroke, sample, brush));
 		},
 		cancel: (context) => {
 			const stroke = active.current;

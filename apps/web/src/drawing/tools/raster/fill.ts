@@ -4,7 +4,7 @@ import { inkOf } from '../vector/svg.js';
 import { type Area, areaMask, areaOf, releaseCanvas } from './area.js';
 import { guardedSurface, reportFailure } from './guard.js';
 import { floodFill, parseColor, type Rgba, toCss } from './pixels.js';
-import { type RasterSurface, surfaceFor } from './surface.js';
+import { type RasterSurface, type Room, surfaceFor } from './surface.js';
 
 /**
  * The fill and the eyedropper on a raster layer
@@ -23,22 +23,34 @@ const nothing = (): void => undefined;
  * every one with no area selected; with one, as much as it covers, so the
  * fill fades over a feathered edge, takes in an inverse's outside and not
  * its hole, and stops at the edge, which is a wall. Where the browser cannot
- * draw the area's mask (jsdom), every one.
+ * draw the area's mask (jsdom), every one. A pixel no write may land on, off
+ * both the layer's own and the drawing's canvas (`Room`), is a wall too.
  */
 const coverOf = (
 	surface: RasterSurface,
-	area: Area | undefined
+	area: Area | undefined,
+	room: Room
 ): ((index: number) => number) | undefined => {
-	if (area === undefined) return undefined;
-	const mask = areaMask(surface, area);
-	const data = mask
-		?.getContext('2d')
-		?.getImageData(0, 0, surface.canvas.width, surface.canvas.height).data;
+	const { width, height } = surface.canvas;
+	const mask = area === undefined ? undefined : areaMask(surface, area);
+	const data = mask?.getContext('2d')?.getImageData(0, 0, width, height).data;
 	if (mask !== undefined) releaseCanvas(mask);
-	if (data === undefined) return undefined;
-	return (index) => (data[index * 4 + 3] ?? 0) / 255;
+	const covered =
+		data === undefined ? undefined : (index: number) => (data[index * 4 + 3] ?? 0) / 255;
+	if (room.everywhere) return covered;
+	const holds = (index: number): boolean => room.holds(index % width, Math.floor(index / width));
+	return covered === undefined
+		? (index) => (holds(index) ? 1 : 0)
+		: (index) => (holds(index) ? covered(index) : 0);
 };
 
+/**
+ * The fill on a raster layer, as Photoshop's paint bucket: the drawing's
+ * canvas outside the layer's pixels is transparent pixels of the layer, so a
+ * press there, or on a transparent pixel joined to it, floods them across
+ * the canvas, and the layer's pixels grow to hold what was filled
+ * (`RasterSurface`). A press off the canvas and the pixels fills nothing.
+ */
 export const fill: ToolBehavior = {
 	begin: (context, sample) => {
 		const surface = guardedSurface(context);
@@ -53,22 +65,27 @@ export const fill: ToolBehavior = {
 		// changed no pixel writes nothing, and one from outside the area
 		// changes none.
 		const work = surface
-			.paint('tools.fill', (ctx) => {
-				const [px, py] = surface.toPixel(sample.x, sample.y);
-				const image = ctx.getImageData(0, 0, surface.canvas.width, surface.canvas.height);
-				const changed = floodFill(
-					image.data,
-					image.width,
-					image.height,
-					px,
-					py,
-					color,
-					tolerance,
-					coverOf(surface, area)
-				);
-				if (changed > 0) ctx.putImageData(image, 0, 0);
-				return changed > 0;
-			})
+			.paint(
+				'tools.fill',
+				(ctx, room) => {
+					const [px, py] = surface.toPixel(sample.x, sample.y);
+					const { width, height } = surface.canvas;
+					const image = ctx.getImageData(0, 0, width, height);
+					const changed = floodFill(
+						image.data,
+						image.width,
+						image.height,
+						px,
+						py,
+						color,
+						tolerance,
+						coverOf(surface, area, room)
+					);
+					if (changed > 0) ctx.putImageData(image, 0, 0);
+					return changed > 0;
+				},
+				{ reach: () => surface.paintRoom() }
+			)
 			.catch((error: unknown) => reportFailure(context, surface, error));
 		context.document.pending(work);
 	},

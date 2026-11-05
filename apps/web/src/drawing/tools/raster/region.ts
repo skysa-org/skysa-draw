@@ -36,7 +36,7 @@ import {
 import { fillAreaWith } from './areaFill.js';
 import { combineAreas } from './areaOps.js';
 import { activeLayerName, guardedLayer, guardedSurface, reportFailure } from './guard.js';
-import { heldMove } from './pixels.js';
+import { type Bounds, heldMove } from './pixels.js';
 import { type RasterSurface, surfaceFor } from './surface.js';
 
 /**
@@ -395,7 +395,8 @@ const VIA_LABELS: Readonly<Record<Via, string>> = {
  * Layer via copy or cut, as one step: the layer duplicated just above
  * itself (`duplicateLayer`), so the copy has its transform, its look and the
  * `<image>`'s box; the copy's picture replaced by the area's pixels, at the
- * same box and so the same pixel size; a copy of a locked layer unlocked,
+ * box of the pixels they were read from, grown or not, and so the same
+ * pixel size; a copy of a locked layer unlocked,
  * since it is new; and for a cut the layer's own picture replaced by what
  * is left. Undo takes it all back at once, to the bytes. The copy's id is
  * chosen now, when it is executed.
@@ -405,20 +406,20 @@ const viaCommand = (
 	surface: RasterSurface,
 	how: Via,
 	made: Cell<string | undefined>
-): ((picture: string, own: string | undefined) => Command) => {
+): ((picture: string, own: string | undefined, bounds: Bounds) => Command) => {
 	const label = VIA_LABELS[how];
 	const sourceId = surface.layerId;
 	const unlock = context.layer?.locked === true;
-	return (picture, own) => {
+	return (picture, own, bounds) => {
 		const duplicate = duplicateLayer(context.document.root, sourceId);
 		made.current = duplicate.id;
 		return compound(label, [
 			duplicate,
-			replaceRasterImage(duplicate.id, label, { href: picture, ...surface.bounds }),
+			replaceRasterImage(duplicate.id, label, { href: picture, ...bounds }),
 			...(unlock ? [setLayerLocked(duplicate.id, false)] : []),
 			...(own === undefined
 				? []
-				: [replaceRasterImage(sourceId, label, { href: own, ...surface.bounds })]),
+				: [replaceRasterImage(sourceId, label, { href: own, ...bounds })]),
 		]);
 	};
 };

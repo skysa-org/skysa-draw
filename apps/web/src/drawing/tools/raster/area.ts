@@ -401,8 +401,15 @@ const blurOf = (feather: number, matrix: Mat): number => {
 	return Math.round(((feather * scale) / 2) * 1000) / 1000;
 };
 
-/** The surface's map and size: all a mask needs of it. */
-type Grid = Pick<RasterSurface, 'canvas' | 'toPixel'>;
+/**
+ * A grid of pixels and the map to it from user units: a surface's own, its
+ * stroke's, or a box of either's frame that a tool works in, which need not
+ * be a canvas; all a mask needs.
+ */
+export type Grid = Readonly<{
+	canvas: Readonly<{ width: number; height: number }>;
+	toPixel: RasterSurface['toPixel'];
+}>;
 
 /**
  * How much of each of the surface's pixels the area covers, as a canvas of
