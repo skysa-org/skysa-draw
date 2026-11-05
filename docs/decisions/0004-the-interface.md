@@ -81,11 +81,11 @@ With it on, a press makes the topmost layer with something under it the active o
 Ctrl or ⌘ held as the press begins does the other for that press, as in Photoshop.
 Something is under the press where the layer is more than half opaque there as seen, Photoshop's line: a vector layer where the select tool's own hit finds an element, a raster layer by its pixel's alpha, either times its opacity and its groups', and a layer clipped to the one below only where that one has paint.
 Hidden layers and the layers of hidden groups are passed over, and a group is gone into, never picked.
-A locked layer is picked and says it is locked, as Photoshop picks one and refuses the move.
+A locked layer and the layers of a locked group are passed over too, as a click goes through a locked object in Illustrator and Figma, so the press moves what lies under it.
 A press over nothing, or on a handle of the box around what is selected, keeps the active layer.
 A press that is canceled, by Escape, a second finger or a long press that opens the menu, gives the active layer back.
 Group mode, which picks the outermost group, waits for the move tool to move a group.
-Rejected: keeping the active layer for a press inside an area, which Photoshop 20 and 21 did in a bug Adobe acknowledged; a notice when a press picks a layer, which the layers panel shows already.
+Rejected: picking a locked layer and refusing the move, as Photoshop does, under which a locked layer takes every press meant for what lies on it or under it; keeping the active layer for a press inside an area, which Photoshop 20 and 21 did in a bug Adobe acknowledged; a notice when a press picks a layer, which the layers panel shows already.
 
 **The context menu.**
 A right-click on the canvas opens a menu of what can be done with what is selected; so do a pen's barrel button, the Menu key or Shift F10 while the canvas has the focus, and a long press where the browser turns one into a `contextmenu` (Chrome on Android).

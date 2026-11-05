@@ -27,10 +27,13 @@ import { elementAt, onSelectionHandle } from '../vector/select.js';
  * one has. A mask or a filter of the file's own is not read: a blur that
  * spreads a layer's paint does not spread where it is found.
  *
- * A locked layer is picked, as Photoshop picks one, and the move tool then
- * says it is locked and moves nothing. A press over nothing keeps the active
- * layer, and the tool does with it what it does; so does a press on a handle
- * of the box around what is selected, which resizes or rotates that.
+ * A locked layer is passed over, and so is every layer of a locked group, as
+ * a click goes through a locked object in Illustrator and Figma: the press
+ * finds what lies under it, which it may move. Photoshop picks a locked layer
+ * and then refuses the move, so a locked layer took every press meant for
+ * what lay on it or under it. A press over nothing keeps the active layer,
+ * and the tool does with it what it does; so does a press on a handle of the
+ * box around what is selected, which resizes or rotates that.
  */
 
 /** How opaque a layer must be under the pointer, above which it is picked: half, as in Photoshop. */
@@ -90,6 +93,12 @@ export const autoSelect =
 			return parent.hidden ? 0 : parent.opacity * opacityAbove(parent);
 		};
 
+		/** Whether a layer is locked, or is in a group that is: passed over, never picked. */
+		const isLocked = (layer: LayerInfo): boolean => {
+			const parent = parentOf(layer);
+			return layer.locked || (parent !== undefined && isLocked(parent));
+		};
+
 		/** How far the clips of the groups a layer is in let it show here. */
 		const clipsAbove = (layer: LayerInfo): number => {
 			const parent = parentOf(layer);
@@ -110,5 +119,11 @@ export const autoSelect =
 
 		return [...layers]
 			.reverse()
-			.find((layer) => layer.kind !== 'group' && !layer.hidden && seen(layer) > SEEN);
+			.find(
+				(layer) =>
+					layer.kind !== 'group' &&
+					!layer.hidden &&
+					!isLocked(layer) &&
+					seen(layer) > SEEN
+			);
 	};

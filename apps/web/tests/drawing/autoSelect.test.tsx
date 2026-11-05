@@ -284,14 +284,32 @@ describe('Auto-Select’s pick', () => {
 		expect(pickedAt(layers(' style="display:none"', ''), 20, 20)).toBe('layer-1');
 	});
 
-	it('picks a locked layer, as Photoshop does', () => {
-		const editor = open(
-			[
-				'<g id="layer-1" draw:kind="vector"><rect x="0" y="0" width="100" height="100"/></g>',
-				`<g id="layer-2" draw:kind="raster" draw:locked="true">${image(leftHalf())}</g>`,
-			].join('\n')
-		);
-		expect(pickedAt(editor, 20, 20)).toBe('layer-2');
+	it('passes over a locked layer, and a locked group’s layers, to what lies under them', () => {
+		const lockedOnTop = (below: string) =>
+			open(
+				[
+					below,
+					`<g id="layer-2" draw:kind="raster" draw:locked="true">${image(leftHalf())}</g>`,
+				].join('\n')
+			);
+		const ground =
+			'<g id="layer-1" draw:kind="vector"><rect x="0" y="0" width="100" height="100"/></g>';
+		expect(pickedAt(lockedOnTop(ground), 20, 20)).toBe('layer-1');
+		// Nothing under it but the locked layer: nothing is picked, and the active layer is kept.
+		expect(
+			pickedAt(lockedOnTop('<g id="layer-1" draw:kind="vector"/>'), 20, 20)
+		).toBeUndefined();
+		const inGroup = (group: string) =>
+			open(
+				[
+					ground,
+					`<g id="layer-2" draw:kind="group"${group}>`,
+					'<g id="layer-3" draw:kind="vector"><rect x="10" y="10" width="20" height="20"/></g>',
+					'</g>',
+				].join('\n')
+			);
+		expect(pickedAt(inGroup(''), 20, 20)).toBe('layer-3');
+		expect(pickedAt(inGroup(' draw:locked="true"'), 20, 20)).toBe('layer-1');
 	});
 
 	it('finds a layer clipped to the one below only where that one has paint', () => {
@@ -517,14 +535,16 @@ describe('Auto-Select in the viewport', () => {
 		expect(element('ground').getAttribute('transform')).toBe('matrix(1 0 0 1 2 0)');
 	});
 
-	it('makes a locked layer active and moves nothing, saying it is locked', () => {
+	it('presses through a locked layer, and the same press moves what lies under it', () => {
 		const { onActivate, onNotify, region, element } = setup({
 			raster: ' draw:locked="true"',
+			initial: 'layer-3',
 		});
 		drag(region, [20, 50], [26, 47]);
-		expect(onActivate.mock.calls).toEqual([['layer-2']]);
-		expect(onNotify).toHaveBeenCalledWith(t('layers.locked', { name: 'Photo' }));
+		expect(onActivate.mock.calls).toEqual([['layer-1']]);
+		expect(element('ground').getAttribute('transform')).toBe('matrix(1 0 0 1 6 -3)');
 		expect(element('layer-2').hasAttribute('transform')).toBe(false);
+		expect(onNotify).not.toHaveBeenCalledWith(t('layers.locked', { name: 'Photo' }));
 	});
 
 	it('keeps the active layer over nothing, and does what the tool does there', () => {
