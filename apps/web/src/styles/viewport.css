@@ -1,7 +1,9 @@
 /* The viewport (docs/ARCHITECTURE.md §7, "The interface"): the stage the
-   drawing is mounted on, the overlay over it, the screen canvas for a live
-   raster stroke, and the paper behind the drawing. The area selection's
-   layer, between the drawing and the overlay, is `regions.css`'s. */
+   drawing is mounted on, with the paper behind it; the screen canvas for a
+   live raster stroke over that; and over both the marks' stage
+   (`viewport/StageMarks.tsx`), with the area's ants (`regions.css`), the
+   tools' overlay and the transform's box, so the brush's outline is over the
+   stroke it paints. */
 
 /* `touch-action: none` so every finger reaches the pointer events and none
    scrolls the page; no text selection, since a drag over a `<text>` would
@@ -34,6 +36,12 @@
 	top: 0;
 	left: 0;
 	transform-origin: 0 0;
+}
+
+/* The marks' stage covers the drawing's and takes no press: the viewport's
+   own handlers read every one. */
+.viewport-marks {
+	pointer-events: none;
 }
 
 /* The transparency grid under the drawing, so what is clear or empty shows as

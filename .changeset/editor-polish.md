@@ -27,3 +27,6 @@ A selected shape's handles go away while its layer is hidden and come back when 
 The brush, the pencil, the eraser, the smudge and Remove show their size over the canvas as a circle exactly as big as what they paint, as in Photoshop, at any zoom and on vector and raster layers alike, following `[`, `]` and the Size slider; under a few pixels it is a crosshair.
 A stroke on a scaled layer now lands at the size it was shown instead of larger or smaller.
 Painting on a raster layer that was moved, or that covers only part of the canvas, now lands wherever it is painted on the canvas instead of being cut off at the layer's old edge: the brush, the pencil, the shapes, the paint bucket, Fill…, Remove and the smudge grow the layer to hold what they put down, and the move tool keeps pixels moved past the layer's edge, off the canvas too, in one undoable step; the eraser never grows a layer.
+What is painted live on a raster layer shows only on the canvas, as it will once it lands.
+The brush's circle matches the paint: a mouse or a finger now paints the whole size, since pressure changes the width only from a pen, as in Photoshop, and a soft brush's circle is drawn where its paint is half opaque, as Photoshop's Normal Brush Tip is.
+The brush's circle and the marching ants now show over a stroke being painted on a raster layer instead of under it.

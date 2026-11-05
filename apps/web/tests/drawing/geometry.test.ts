@@ -7,6 +7,7 @@ import {
 	constrainLine,
 	constrainRect,
 	distance,
+	followsPressure,
 	formatTransform,
 	IDENTITY,
 	invert,
@@ -173,6 +174,15 @@ describe('pressureWidth', () => {
 		expect(pressureWidth(8, 1, true)).toBe(8);
 		expect(pressureWidth(8, 0.5, true)).toBe(5);
 		expect(pressureWidth(8, 0, false)).toBe(8);
+	});
+});
+
+describe('followsPressure', () => {
+	it('is on only for a pen, with the option on', () => {
+		expect(followsPressure(true, 'pen')).toBe(true);
+		expect(followsPressure(true, 'mouse')).toBe(false);
+		expect(followsPressure(true, 'touch')).toBe(false);
+		expect(followsPressure(false, 'pen')).toBe(false);
 	});
 });
 

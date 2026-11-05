@@ -188,6 +188,17 @@ export const strokeOutline = (points: readonly WidePoint[]): string => {
 export const pressureWidth = (size: number, pressure: number, usePressure: boolean): number =>
 	usePressure ? size * (0.25 + 0.75 * pressure) : size;
 
+/**
+ * Whether a stroke's width follows its pressure: with the option on, and only
+ * from a pen, as Photoshop reads pressure only from a tablet. A mouse says
+ * 0.5 whatever it does and most fingers say nothing, which would paint every
+ * stroke at a fraction of the size the brush's outline shows.
+ */
+export const followsPressure = (
+	usePressure: boolean,
+	pointerType: 'mouse' | 'pen' | 'touch'
+): boolean => usePressure && pointerType === 'pen';
+
 const signOf = (n: number): number => (n < 0 ? -1 : 1);
 
 /** The far corner of a rectangle from `a`, made a square when constrained, by the longer side. */

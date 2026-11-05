@@ -23,7 +23,6 @@ import {
 } from './selectionActions.js';
 import { handBehavior } from './tools/common/hand.js';
 import { behaviorFor, notAvailableMessage } from './tools/index.js';
-import { antsPath } from './tools/raster/area.js';
 import { nudgeArea } from './tools/raster/index.js';
 import type { PointerSample, ToolBehavior, ToolContext } from './tools/types.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
@@ -37,6 +36,7 @@ import {
 	type GestureState,
 	INITIAL_GESTURE,
 } from './viewport/gestures.js';
+import { LiveCanvas } from './viewport/LiveCanvas.js';
 import { observable } from './viewport/observable.js';
 import { isMac, pointerTypeOf, sampleFrom } from './viewport/pointer.js';
 import { usePointerPressed } from './viewport/pointerPressed.js';
@@ -44,6 +44,7 @@ import { useSelectionCommands } from './viewport/selectionCommands.js';
 import { useSelectionFollows } from './viewport/selectionFollows.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 import { shadowOf } from './viewport/shadow.js';
+import { StageMarks } from './viewport/StageMarks.js';
 import { useToolHandover } from './viewport/toolHandover.js';
 import {
 	actualSizeView,
@@ -717,48 +718,15 @@ export const Viewport = ({
 				>
 					<div className="viewport-paper" style={{ backgroundSize: checkerSize(view) }} />
 					<div className="viewport-mount" ref={mount} />
-					<svg
-						className="viewport-area"
-						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-						width={box.width}
-						height={box.height}
-						aria-hidden="true"
-					>
-						{area === undefined ? null : (
-							<>
-								<path
-									className="viewport-ants viewport-ants-under"
-									d={antsPath(area, box)}
-									fillRule="nonzero"
-									vectorEffect="non-scaling-stroke"
-								/>
-								<path
-									className="viewport-ants viewport-ants-over"
-									d={antsPath(area, box)}
-									fillRule="nonzero"
-									vectorEffect="non-scaling-stroke"
-								/>
-							</>
-						)}
-					</svg>
-					<svg
-						className="viewport-overlay"
-						ref={overlay}
-						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-						width={box.width}
-						height={box.height}
-						aria-hidden="true"
-					/>
-					<svg
-						className="viewport-transform"
-						ref={transformed}
-						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-						width={box.width}
-						height={box.height}
-						aria-hidden="true"
-					/>
 				</div>
-				<canvas className="viewport-screen" ref={screen} aria-hidden="true" />
+				<LiveCanvas ref={screen} view={view} box={box} />
+				<StageMarks
+					view={view}
+					box={box}
+					area={area}
+					overlay={overlay}
+					transformed={transformed}
+				/>
 			</div>
 			{/* Beside the canvas, not in it, so a press on the menu is never the canvas's. */}
 			<ContextMenu

@@ -1,6 +1,6 @@
 import { cell } from '@skysa/draw-core';
 
-import { withBrushOutline } from '../common/brushOutline.js';
+import { softEdge, withBrushOutline } from '../common/brushOutline.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, unionBox } from '../vector/geometry.js';
 import { type Area, areaMask, areaOf, pixelsToScreen, reachesArea } from './area.js';
@@ -267,73 +267,76 @@ export const smudgeBehavior = (): ToolBehavior => {
 		};
 	};
 
-	return withBrushOutline({
-		begin: (context, sample) => {
-			const surface = guardedSurface(context);
-			if (surface === undefined) return;
-			const serial = claimScreen();
-			const area = areaOf(context);
-			const start = pointOf(sample);
-			context.screen.canvas.style.removeProperty('opacity');
-			const decoded = surface.decoded();
-			active.current = {
-				surface,
-				area,
-				mask: decoded ? maskFor(surface, area) : undefined,
-				from: start,
-				last: start,
-				carry: 0,
-				queued: [],
-				ready: decoded,
-				changed: false,
-				grew: false,
-				serial,
-			};
-			if (decoded) return;
-			// Never rejects: a picture that would not decode is said at the end.
-			void surface.ready.then(() => {
+	return withBrushOutline(
+		{
+			begin: (context, sample) => {
+				const surface = guardedSurface(context);
+				if (surface === undefined) return;
+				const serial = claimScreen();
+				const area = areaOf(context);
+				const start = pointOf(sample);
+				context.screen.canvas.style.removeProperty('opacity');
+				const decoded = surface.decoded();
+				active.current = {
+					surface,
+					area,
+					mask: decoded ? maskFor(surface, area) : undefined,
+					from: start,
+					last: start,
+					carry: 0,
+					queued: [],
+					ready: decoded,
+					changed: false,
+					grew: false,
+					serial,
+				};
+				if (decoded) return;
+				// Never rejects: a picture that would not decode is said at the end.
+				void surface.ready.then(() => {
+					const stroke = active.current;
+					if (stroke?.serial !== serial) return;
+					active.current = { ...stroke, ready: true, mask: maskFor(surface, area) };
+					flush(context);
+				});
+			},
+			move: (context, sample) => {
 				const stroke = active.current;
-				if (stroke?.serial !== serial) return;
-				active.current = { ...stroke, ready: true, mask: maskFor(surface, area) };
+				if (stroke === undefined) return;
+				active.current = advance(context, stroke, pointOf(sample));
 				flush(context);
-			});
+			},
+			end: (context, sample) => {
+				const stroke = active.current;
+				if (stroke === undefined) return;
+				active.current = undefined;
+				const last = advance(context, stroke, pointOf(sample));
+				const { surface, serial } = last;
+				// After the picture is decoded, so every dab queued meanwhile is painted
+				// on it; the mask is drawn then if it was not yet. What the stroke
+				// pushed past the layer's pixels grows them as far as it left alpha.
+				const work = surface
+					.paint('tools.smudge', () => {
+						const painted = paintDabs(last, context.options);
+						if (painted.box !== undefined) mirror(context, surface, painted.box);
+						return last.changed || painted.changed;
+					})
+					.then(
+						() => releaseScreen(context.screen, serial),
+						(error: unknown) => {
+							releaseScreen(context.screen, serial);
+							reportFailure(context, surface, error);
+						}
+					);
+				context.document.pending(work);
+			},
+			cancel: (context) => {
+				const stroke = active.current;
+				active.current = undefined;
+				if (stroke === undefined) return;
+				if (stroke.changed || stroke.grew) stroke.surface.discard();
+				clearScreen(context.screen);
+			},
 		},
-		move: (context, sample) => {
-			const stroke = active.current;
-			if (stroke === undefined) return;
-			active.current = advance(context, stroke, pointOf(sample));
-			flush(context);
-		},
-		end: (context, sample) => {
-			const stroke = active.current;
-			if (stroke === undefined) return;
-			active.current = undefined;
-			const last = advance(context, stroke, pointOf(sample));
-			const { surface, serial } = last;
-			// After the picture is decoded, so every dab queued meanwhile is painted
-			// on it; the mask is drawn then if it was not yet. What the stroke
-			// pushed past the layer's pixels grows them as far as it left alpha.
-			const work = surface
-				.paint('tools.smudge', () => {
-					const painted = paintDabs(last, context.options);
-					if (painted.box !== undefined) mirror(context, surface, painted.box);
-					return last.changed || painted.changed;
-				})
-				.then(
-					() => releaseScreen(context.screen, serial),
-					(error: unknown) => {
-						releaseScreen(context.screen, serial);
-						reportFailure(context, surface, error);
-					}
-				);
-			context.document.pending(work);
-		},
-		cancel: (context) => {
-			const stroke = active.current;
-			active.current = undefined;
-			if (stroke === undefined) return;
-			if (stroke.changed || stroke.grew) stroke.surface.discard();
-			clearScreen(context.screen);
-		},
-	});
+		softEdge
+	);
 };

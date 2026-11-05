@@ -2,7 +2,7 @@ import { SVG_NAMESPACE } from '@skysa/draw-core';
 import { describe, expect, it } from 'vitest';
 
 import type { EditorDocument } from '../../src/drawing/document/model.js';
-import { withBrushOutline } from '../../src/drawing/tools/common/brushOutline.js';
+import { softEdge, withBrushOutline } from '../../src/drawing/tools/common/brushOutline.js';
 import { TOOLS } from '../../src/drawing/tools/index.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
@@ -221,16 +221,32 @@ describe('the brush’s outline', () => {
 		expect(outlineOf(context)).toBeNull();
 	});
 
+	it('draws a soft brush where its paint is half opaque, as Photoshop’s Normal Brush Tip', () => {
+		expect(softEdge({ ...DEFAULT_TOOL_OPTIONS, hardness: 1 })).toBe(1);
+		expect(softEdge({ ...DEFAULT_TOOL_OPTIONS, hardness: 0.8 })).toBeCloseTo(0.9);
+		expect(softEdge({ ...DEFAULT_TOOL_OPTIONS, hardness: 0 })).toBe(0.5);
+		const behavior = withBrushOutline(
+			{ begin: noop, move: noop, end: noop, cancel: noop },
+			softEdge
+		);
+		const context = contextAt(1, { size: 40, hardness: 0 });
+		behavior.hover?.(context, sampleAt(10, 10));
+		expect(screenRadius(context)).toBe(10);
+	});
+
 	it('is the pointer of every tool with a size, on every kind of layer it works on', () => {
 		const sized = TOOLS.filter((tool) => tool.options.includes('size'));
 		expect(sized.map((tool) => tool.id).sort()).toEqual(
 			['brush', 'eraser', 'pencil', 'remove', 'smudge'].sort()
 		);
+		// A hard mark is seen its size across; a soft one, where it is half opaque.
+		const soft = new Set(['raster brush', 'raster eraser', 'raster smudge']);
 		sized.forEach((tool) => {
 			Object.entries(tool.behaviors).forEach(([kind, behavior]) => {
-				const context = contextAt(2, { size: 12 });
+				const context = contextAt(2, { size: 12, hardness: 0.5 });
 				behavior.hover?.(context, sampleAt(10, 10));
-				expect([tool.id, kind, screenRadius(context)]).toEqual([tool.id, kind, 12]);
+				const seen = soft.has(`${kind} ${tool.id}`) ? 9 : 12;
+				expect([tool.id, kind, screenRadius(context)]).toEqual([tool.id, kind, seen]);
 				behavior.leave?.(context);
 				expect([tool.id, kind, outlineOf(context)]).toEqual([tool.id, kind, null]);
 			});

@@ -1,8 +1,14 @@
 import { cell } from '@skysa/draw-core';
 
-import { withBrushOutline } from '../common/brushOutline.js';
+import { softEdge, withBrushOutline } from '../common/brushOutline.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
-import { type Box, distance, pressureWidth, unionBox } from '../vector/geometry.js';
+import {
+	type Box,
+	distance,
+	followsPressure,
+	pressureWidth,
+	unionBox,
+} from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
 import { type Area, areaOf, reachesArea } from './area.js';
 import { type Brush, paintSegment, paintStamp, targetsOf } from './brushEngine.js';
@@ -64,15 +70,20 @@ const segmentBox = (from: Point, to: Point, radius: number): Box => ({
 });
 
 /**
- * The brush for one sample. The width is a diameter; on the brush, pressure
- * takes it from a quarter to the whole, as on a vector layer. The eraser
+ * The brush for one sample. The width is a diameter; on the brush, a pen's
+ * pressure takes it from a quarter to the whole, as on a vector layer
+ * (`followsPressure`). The eraser
  * shows only a size and a hardness, so it erases fully and follows no
  * pressure: the brush's opacity and pressure are not its.
  */
 const brushOf = (kind: BrushKind, options: ToolOptions, sample: PointerSample): Brush => {
 	const width =
 		kind === 'brush'
-			? pressureWidth(options.size, sample.pressure, options.pressure)
+			? pressureWidth(
+					options.size,
+					sample.pressure,
+					followsPressure(options.pressure, sample.pointerType)
+				)
 			: options.size;
 	const color = kind === 'eraser' ? BLACK : inkOf(options, kind === 'pencil' ? 'stroke' : 'fill');
 	return {
@@ -142,70 +153,73 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 		context.document.pending(work);
 	};
 
-	return withBrushOutline({
-		begin: (context, sample) => {
-			const surface = guardedSurface(context);
-			if (surface === undefined) return;
-			const serial = claimScreen();
-			const area = areaOf(context);
-			const brush = brushOf(kind, context.options, sample);
-			// The live stroke's opacity, applied to the whole stroke at once as
-			// the commit will, rather than to each stamp.
-			context.screen.canvas.style.setProperty(
-				'opacity',
-				String(opacityOf(kind, context.options))
-			);
-			const grows = kind !== 'eraser';
-			paintStamp(targetsOf(context, surface, area, grows), sample.x, sample.y, brush);
-			const last = { x: sample.x, y: sample.y };
-			const box = segmentBox(last, last, brush.radius);
-			active.current = {
-				surface,
-				last,
-				carry: 0,
-				serial,
-				area,
-				reached: reachesArea(area, box),
-				box,
-				grows,
-			};
+	return withBrushOutline(
+		{
+			begin: (context, sample) => {
+				const surface = guardedSurface(context);
+				if (surface === undefined) return;
+				const serial = claimScreen();
+				const area = areaOf(context);
+				const brush = brushOf(kind, context.options, sample);
+				// The live stroke's opacity, applied to the whole stroke at once as
+				// the commit will, rather than to each stamp.
+				context.screen.canvas.style.setProperty(
+					'opacity',
+					String(opacityOf(kind, context.options))
+				);
+				const grows = kind !== 'eraser';
+				paintStamp(targetsOf(context, surface, area, grows), sample.x, sample.y, brush);
+				const last = { x: sample.x, y: sample.y };
+				const box = segmentBox(last, last, brush.radius);
+				active.current = {
+					surface,
+					last,
+					carry: 0,
+					serial,
+					area,
+					reached: reachesArea(area, box),
+					box,
+					grows,
+				};
+			},
+			move: (context, sample) => {
+				const stroke = active.current;
+				if (stroke === undefined) return;
+				const to = pulled(stroke.last, sample, slackOf(kind, context));
+				const brush = brushOf(kind, context.options, sample);
+				const carry = paintSegment(
+					targetsOf(context, stroke.surface, stroke.area, stroke.grows),
+					stroke.last,
+					to,
+					brush,
+					stroke.carry
+				);
+				active.current = { ...carriedTo(stroke, to, brush), carry };
+			},
+			end: (context, sample) => {
+				const stroke = active.current;
+				if (stroke === undefined) return;
+				active.current = undefined;
+				// To where the pointer lifted, however far behind the smoothing left
+				// the stroke: it keeps its reach, as a smoothed vector stroke does.
+				const brush = brushOf(kind, context.options, sample);
+				paintSegment(
+					targetsOf(context, stroke.surface, stroke.area, stroke.grows),
+					stroke.last,
+					sample,
+					brush,
+					stroke.carry
+				);
+				finish(context, carriedTo(stroke, sample, brush));
+			},
+			cancel: (context) => {
+				const stroke = active.current;
+				active.current = undefined;
+				if (stroke === undefined) return;
+				clearCanvas(stroke.surface.stroke);
+				clearScreen(context.screen);
+			},
 		},
-		move: (context, sample) => {
-			const stroke = active.current;
-			if (stroke === undefined) return;
-			const to = pulled(stroke.last, sample, slackOf(kind, context));
-			const brush = brushOf(kind, context.options, sample);
-			const carry = paintSegment(
-				targetsOf(context, stroke.surface, stroke.area, stroke.grows),
-				stroke.last,
-				to,
-				brush,
-				stroke.carry
-			);
-			active.current = { ...carriedTo(stroke, to, brush), carry };
-		},
-		end: (context, sample) => {
-			const stroke = active.current;
-			if (stroke === undefined) return;
-			active.current = undefined;
-			// To where the pointer lifted, however far behind the smoothing left
-			// the stroke: it keeps its reach, as a smoothed vector stroke does.
-			const brush = brushOf(kind, context.options, sample);
-			paintSegment(
-				targetsOf(context, stroke.surface, stroke.area, stroke.grows),
-				stroke.last,
-				sample,
-				brush,
-				stroke.carry
-			);
-			finish(context, carriedTo(stroke, sample, brush));
-		},
-		cancel: (context) => {
-			const stroke = active.current;
-			active.current = undefined;
-			if (stroke === undefined) return;
-			clearCanvas(stroke.surface.stroke);
-			clearScreen(context.screen);
-		},
-	});
+		kind === 'pencil' ? undefined : softEdge
+	);
 };

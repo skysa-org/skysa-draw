@@ -378,6 +378,24 @@ describe('the viewport', () => {
 		expect(stage.style.height).toBe('1000px');
 		expect(stage.style.transform).toBe('translate(0px, 0px) scale(1)');
 		expect(overlay.getAttribute('viewBox')).toBe('0 0 1600 1000');
+		// What is painted live shows only on the canvas, where the stage puts it.
+		expect(container.querySelector<HTMLElement>('.viewport-screen')?.style.clipPath).toBe(
+			'polygon(0px 0px, 1600px 0px, 1600px 1000px, 0px 1000px)'
+		);
+		// The overlay, the ants and the transform's box are on a stage of their
+		// own after the live canvas, so a stroke being painted is under the
+		// brush's outline, and that stage goes where the drawing's does.
+		const live = container.querySelector('.viewport-screen') as HTMLCanvasElement;
+		const marks = overlay.parentElement as HTMLElement;
+		expect(marks.classList.contains('viewport-marks')).toBe(true);
+		expect(stage.contains(overlay)).toBe(false);
+		expect(marks.querySelector('.viewport-area')).not.toBeNull();
+		expect(marks.querySelector('.viewport-transform')).not.toBeNull();
+		expect(stage.nextElementSibling).toBe(live);
+		expect(live.nextElementSibling).toBe(marks);
+		expect(marks.style.transform).toBe(stage.style.transform);
+		expect(marks.style.width).toBe(stage.style.width);
+		expect(marks.style.height).toBe(stage.style.height);
 		unmount();
 		expect(fake.document.root.parentNode).toBeNull();
 		expect(new XMLSerializer().serializeToString(fake.document.root)).toBe(before);

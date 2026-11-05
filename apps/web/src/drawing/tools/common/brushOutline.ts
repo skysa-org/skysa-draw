@@ -1,4 +1,4 @@
-import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
+import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import type { Point } from '../vector/geometry.js';
 import { createSvg, setAttributes } from '../vector/svg.js';
 
@@ -11,7 +11,9 @@ import { createSvg, setAttributes } from '../vector/svg.js';
  * crosshair at its middle; where the circle would be smaller on the screen
  * than `RING_MIN_PX` across, the crosshair alone shows where the pointer is,
  * as Photoshop's does. It shows the size, never what pressure makes of it, as
- * Photoshop's does.
+ * Photoshop's does. A soft brush is drawn where its paint is half opaque
+ * (`softEdge`), as Photoshop's Normal Brush Tip is, which is where its mark is
+ * seen to end; a hard one at its size.
  *
  * Each line is drawn twice, a light halo under a dark hairline, the same width
  * on the screen at any zoom (`viewport.css`), so it reads on any picture, as
@@ -67,10 +69,27 @@ const outlineIn = (overlay: SVGSVGElement): Element => {
 	return outline;
 };
 
-/** How wide the tool paints, in user units: its size, or nothing for one that is not a size. */
-const diameterOf = (context: ToolContext): number => {
+/**
+ * How much of its size a tool's mark is seen across: the whole for a hard
+ * one; for a soft one, where its paint is half opaque (`softEdge`).
+ */
+export type BrushEdge = (options: ToolOptions) => number;
+
+const HARD: BrushEdge = () => 1;
+
+/**
+ * Where a soft brush's paint is half opaque, as a share of its size: it is
+ * solid to `hardness` of its radius and fades evenly to nothing at the edge
+ * (`brushEngine.ts`'s stamp, `pixels.ts`'s smudge dab), so half way between,
+ * as Photoshop's Normal Brush Tip draws a soft brush.
+ */
+export const softEdge: BrushEdge = (options) =>
+	(1 + Math.min(1, Math.max(0, Number.isFinite(options.hardness) ? options.hardness : 1))) / 2;
+
+/** How wide the tool's mark is seen, in user units: its size by its edge, or nothing for one that is not a size. */
+const diameterOf = (context: ToolContext, edge: BrushEdge): number => {
 	const { size } = context.options;
-	return Number.isFinite(size) && size > 0 ? size : 0;
+	return Number.isFinite(size) && size > 0 ? size * edge(context.options) : 0;
 };
 
 /** The screen's pixels per user unit, or 1 where the view has not said. */
@@ -111,7 +130,7 @@ const hide = (context: ToolContext): void => {
 };
 
 /** The outline where a sample is; none for a finger. */
-const follow = (context: ToolContext, sample: PointerSample): void => {
+const follow = (context: ToolContext, sample: PointerSample, edge: BrushEdge): void => {
 	if (sample.pointerType === 'touch') {
 		hide(context);
 		return;
@@ -119,7 +138,7 @@ const follow = (context: ToolContext, sample: PointerSample): void => {
 	place(
 		outlineIn(context.overlay),
 		{ x: sample.x, y: sample.y },
-		diameterOf(context),
+		diameterOf(context, edge),
 		scaleOf(context)
 	);
 };
@@ -127,21 +146,21 @@ const follow = (context: ToolContext, sample: PointerSample): void => {
 /**
  * A tool with a size, with the brush's outline as its pointer: `behavior`
  * does what it does, and the outline is drawn over what it draws on the
- * overlay.
+ * overlay, as wide as `edge` says the mark is seen.
  */
-export const withBrushOutline = (behavior: ToolBehavior): ToolBehavior => ({
+export const withBrushOutline = (behavior: ToolBehavior, edge: BrushEdge = HARD): ToolBehavior => ({
 	...behavior,
 	begin: (context, sample) => {
 		behavior.begin(context, sample);
-		follow(context, sample);
+		follow(context, sample, edge);
 	},
 	move: (context, sample) => {
 		behavior.move(context, sample);
-		follow(context, sample);
+		follow(context, sample, edge);
 	},
 	end: (context, sample) => {
 		behavior.end(context, sample);
-		follow(context, sample);
+		follow(context, sample, edge);
 	},
 	cancel: (context) => {
 		behavior.cancel(context);
@@ -149,7 +168,7 @@ export const withBrushOutline = (behavior: ToolBehavior): ToolBehavior => ({
 	},
 	hover: (context, sample) => {
 		behavior.hover?.(context, sample);
-		follow(context, sample);
+		follow(context, sample, edge);
 	},
 	leave: (context) => {
 		behavior.leave?.(context);
@@ -160,6 +179,6 @@ export const withBrushOutline = (behavior: ToolBehavior): ToolBehavior => ({
 		const outline = outlineOf(context.overlay);
 		const at = outline === null ? undefined : centerOf(outline);
 		if (outline === null || at === undefined) return;
-		place(outline, at, diameterOf(context), scaleOf(context));
+		place(outline, at, diameterOf(context, edge), scaleOf(context));
 	},
 });

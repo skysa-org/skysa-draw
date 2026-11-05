@@ -117,6 +117,18 @@ export const checkerSize = (view: View): string => {
 	return `${side}px ${side}px`;
 };
 
+/**
+ * The drawing's canvas on the screen, as a `clip-path` for the live raster
+ * canvas over the whole viewport (`.viewport-screen`): a stroke, a smudge, a
+ * float of moved pixels shows only where the canvas is, as the drawing, cut
+ * to its canvas, will show it once it lands.
+ */
+export const canvasClip = (view: View, box: ViewBox): string => {
+	const [left, top] = toScreen(view, box.x, box.y);
+	const [right, bottom] = toScreen(view, box.x + box.width, box.y + box.height);
+	return `polygon(${left}px ${top}px, ${right}px ${top}px, ${right}px ${bottom}px, ${left}px ${bottom}px)`;
+};
+
 export const stageTransform = (view: View, origin: Readonly<{ x: number; y: number }>): string => {
 	const [sx, sy] = toScreen(view, origin.x, origin.y);
 	return `translate(${sx}px, ${sy}px) scale(${view.scale})`;

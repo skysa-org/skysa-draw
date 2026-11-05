@@ -16,6 +16,7 @@ import {
 } from '../../src/drawing/viewport/pointer.js';
 import {
 	actualSizeView,
+	canvasClip,
 	checkerSize,
 	clampScale,
 	FIT_MARGIN,
@@ -115,6 +116,15 @@ describe('the view', () => {
 		expect(checkerSize(view)).toBe('8px 8px');
 		expect(checkerSize({ ...view, scale: 0.25 })).toBe('64px 64px');
 		expect(checkerSize(IDENTITY_VIEW)).toBe('16px 16px');
+	});
+
+	it('clips what is painted live to the canvas on the screen, its viewBox where the view puts it', () => {
+		expect(canvasClip(view, { x: 0, y: 0, width: 100, height: 50 })).toBe(
+			'polygon(10px 20px, 210px 20px, 210px 120px, 10px 120px)'
+		);
+		expect(canvasClip(view, { x: 5, y: -10, width: 10, height: 10 })).toBe(
+			'polygon(20px 0px, 40px 0px, 40px 20px, 20px 20px)'
+		);
 	});
 });
 

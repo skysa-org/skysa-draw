@@ -152,6 +152,8 @@ Rejected: switching to another tool when the layer changes, which loses the tool
 **The brush's outline.**
 Every tool with a size shows it as its pointer over the canvas, as Photoshop's Normal Brush Tip does: a circle as big on the screen as what the tool will paint, which grows and shrinks with the zoom and follows `[`, `]` and the Size slider at once, with a small crosshair at its middle, and the crosshair alone where the circle would be too small to see.
 It is drawn as a light halo under a dark hairline, so it reads on any picture, and shows the whole size whatever the pressure, as Photoshop's does.
+A soft brush's circle is where its paint is half opaque, which is where its mark is seen to end, as Photoshop's Normal Brush Tip; a hard one's is its size.
+Pressure changes a stroke's width only from a pen, as in Photoshop, so a mouse or a finger paints the size the circle shows.
 The system's pointer is hidden while it shows, and the tool's crosshair is there before it first does; a finger has no hover and covers the brush, so it is never shown for one.
 The size is the drawing's, in its units, on any layer: what lands on a layer scaled by its transform is as big on the screen as the outline was.
 

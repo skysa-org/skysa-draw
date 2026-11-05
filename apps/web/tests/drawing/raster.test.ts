@@ -626,6 +626,17 @@ describe('the brush', () => {
 		expect(fakeOf(surface.stroke).named('createRadialGradient')).toHaveLength(2);
 	});
 
+	it('paints the whole size from a mouse or a finger, which say no pressure, as Photoshop does', () => {
+		const fake = createFake({ options: { hardness: 0.5, size: 8, pressure: true } });
+		const surface = surfaceOf(fake);
+		tool('brush').begin(fake.context, at(10, 10, { pointerType: 'mouse', pressure: 0.5 }));
+		tool('brush').cancel(fake.context);
+		tool('brush').begin(fake.context, at(10, 10, { pointerType: 'touch', pressure: 0 }));
+		tool('brush').cancel(fake.context);
+		const radii = stampsOn(fakeOf(surface.stroke)).map(([, , r]) => r);
+		expect(radii).toEqual([4, 4]);
+	});
+
 	it('lags the pointer by its smoothing, and catches up where the pointer lifts', async () => {
 		const fake = createFake({ options: { smoothing: 1 } });
 		const surface = surfaceOf(fake);
