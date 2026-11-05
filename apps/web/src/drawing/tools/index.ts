@@ -46,9 +46,10 @@ const CROSSHAIR = 'crosshair';
 export const TOOLS: readonly Tool[] = [
 	{ ...tool('select', ['autoSelect'], 'default'), pick: autoSelect(measureOf) },
 	tool('node', [], 'default'),
-	tool('marquee', ['constrain'], CROSSHAIR),
-	tool('lasso', [], CROSSHAIR),
-	tool('wand', ['tolerance', 'contiguous'], CROSSHAIR),
+	// The selection tools' mode first, as Photoshop's options bar has it.
+	tool('marquee', ['areaMode', 'constrain'], CROSSHAIR),
+	tool('lasso', ['areaMode'], CROSSHAIR),
+	tool('wand', ['areaMode', 'tolerance', 'contiguous'], CROSSHAIR),
 	tool('hand', [], 'grab', handBehavior),
 	tool('zoom', [], 'zoom-in', zoomBehavior),
 	tool('crop', ['constrain'], CROSSHAIR, cropBehavior()),

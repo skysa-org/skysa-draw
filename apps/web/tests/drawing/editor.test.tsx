@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
 import { Editor } from '../../src/drawing/Editor.js';
+import { rectPath } from '../../src/drawing/tools/raster/area.js';
+import * as areaOps from '../../src/drawing/tools/raster/areaOps.js';
 import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
 import { DatabaseProvider } from '../../src/store/database.js';
 import type { DrawDatabase } from '../../src/store/db.js';
@@ -103,6 +105,12 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock('../../src/drawing/document/openDocument.js', () => ({ openDocument: fake.open }));
+
+// The real one, watched, so a test sees what Modify… asked of it and can have it leave nothing.
+vi.mock('../../src/drawing/tools/raster/areaOps.js', async (importOriginal) => {
+	const real = await importOriginal<typeof areaOps>();
+	return { ...real, modifyArea: vi.fn(real.modifyArea) };
+});
 
 /** The export module's, mocked to what the frame asks of it: placing a picture, and the dialog. */
 const exporting = vi.hoisted(() => ({ placePicture: vi.fn() }));
@@ -436,6 +444,9 @@ describe('the editor frame', () => {
 describe('the selection bar', () => {
 	beforeEach(() => {
 		fake.settings.kind = 'vector';
+		vi.mocked(areaOps.modifyArea).mockClear();
+		fake.undo.mockClear();
+		fake.redo.mockClear();
 	});
 
 	const selectAll = () => {
@@ -461,6 +472,8 @@ describe('the selection bar', () => {
 				'Deselect',
 				'Select inverse',
 				'Feather…',
+				'Modify…',
+				'Transform selection',
 				'Layer via copy',
 				'Layer via cut',
 				'Fill…',
@@ -501,6 +514,98 @@ describe('the selection bar', () => {
 		selectAll();
 		await screen.findByRole('button', { name: 'Feather…' });
 		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	/** The fake drawing's canvas, and the area Select all makes of it. */
+	const CANVAS = { x: 0, y: 0, width: 1600, height: 1000 } as const;
+	const WHOLE = { path: rectPath(CANVAS) ?? '', inverted: false, feather: 0 };
+
+	it('modifies the area from the bar, on the drawing’s canvas, and selects what that makes', async () => {
+		const user = userEvent.setup();
+		fake.settings.kind = 'raster';
+		await renderEditor('expanded');
+		selectAll();
+		await user.click(await screen.findByRole('button', { name: 'Modify…' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Modify selection' });
+		expect(dialog.classList.contains('panel-drawer')).toBe(true);
+		await user.click(within(dialog).getByRole('radio', { name: 'Contract' }));
+		fireEvent.change(
+			within(dialog).getByRole('spinbutton', { name: 'Contract by, in pixels' }),
+			{
+				target: { value: '20' },
+			}
+		);
+		const made = {
+			path: rectPath({ x: 20, y: 20, width: 1560, height: 960 }) ?? '',
+			inverted: false,
+			feather: 7,
+		};
+		vi.mocked(areaOps.modifyArea).mockReturnValueOnce(made);
+		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+		expect(areaOps.modifyArea).toHaveBeenLastCalledWith(WHOLE, 'contract', 20, CANVAS);
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+		// The area is the one Modify… made: Feather… starts at its feather.
+		await user.click(screen.getByRole('button', { name: 'Feather…' }));
+		const feather = await screen.findByRole('dialog', { name: 'Feather selection' });
+		expect(
+			within(feather).getByRole('spinbutton', { name: 'Feather radius in pixels' })
+		).toHaveProperty('value', '7');
+	});
+
+	it('keeps the area when Modify… would leave nothing of it, and says so, in a sheet on compact', async () => {
+		const user = userEvent.setup();
+		fake.settings.kind = 'raster';
+		await renderEditor('compact');
+		selectAll();
+		await user.click(await screen.findByRole('button', { name: 'Modify…' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Modify selection' });
+		expect(dialog.classList.contains('panel-sheet')).toBe(true);
+		vi.mocked(areaOps.modifyArea).mockReturnValueOnce(undefined);
+		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(
+			screen.getByText('That would leave nothing selected, so the selection is unchanged.')
+		).toBeDefined();
+		// Areas are not in the history: one lost here could not be got back.
+		expect(bar()).not.toBeNull();
+	});
+
+	it('shows Apply and Cancel while the area is transformed with any tool in hand, and the top bar’s Undo steps the transform', async () => {
+		const user = userEvent.setup();
+		fake.settings.kind = 'raster';
+		await renderEditor('expanded');
+		selectAll();
+		await waitFor(() => expect(bar()).not.toBeNull());
+		fireEvent.keyDown(window, { key: 'b' });
+		await waitFor(() => expect(bar()).toBeNull());
+		const canvas = screen.getByRole('region', { name: 'Canvas' });
+		fireEvent.contextMenu(canvas, { clientX: 40, clientY: 30, button: 2 });
+		act(() => {
+			screen.getByRole('menuitem', { name: 'Transform selection' }).click();
+		});
+		await waitFor(() => expect(barButtons()).toEqual(['Apply', 'Cancel']));
+		await user.click(screen.getByRole('button', { name: 'Undo' }));
+		expect(fake.undo).not.toHaveBeenCalled();
+		await user.click(screen.getByRole('button', { name: 'Cancel' }));
+		await waitFor(() => expect(bar()).toBeNull());
+		await user.click(screen.getByRole('button', { name: 'Undo' }));
+		expect(fake.undo).toHaveBeenCalledTimes(1);
+	});
+
+	it('closes Modify… for good when the area it was opened on is dropped under it', async () => {
+		const user = userEvent.setup();
+		fake.settings.kind = 'raster';
+		await renderEditor('medium');
+		selectAll();
+		await user.click(await screen.findByRole('button', { name: 'Modify…' }));
+		await screen.findByRole('dialog', { name: 'Modify selection' });
+		fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		selectAll();
+		await screen.findByRole('button', { name: 'Modify…' });
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(areaOps.modifyArea).not.toHaveBeenCalled();
 	});
 
 	it('shows the elements’ actions for shapes selected on a vector layer, and makes the layer via copy', async () => {

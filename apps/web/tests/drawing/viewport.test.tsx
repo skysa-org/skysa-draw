@@ -20,6 +20,7 @@ import {
 } from '../../src/drawing/tools/types.js';
 import type { ViewportHandle, ViewportProps } from '../../src/drawing/types.js';
 import { Viewport } from '../../src/drawing/Viewport.js';
+import { createViewportSelection } from '../../src/drawing/viewport/selectionState.js';
 import { t } from '../../src/i18n/t.js';
 
 /**
@@ -1358,6 +1359,8 @@ describe('the context menu', () => {
 			'Deselect',
 			'Select inverse',
 			'Feather…',
+			'Modify…',
+			'Transform selection',
 			'Layer via copy',
 			'Layer via cut',
 			'Fill…',
@@ -1380,6 +1383,21 @@ describe('the context menu', () => {
 		choose('Crop to selection');
 		expect(fake.calls).toEqual(['execute']);
 		expect(area()?.path).toBe(AREA);
+	});
+
+	it('drops the area when it inverts an inverse with no outline, which is the whole canvas', () => {
+		const selection = createViewportSelection();
+		const fake = fakeDocument(['raster', 'vector']);
+		const { region } = setup(fakeTool('marquee', { raster: marking().behavior }), {
+			document: fake.document,
+			selection,
+		});
+		act(() => {
+			selection.region.set({ path: '', inverted: true, feather: 0 });
+		});
+		rightClick(region, 40, 30);
+		choose('Select inverse');
+		expect(selection.region.get()).toBeUndefined();
 	});
 
 	it('shows the pixels’ actions disabled on a vector layer', () => {

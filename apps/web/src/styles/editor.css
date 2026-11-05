@@ -460,8 +460,10 @@
 	width: 1px;
 }
 
-/* Feather…: the hint, the radius as a slider and a number together, and the buttons. */
-.feather-form {
+/* Feather… and Modify…: the hint, the radius as a slider and a number
+   together, and the buttons. */
+.feather-form,
+.modify-form {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-s);
@@ -473,18 +475,28 @@
 	margin: 0;
 }
 
-.feather-radius {
+.feather-radius,
+.modify-radius {
 	align-items: center;
 	display: flex;
 	gap: var(--space-s);
 	min-width: 0;
 }
 
-.feather-radius .slider {
+.feather-radius .slider,
+.modify-radius .slider {
 	flex: 1;
 }
 
-.feather-field {
+/* The number field beside the slider says its value, and is the one to
+   type in: the slider's own read-out would only be squeezed under it. */
+.feather-radius .slider output,
+.modify-radius .slider output {
+	display: none;
+}
+
+.feather-field,
+.modify-field {
 	background: var(--bg);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-s);
@@ -498,7 +510,8 @@
 	width: 5.5rem;
 }
 
-.feather-actions {
+.feather-actions,
+.modify-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-s);
@@ -506,7 +519,59 @@
 	margin-block-start: var(--space-s);
 }
 
-.feather-actions button {
+.feather-actions button,
+.modify-actions button {
 	min-height: var(--target);
 	min-width: 6rem;
+}
+
+/* Modify…'s four ways, each a whole row to press, the radio, the name and
+   its line under it, as Fill…'s contents are rows. */
+.modify-ways {
+	border: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2xs);
+	margin: 0;
+	min-width: 0;
+	padding: 0;
+}
+
+.modify-way {
+	align-items: center;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	display: flex;
+	gap: var(--space-s);
+	min-height: var(--target);
+	padding: var(--space-2xs) var(--space-xs);
+	touch-action: manipulation;
+}
+
+.modify-way:hover {
+	background: var(--hover-bg);
+}
+
+.modify-way input {
+	accent-color: var(--accent);
+	flex: none;
+	height: 1.25rem;
+	margin: 0;
+	width: 1.25rem;
+}
+
+.modify-way:has(:focus-visible) {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
+.modify-words {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.modify-hint {
+	color: var(--muted);
+	font-size: var(--text-s);
 }

@@ -16,11 +16,18 @@ import { type Observable, observable } from './observable.js';
 export type ViewportSelection = Readonly<{
 	region: Observable<Region | undefined>;
 	elements: Observable<readonly Element[]>;
+	/**
+	 * Whether the area's outline is being transformed (Transform selection),
+	 * which the viewport works and the frame's selection bar shows as Apply
+	 * and Cancel.
+	 */
+	transforming: Observable<boolean>;
 }>;
 
 export const createViewportSelection = (): ViewportSelection => ({
 	region: observable<Region | undefined>(undefined),
 	elements: observable(NO_SELECTION),
+	transforming: observable(false),
 });
 
 /**
@@ -35,11 +42,16 @@ export const useSelectionFacts = (
 ): SelectionFacts => {
 	const region = useSyncExternalStore(selection.region.subscribe, selection.region.get);
 	const elements = useSyncExternalStore(selection.elements.subscribe, selection.elements.get);
+	const transforming = useSyncExternalStore(
+		selection.transforming.subscribe,
+		selection.transforming.get
+	);
 	return {
 		region,
 		elements: elements.length,
 		layer: snapshot.layers.find((layer) => layer.id === layerId),
 		canUndo: snapshot.canUndo,
 		canRedo: snapshot.canRedo,
+		transforming,
 	};
 };

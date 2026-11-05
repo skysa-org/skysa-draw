@@ -188,6 +188,96 @@ describe('the options strip', () => {
 		expect(deselect).toHaveBeenCalledTimes(1);
 	});
 
+	it('shows the selection tools’ mode first, as a group of four buttons named in words, the one in force pressed', () => {
+		const marqueeLike: Tool = {
+			id: 'marquee',
+			options: ['areaMode', 'constrain'],
+			behaviors: {},
+		};
+		render(
+			<OptionsStrip
+				tool={marqueeLike}
+				options={{ ...DEFAULT_TOOL_OPTIONS, areaMode: 'subtract' }}
+				onChange={vi.fn()}
+			/>
+		);
+		const group = screen.getByRole('group', { name: 'Selection mode' });
+		const buttons = [...group.querySelectorAll('button')];
+		expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+			'New selection',
+			'Add to selection',
+			'Subtract from selection',
+			'Intersect with selection',
+		]);
+		expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+			'false',
+			'false',
+			'true',
+			'false',
+		]);
+		buttons.forEach((button) => {
+			expect(button.querySelector('svg')).not.toBeNull();
+		});
+		const constrain = screen.getByRole('button', { name: 'Constrain' });
+		expect(
+			group.compareDocumentPosition(constrain) & Node.DOCUMENT_POSITION_FOLLOWING
+		).not.toBe(0);
+	});
+
+	it('emits the mode pressed', async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+		render(
+			<OptionsStrip
+				tool={{ id: 'lasso', options: ['areaMode'], behaviors: {} }}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={onChange}
+			/>
+		);
+		expect(
+			screen.getByRole('button', { name: 'New selection' }).getAttribute('aria-pressed')
+		).toBe('true');
+		await user.click(screen.getByRole('button', { name: 'Intersect with selection' }));
+		expect(onChange).toHaveBeenCalledWith('areaMode', 'intersect');
+	});
+
+	it.each([
+		[
+			false,
+			[
+				'New selection',
+				'Add to selection (Shift)',
+				'Subtract from selection (Alt)',
+				'Intersect with selection (Shift+Alt)',
+			],
+		],
+		[
+			true,
+			[
+				'New selection',
+				'Add to selection (⇧)',
+				'Subtract from selection (⌥)',
+				'Intersect with selection (⌥⇧)',
+			],
+		],
+	] as const)(
+		'puts in each mode’s tooltip the keys that make it for one drag (a Mac: %s)',
+		(mac, titles) => {
+			render(
+				<OptionsStrip
+					tool={{ id: 'wand', options: ['areaMode'], behaviors: {} }}
+					options={DEFAULT_TOOL_OPTIONS}
+					onChange={vi.fn()}
+					mac={mac}
+				/>
+			);
+			const group = screen.getByRole('group', { name: 'Selection mode' });
+			expect([...group.querySelectorAll('button')].map((button) => button.title)).toEqual(
+				titles
+			);
+		}
+	);
+
 	it('shows no selection bar with no actions', () => {
 		render(<OptionsStrip tool={brushLike} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />);
 		expect(screen.queryByRole('group', { name: 'Selection' })).toBeNull();
@@ -203,6 +293,15 @@ describe('where the tool’s options are set', () => {
 		expect(inToolOptions(screen.getByRole('slider', { name: 'Size' }))).toBe(true);
 		expect(inToolOptions(screen.getByRole('button', { name: 'Pressure' }))).toBe(true);
 		unmount();
+		const modes = render(
+			<OptionsStrip
+				tool={{ id: 'marquee', options: ['areaMode'], behaviors: {} }}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+			/>
+		);
+		expect(inToolOptions(screen.getByRole('button', { name: 'Add to selection' }))).toBe(true);
+		modes.unmount();
 		render(
 			<ColorPanel
 				options={DEFAULT_TOOL_OPTIONS}

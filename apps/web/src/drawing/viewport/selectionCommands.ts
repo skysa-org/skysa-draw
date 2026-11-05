@@ -57,6 +57,22 @@ export type SelectionCommandDeps = Readonly<{
 	 * nothing then.
 	 */
 	fill?: () => void;
+	/**
+	 * Modify… was asked for: the frame's dialog opens, which expands,
+	 * contracts, smooths or borders the area (`tools/raster/areaOps.ts`).
+	 * None where the viewport has no frame to ask, and Modify… does nothing.
+	 */
+	modify?: () => void;
+	/**
+	 * Transform selection, the viewport's: `start` puts a box and handles on
+	 * the area's outline, `apply` keeps what they did, `cancel` puts the
+	 * outline back. Each says whether it did anything.
+	 */
+	transform: Readonly<{
+		start: () => boolean;
+		apply: () => boolean;
+		cancel: () => boolean;
+	}>;
 }>;
 
 export type SelectionCommands = Readonly<{
@@ -168,13 +184,28 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		}
 		const region = selection.region.get();
 		if (region === undefined) return false;
-		selection.region.set({ ...region, inverted: !region.inverted });
+		// An inverse with no outline is the whole canvas (`combineAreas`), so
+		// its inverse is nothing selected, not an outline of nothing.
+		selection.region.set(
+			region.inverted && region.path === ''
+				? undefined
+				: { ...region, inverted: !region.inverted }
+		);
 		return true;
 	};
 
 	const feather = (): boolean => {
 		if (selection.region.get() === undefined) return false;
 		deps.feather();
+		return true;
+	};
+
+	/** Modify…: the frame's dialog, where there is an area and no stroke under way. */
+	const modify = (): boolean => {
+		if (selection.region.get() === undefined || deps.busy() || deps.modify === undefined) {
+			return false;
+		}
+		deps.modify();
 		return true;
 	};
 
@@ -305,6 +336,10 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		deselect,
 		selectInverse,
 		feather,
+		modify,
+		transformSelection: () => deps.transform.start(),
+		applyTransform: () => deps.transform.apply(),
+		cancelTransform: () => deps.transform.cancel(),
 		layerViaCopy: () => layerVia('copy'),
 		layerViaCut: () => layerVia('cut'),
 		fillDialog,

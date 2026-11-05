@@ -1,6 +1,7 @@
 import { cell } from '@skysa/draw-core';
 
 import { t } from '../../../i18n/t.js';
+import { areaModeOf } from '../../keys.js';
 import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 import { invert } from '../vector/geometry.js';
 import { affineOf } from './area.js';
@@ -23,10 +24,13 @@ import { outlinePath, type PixelMask, traceMask } from './trace.js';
  * outline traced along the pixels' edges (`trace.ts`) and taken into the
  * drawing's user units through the inverse of the layer's own map
  * (`RasterSurface.toPixel`, its `transform` included), so the ants sit on the
- * pixels' edges wherever the layer is. Shift adds it to the area there as
- * the marquee adds (`selectArea`); a click without Shift replaces it with a
- * new plain area; a click outside the layer's pixels deselects, as in
- * Photoshop. The edge is hard, a pixel in or out: there is no anti-alias.
+ * pixels' edges wherever the layer is. It meets the area there in the
+ * click's mode as the marquee's outline does (`selectArea`): a new plain
+ * area, or added to, subtracted from or intersected with the one there, by
+ * the option or by Shift, Alt or both held as the press began
+ * (`areaModeOf`). A click outside the layer's pixels selects nothing, which
+ * deselects in a new selection, as in Photoshop, and leaves the area in the
+ * other modes. The edge is hard, a pixel in or out: there is no anti-alias.
  *
  * It only reads, so a locked layer may be selected from; a hidden one may not,
  * as the fill and the eyedropper read none, since what would be selected
@@ -126,7 +130,7 @@ const nothing = (): undefined => undefined;
 /**
  * A tool that acts on a click, where the pointer was pressed, once it lifts:
  * so a press a second finger turns into a pinch, or Escape cancels, selects
- * nothing. Shift is read as the press began, as the marquee reads it.
+ * nothing. The keys are read as the press began, as the marquee reads them.
  */
 export const onRelease = (
 	act: (context: ToolContext, sample: PointerSample) => void
@@ -150,15 +154,16 @@ export const onRelease = (
 
 /**
  * The area the wand makes from a click: once the layer's picture is
- * decoded, its pixels read, the mask made and traced, and the area set or
- * added to. A picture that would not decode says so, and so does an outline
- * past `WAND_MAX_CORNERS`; neither changes the area.
+ * decoded, its pixels read, the mask made and traced, and the area met with
+ * it in the click's mode. A picture that would not decode says so, and so
+ * does an outline past `WAND_MAX_CORNERS`; neither changes the area.
  */
 const selectFrom = (context: ToolContext, sample: PointerSample): void => {
 	if (guardedLayer(context, 'read') === undefined) return;
 	const surface = surfaceFor(context);
 	if (surface === undefined) return;
 	const { tolerance, contiguous } = context.options;
+	const mode = areaModeOf(sample, context.options.areaMode);
 	surface.ready
 		.then(() => {
 			const ctx = surface.canvas.getContext('2d');
@@ -178,7 +183,7 @@ const selectFrom = (context: ToolContext, sample: PointerSample): void => {
 				contiguous
 			);
 			if (mask === undefined) {
-				selectArea(context, undefined, sample.shiftKey);
+				selectArea(context, undefined, mode);
 				return;
 			}
 			const outline = traceMask(mask);
@@ -187,7 +192,7 @@ const selectFrom = (context: ToolContext, sample: PointerSample): void => {
 				return;
 			}
 			const path = outlinePath(outline, invert(affineOf(surface.toPixel)));
-			selectArea(context, path, sample.shiftKey);
+			selectArea(context, path, mode);
 		})
 		.catch(() => context.notify(t('tools.wandUnreadable')));
 };

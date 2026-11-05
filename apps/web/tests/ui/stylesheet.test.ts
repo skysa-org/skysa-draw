@@ -80,6 +80,12 @@ describe('ui.css', () => {
 		expect(declarationsOf('.panel-drawer-start')).toContain('env(safe-area-inset-left)');
 	});
 
+	it('keeps a group of choices whole along a bar, whose buttons are each a target', () => {
+		// The bar scrolls where it runs short, rather than squeeze its controls.
+		expect(declarationsOf('.choice-buttons')).toContain('flex: none;');
+		expect(declarationsOf('.icon-button')).toMatch(/min-width: var\(--target\)/);
+	});
+
 	it('docks a column the width of --dock', () => {
 		expect(declarationsOf('.panel-dock')).toContain('width: var(--dock);');
 	});

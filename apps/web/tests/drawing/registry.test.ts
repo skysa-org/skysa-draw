@@ -109,6 +109,15 @@ describe('TOOLS', () => {
 		expect(toolById('select')?.options).toEqual(['autoSelect']);
 	});
 
+	it('gives the marquee, the lasso and the magic wand the selection mode, first, as Photoshop’s options bar does', () => {
+		expect(toolById('marquee')?.options).toEqual(['areaMode', 'constrain']);
+		expect(toolById('lasso')?.options).toEqual(['areaMode']);
+		expect(toolById('wand')?.options).toEqual(['areaMode', 'tolerance', 'contiguous']);
+		TOOLS.filter((tool) => !['marquee', 'lasso', 'wand'].includes(tool.id)).forEach((tool) => {
+			expect(tool.options).not.toContain('areaMode');
+		});
+	});
+
 	it('lets the select tool alone pick the layer a press acts on, which its Auto-Select does', () => {
 		expect(toolById('select')?.pick).toBeDefined();
 		TOOLS.filter((tool) => tool.id !== 'select').forEach((tool) => {

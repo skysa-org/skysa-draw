@@ -1,7 +1,7 @@
 import { type LayerVia, layerViaElements } from '../../document/layerVia.js';
 import { areaPolygons, areaTouchesBox } from '../raster/area.js';
 import { areaDrag } from '../raster/region.js';
-import type { ToolBehavior, ToolContext } from '../types.js';
+import type { AreaMode, ToolBehavior, ToolContext } from '../types.js';
 import { type Box, transformBox, unionBox } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
 import { elementsOf, placedBox, positionsIn } from './hit.js';
@@ -12,11 +12,14 @@ import { createSvg } from './svg.js';
 /**
  * The marquee and the lasso on a vector layer
  * (docs/decisions/0004-the-interface.md: "Select elements in a region"): the
- * same drag as on a raster layer (`raster/region.ts`), and at its end every
- * element of the active layer whose box the area touches is selected, in
- * place of what was, or as well with Shift held as the drag began. The area
- * itself is then dropped: on a vector layer it was the way to the selection,
- * and nothing paints inside it. A click selects nothing.
+ * same drag as on a raster layer (`raster/region.ts`), in the same modes,
+ * and at its end the elements of the active layer whose box the area
+ * touches meet what is selected in the drag's mode (`combineElements`): in
+ * place of it, added to it, taken from it, or only those in both. The area
+ * itself is then dropped: on a vector layer it was the way to the
+ * selection, and nothing paints inside it. A click finds nothing: in a new
+ * selection it selects nothing, and in the other modes it leaves the
+ * selection as it is.
  *
  * The selection is the viewport's, as the select tool's is, and stays when
  * the select tool is picked next, which shows its box and handles; until
@@ -155,19 +158,55 @@ const touchedBy = (layer: Element, path: string): readonly Element[] => {
 	return elementsOf(layer).filter((element) => areaTouchesBox(polygons, boxIn(layer, element)));
 };
 
+/**
+ * Whether an element is selected after a tool, in each mode, by whether it
+ * was (`kept`) and whether the tool found it.
+ */
+const KEEPS: Readonly<Record<AreaMode, (kept: boolean, found: boolean) => boolean>> = {
+	new: (_kept, found) => found,
+	add: (kept, found) => kept || found,
+	subtract: (kept, found) => kept && !found,
+	intersect: (kept, found) => kept && found,
+};
+
+/**
+ * What is selected on a vector layer after a selection tool found `found` in
+ * `mode` over `kept`, what was selected, as the area's modes meet an area
+ * (`combineAreas`): `new` what was found, `add` either, `subtract` what was
+ * kept and not found, `intersect` what is in both. `found` none for a click
+ * that found nothing to meet the selection with, which selects nothing in
+ * `new` and leaves the selection as it was in the others. In paint order, of
+ * the layer's own `elements` alone: a selection left from another layer is
+ * not this one's to keep.
+ */
+export const combineElements = (
+	elements: readonly Element[],
+	kept: readonly Element[],
+	found: readonly Element[] | undefined,
+	mode: AreaMode
+): readonly Element[] => {
+	const was = new Set(kept);
+	if (found === undefined) {
+		return mode === 'new' ? [] : elements.filter((element) => was.has(element));
+	}
+	const is = new Set(found);
+	const keeps = KEEPS[mode];
+	return elements.filter((element) => keeps(was.has(element), is.has(element)));
+};
+
 export const createRegionSelect = (kind: 'marquee' | 'lasso'): ToolBehavior =>
 	areaDrag(
 		kind,
-		(context, path, adding) => {
+		(context, path, mode) => {
 			context.region.set(undefined);
 			const layer = activeLayerElement(context);
 			if (layer === undefined) return;
-			const kept = adding ? context.selection.elements : [];
-			const found = path === undefined ? [] : touchedBy(layer, path);
-			// In paint order, and only the layer's own: a selection left from
-			// another layer is not this one's to keep.
-			const next = elementsOf(layer).filter(
-				(element) => kept.includes(element) || found.includes(element)
+			const found = path === undefined ? undefined : touchedBy(layer, path);
+			const next = combineElements(
+				elementsOf(layer),
+				context.selection.elements,
+				found,
+				mode
 			);
 			context.selection.set(next);
 			showSelection(context, next, false);

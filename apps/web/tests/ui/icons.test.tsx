@@ -17,6 +17,28 @@ describe('icons', () => {
 		expect(Object.keys(ICONS)).toEqual(expect.arrayContaining([...tools, ...more, ...last]));
 	});
 
+	it('has an icon for each of the selection tools’ four modes', () => {
+		expect(Object.keys(ICONS)).toEqual(
+			expect.arrayContaining(['areaNew', 'areaAdd', 'areaSubtract', 'areaIntersect'])
+		);
+	});
+
+	it('fills what a mode leaves selected, so no two of the four look alike', () => {
+		const drawn = (['areaNew', 'areaAdd', 'areaSubtract', 'areaIntersect'] as const).map(
+			(name) => {
+				const Icon = ICONS[name];
+				const { container, unmount } = render(<Icon />);
+				const svg = container.querySelector('svg');
+				const filled = svg?.querySelectorAll('[fill="currentColor"]').length ?? 0;
+				const markup = svg?.innerHTML ?? '';
+				unmount();
+				expect(filled).toBe(1);
+				return markup;
+			}
+		);
+		expect(new Set(drawn).size).toBe(4);
+	});
+
 	it.each(Object.entries(ICONS))(
 		'draws %s at 24 px, in currentColor, hidden from a screen reader',
 		(_, Icon) => {

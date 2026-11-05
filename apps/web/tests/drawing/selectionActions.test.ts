@@ -71,6 +71,8 @@ describe('the selection’s actions', () => {
 			'deselect',
 			'selectInverse',
 			'feather',
+			'modify',
+			'transformSelection',
 			'layerViaCopy',
 			'layerViaCut',
 			'fillDialog',
@@ -83,6 +85,8 @@ describe('the selection’s actions', () => {
 			'Deselect',
 			'Select inverse',
 			'Feather…',
+			'Modify…',
+			'Transform selection',
 			'Layer via copy',
 			'Layer via cut',
 			'Fill…',
@@ -112,8 +116,16 @@ describe('the selection’s actions', () => {
 		['no layer', undefined],
 	])('shows the pixels’ actions disabled, not hidden, on %s', (_name, active) => {
 		const given = facts({ region: AREA, layer: active });
-		expect(ids(given)).toHaveLength(8);
-		expect(enabled(given)).toEqual(['deselect', 'selectInverse', 'feather', 'crop']);
+		expect(ids(given)).toHaveLength(10);
+		// The outline's own, which change no pixel, stay.
+		expect(enabled(given)).toEqual([
+			'deselect',
+			'selectInverse',
+			'feather',
+			'modify',
+			'transformSelection',
+			'crop',
+		]);
 	});
 
 	it('copies from a locked raster layer, which only reads it, and changes nothing there', () => {
@@ -122,13 +134,27 @@ describe('the selection’s actions', () => {
 			'deselect',
 			'selectInverse',
 			'feather',
+			'modify',
+			'transformSelection',
 			'layerViaCopy',
 			'crop',
 		]);
 	});
 
-	it('does not crop to an inverted area, which has no box of its own', () => {
-		expect(enabled(facts({ region: { ...AREA, inverted: true } }))).not.toContain('crop');
+	it('neither crops to nor transforms an inverted area, which has no box of its own', () => {
+		const inverse = enabled(facts({ region: { ...AREA, inverted: true } }));
+		expect(inverse).not.toContain('crop');
+		expect(inverse).not.toContain('transformSelection');
+		expect(inverse).toContain('modify');
+	});
+
+	it('is Apply and Cancel alone while the outline is transformed, with Enter and Escape', () => {
+		const given = facts({ region: AREA, transforming: true });
+		expect(ids(given)).toEqual(['applyTransform', 'cancelTransform']);
+		expect(items(given).map((item) => [item.label, item.shortcut])).toEqual([
+			['Apply', 'Enter'],
+			['Cancel', 'Esc'],
+		]);
 	});
 
 	it('with elements selected on a vector layer: the selection, a layer of their own, delete', () => {

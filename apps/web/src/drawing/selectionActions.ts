@@ -28,6 +28,10 @@ export const SELECTION_ACTIONS = [
 	'deselect',
 	'selectInverse',
 	'feather',
+	'modify',
+	'transformSelection',
+	'applyTransform',
+	'cancelTransform',
 	'layerViaCopy',
 	'layerViaCut',
 	'fillDialog',
@@ -57,6 +61,12 @@ export type SelectionFacts = Readonly<{
 	layer: LayerInfo | undefined;
 	canUndo: boolean;
 	canRedo: boolean;
+	/**
+	 * Whether the area's outline is being transformed (Transform selection):
+	 * the list is then its Apply and Cancel alone, as Photoshop's options bar
+	 * shows its commit and cancel while a transform is under way.
+	 */
+	transforming?: boolean;
 }>;
 
 /**
@@ -94,6 +104,8 @@ const KEYS: Readonly<Partial<Record<SelectionActionId, EditAction>>> = {
 	deselect: 'deselect',
 	selectInverse: 'selectInverse',
 	feather: 'feather',
+	applyTransform: 'commit',
+	cancelTransform: 'escape',
 	layerViaCopy: 'duplicate',
 	layerViaCut: 'layerViaCut',
 	fillDialog: 'fillDialog',
@@ -122,6 +134,9 @@ const areaEntries = (facts: SelectionFacts, region: Region): readonly Entry[] =>
 		{ id: 'deselect', enabled: true },
 		{ id: 'selectInverse', enabled: true },
 		{ id: 'feather', enabled: true },
+		{ id: 'modify', enabled: true },
+		// The outline's own box, which an inverse, the canvas outside it, has none of.
+		{ id: 'transformSelection', enabled: !region.inverted },
 		{ id: 'layerViaCopy', enabled: readable(facts.layer), separatorBefore: true },
 		{ id: 'layerViaCut', enabled: pixels },
 		{ id: 'fillDialog', enabled: pixels, separatorBefore: true },
@@ -151,7 +166,14 @@ const nothingEntries = (facts: SelectionFacts): readonly Entry[] => [
 	{ id: 'duplicateLayer', enabled: facts.layer !== undefined },
 ];
 
+/** While the outline is transformed: done, or put back as it was. */
+const transformEntries: readonly Entry[] = [
+	{ id: 'applyTransform', enabled: true },
+	{ id: 'cancelTransform', enabled: true },
+];
+
 const entriesFor = (facts: SelectionFacts): readonly Entry[] => {
+	if (facts.transforming === true) return transformEntries;
 	const mode = selectionModeOf(facts);
 	if (mode === 'elements') return elementEntries(facts);
 	if (mode === 'area' && facts.region !== undefined) return areaEntries(facts, facts.region);

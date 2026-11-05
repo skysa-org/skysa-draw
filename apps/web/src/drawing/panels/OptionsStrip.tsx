@@ -1,20 +1,25 @@
 import { Fragment } from 'react';
 
+import { type Choice, ChoiceButtons } from '../../components/ui/ChoiceButtons.js';
 import { ColorField } from '../../components/ui/ColorField.js';
+import { ICONS } from '../../components/ui/icons.js';
 import type { MenuItem } from '../../components/ui/Menu.js';
 import { Slider } from '../../components/ui/Slider.js';
 import { Toggle } from '../../components/ui/Toggle.js';
 import { ToolBar } from '../../components/ui/ToolBar.js';
 import { t } from '../../i18n/t.js';
 import { SIZE_MAX, SIZE_MIN } from '../editorState.js';
-import type { Tool, ToolOptionKey, ToolOptions } from '../tools/types.js';
+import { areaModeKeys, type Held } from '../keys.js';
+import type { AreaMode, Tool, ToolOptionKey, ToolOptions } from '../tools/types.js';
+import { isMac } from '../viewport/pointer.js';
 
 /**
  * One row of options for the tool in hand (docs/ARCHITECTURE.md §7, "The
  * interface"): the keys the tool names, in its order, each as the control its
- * kind takes: a slider, a color field, or a toggle with its name beside its
- * check box. The bar is there even for a tool with no options, so the canvas
- * does not jump when the tool changes.
+ * kind takes: a slider, a color field, a toggle with its name beside its
+ * check box, or, for the selection tools' mode, a button for each mode, by
+ * its icon, as Photoshop's options bar has them. The bar is there even for a
+ * tool with no options, so the canvas does not jump when the tool changes.
  *
  * After them, while something is selected and the tool is one that selects,
  * the selection bar (docs/decisions/0004-the-interface.md, "The context
@@ -57,6 +62,42 @@ const isFraction = (key: ToolOptionKey): key is FractionKey =>
 const isToggle = (key: ToolOptionKey): key is ToggleKey =>
 	key === 'pressure' || key === 'constrain' || key === 'contiguous' || key === 'autoSelect';
 
+/** The selection tools' modes, in the order of Photoshop's options bar, each by its icon. */
+const AREA_MODES: readonly (readonly [AreaMode, keyof typeof ICONS])[] = [
+	['new', 'areaNew'],
+	['add', 'areaAdd'],
+	['subtract', 'areaSubtract'],
+	['intersect', 'areaIntersect'],
+];
+
+/**
+ * Keys held, as each platform writes them in a chord (`keys.ts`): `⌥⇧`, in
+ * Apple's order, on a Mac; `Shift+Alt` elsewhere.
+ */
+const heldLabel = (held: Held, mac: boolean): string =>
+	mac
+		? `${held.altKey ? '⌥' : ''}${held.shiftKey ? '⇧' : ''}`
+		: [held.shiftKey && 'Shift', held.altKey && 'Alt']
+				.filter((name) => name !== false)
+				.join('+');
+
+/**
+ * The mode's buttons, each named in words, with the keys that, held as a
+ * drag or a click begins, make it in that mode (`areaModeKeys`) in its
+ * tooltip; a new selection has none.
+ */
+const areaModeChoices = (mac: boolean): readonly Choice<AreaMode>[] =>
+	AREA_MODES.map(([mode, icon]) => {
+		const Icon = ICONS[icon];
+		const held = areaModeKeys(mode);
+		return {
+			value: mode,
+			label: t(`tools.areaModes.${mode}`),
+			icon: <Icon />,
+			...(held === undefined ? {} : { shortcut: heldLabel(held, mac) }),
+		};
+	});
+
 /** A shape's fill may be none, as its stroke may; a brush's fill is the paint itself. */
 const fillMayBeNone = (tool: Tool): boolean =>
 	tool.id === 'rectangle' || tool.id === 'ellipse' || tool.id === 'pen';
@@ -66,13 +107,25 @@ const Option = ({
 	option,
 	options,
 	onChange,
+	mac,
 }: Readonly<{
 	tool: Tool;
 	option: ToolOptionKey;
 	options: ToolOptions;
 	onChange: OnOptionChange;
+	mac: boolean;
 }>) => {
 	const label = t(`tools.options.${option}`);
+	if (option === 'areaMode') {
+		return (
+			<ChoiceButtons
+				label={label}
+				choices={areaModeChoices(mac)}
+				value={options.areaMode}
+				onChange={(mode) => onChange('areaMode', mode)}
+			/>
+		);
+	}
 	if (isLength(option)) {
 		const [min, max] = LENGTHS[option];
 		return (
@@ -150,17 +203,23 @@ const SelectionBar = ({ actions }: Readonly<{ actions: readonly MenuItem[] }>) =
 	</div>
 );
 
+/** Whether the keys are written as a Mac's, read once, as the editor reads it. */
+const MAC = isMac();
+
 export const OptionsStrip = ({
 	tool,
 	options,
 	onChange,
 	actions = [],
+	mac = MAC,
 }: Readonly<{
 	tool: Tool;
 	options: ToolOptions;
 	onChange: OnOptionChange;
 	/** The selection's actions, while something is selected; none otherwise. */
 	actions?: readonly MenuItem[];
+	/** Whether the keys in a tooltip are a Mac's; the platform's by default. */
+	mac?: boolean;
 }>) => (
 	<div className="tool-options" data-tool-options="">
 		<ToolBar
@@ -175,6 +234,7 @@ export const OptionsStrip = ({
 					option={option}
 					options={options}
 					onChange={onChange}
+					mac={mac}
 				/>
 			))}
 			{actions.length > 0 && <SelectionBar actions={actions} />}

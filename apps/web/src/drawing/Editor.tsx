@@ -24,6 +24,7 @@ import { ToolBar } from '../components/ui/ToolBar.js';
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
 import { renameDrawing } from '../store/drawings.js';
+import { canvasBoxOf } from './document/crop.js';
 import type { DocumentSnapshot, EditorDocument } from './document/model.js';
 import { useDocumentSnapshot } from './document/useDocument.js';
 import { type Placing, usePlacePicture } from './document/usePlacePicture.js';
@@ -43,6 +44,7 @@ import { ColorPanel } from './panels/ColorPanel.js';
 import { FeatherDialog } from './panels/FeatherDialog.js';
 import { FillDialog } from './panels/FillDialog.js';
 import { LayersPanel } from './panels/LayersPanel.js';
+import { ModifyDialog } from './panels/ModifyDialog.js';
 import { OptionsStrip } from './panels/OptionsStrip.js';
 import { PropertiesPanel } from './panels/PropertiesPanel.js';
 import { ToolButtons } from './panels/ToolButtons.js';
@@ -122,6 +124,8 @@ const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean
 	zoomOut: ({ viewport }) => withViewport(viewport, (view) => view.zoomOut()),
 	delete: () => false,
 	escape: () => false,
+	// The viewport's, which applies a transform of the area under way.
+	commit: () => false,
 	// The selection's, which the viewport works.
 	selectAll: () => false,
 	deselect: () => false,
@@ -145,6 +149,18 @@ const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean
  * else has handled already — a sheet's Escape, a layer row's Delete — is left
  * alone, and so is one typed into a field.
  */
+/**
+ * The top bar's Undo or Redo: a step of Transform selection's own while one
+ * is on, as Ctrl or ⌘ Z is then, and of the drawing's history otherwise.
+ */
+const step = (
+	viewport: ViewportHandle | null,
+	document: EditorDocument | undefined,
+	way: 'undo' | 'redo'
+): void => {
+	if (viewport?.[way]() !== true) document?.[way]();
+};
+
 const useEditorKeys = (
 	document: EditorDocument | undefined,
 	viewport: RefObject<ViewportHandle | null>,
@@ -269,9 +285,11 @@ type FrameProps = Readonly<{
  * works (`viewport/selectionState.ts`), so that while something is selected
  * under a tool that selects, the options strip shows the actions the
  * viewport's context menu shows: one list (`selectionActions.ts`), done by the
- * viewport through its handle. Feather… and Fill… each open a dialog of the
- * frame's, kept open only while the area it was opened for is the one there;
- * Fill…'s Apply is the viewport's, through its handle.
+ * viewport through its handle. Feather…, Modify… and Fill… each open a dialog
+ * of the frame's, kept open only while the area it was opened for is the one
+ * there; Feather…'s and Modify…'s Apply set the area, which is not part of the
+ * history, and Fill…'s is the viewport's, through its handle. Modify… that
+ * leaves nothing of the area drops it, and says so.
  */
 const Frame = ({
 	sizeClass,
@@ -299,10 +317,15 @@ const Frame = ({
 	const [selection] = useState(createViewportSelection);
 	const facts = useSelectionFacts(selection, snapshot, activeLayerId);
 	const [feathering, setFeathering] = useState<Region | undefined>(undefined);
+	const [modifying, setModifying] = useState<Region | undefined>(undefined);
 	const [filling, setFilling] = useState<Region | undefined>(undefined);
 	// Through the handle, when an item is chosen: the viewport does it.
 	const items = useSelectionActions(facts, (action) => viewport.current?.perform(action), MAC);
-	const selecting = SELECTION_TOOLS.has(tool.id) && selectionModeOf(facts) !== 'nothing';
+	// A transform begun from the context menu shows its Apply and Cancel
+	// whatever tool is in hand, since nothing else ends it but a change.
+	const selecting =
+		facts.transforming === true ||
+		(SELECTION_TOOLS.has(tool.id) && selectionModeOf(facts) !== 'nothing');
 	const toggleLayers = () =>
 		dispatch(
 			expanded
@@ -370,6 +393,7 @@ const Frame = ({
 					onScale={onScale}
 					onActivateLayer={(id) => dispatch({ type: 'setActiveLayer', id })}
 					onFeather={() => setFeathering(selection.region.get())}
+					onModify={() => setModifying(selection.region.get())}
 					onFill={() => setFilling(selection.region.get())}
 					onTool={(toolId) => dispatch({ type: 'setTool', toolId })}
 					onOptions={(change) => dispatch({ type: 'setOptions', change })}
@@ -418,6 +442,22 @@ const Frame = ({
 				feather={facts.region?.feather ?? 0}
 				onApply={(feather) => regionControl(selection.region).update({ feather })}
 				onClose={() => setFeathering(undefined)}
+			/>
+			<ModifyDialog
+				placement={compact ? 'sheet' : 'drawer'}
+				open={modifying !== undefined && modifying === facts.region}
+				region={modifying}
+				canvas={canvasBoxOf(document.root, document.size)}
+				onApply={(region) => {
+					// An area is not a step of the history, so one modified to nothing
+					// is kept as it was rather than lost for good.
+					if (region === undefined) {
+						notify(t('selection.modify.nothingLeft'));
+						return;
+					}
+					selection.region.set(region);
+				}}
+				onClose={() => setModifying(undefined)}
 			/>
 			<FillDialog
 				placement={compact ? 'sheet' : 'drawer'}
@@ -577,8 +617,8 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 			onOpenLibrary={() => dispatch({ type: 'setLibraryOpen', open: true })}
 			canUndo={snapshot?.canUndo ?? false}
 			canRedo={snapshot?.canRedo ?? false}
-			onUndo={() => document?.undo()}
-			onRedo={() => document?.redo()}
+			onUndo={() => step(viewport.current, document, 'undo')}
+			onRedo={() => step(viewport.current, document, 'redo')}
 			saving={saving}
 			zoomPercent={Math.round(scale * 100)}
 			zoomItems={zoomItems}

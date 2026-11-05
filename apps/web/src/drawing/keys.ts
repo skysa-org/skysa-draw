@@ -1,4 +1,4 @@
-import { TOOL_IDS, type ToolId } from './tools/types.js';
+import { type AreaMode, TOOL_IDS, type ToolId } from './tools/types.js';
 
 /**
  * The keys (docs/decisions/0004-the-interface.md; docs/ARCHITECTURE.md §7,
@@ -53,6 +53,7 @@ export const EDIT_ACTIONS = [
 	'fillArea',
 	'fillAreaStroke',
 	'fillDialog',
+	'commit',
 ] as const;
 
 export type EditAction = (typeof EDIT_ACTIONS)[number];
@@ -77,18 +78,23 @@ export const isTyping = (target: EventTarget | null | undefined): boolean =>
 const PRESSED_BY_SPACE =
 	'button, summary, [role="button"], [role="checkbox"], [role="switch"], [role="radio"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
 
+/** The controls Enter presses or follows: Space's, and links. */
+const PRESSED_BY_ENTER = `${PRESSED_BY_SPACE}, a[href], [role="link"]`;
+
 /**
- * Whether Space would press the control the keys go to: one the keyboard
- * brought the focus to, and not the one the last pointer press was in
- * (`pressed`, `viewport/pointerPressed.ts`), which keeps the focus in
- * Chrome, so that Space held after a tool is clicked still pans.
+ * Whether the key would press the control the keys go to, one of
+ * `controls`: one the keyboard brought the focus to, and not the one the
+ * last pointer press was in (`pressed`, `viewport/pointerPressed.ts`),
+ * which keeps the focus in Chrome, so that Space held after a tool is
+ * clicked still pans.
  */
 const pressesControl = (
 	target: EventTarget | null | undefined,
-	pressed: Node | null | undefined
+	pressed: Node | null | undefined,
+	controls = PRESSED_BY_SPACE
 ): boolean =>
 	target instanceof Element &&
-	target.matches(PRESSED_BY_SPACE) &&
+	target.matches(controls) &&
 	!(pressed instanceof Node && target.contains(pressed));
 
 /**
@@ -106,6 +112,22 @@ export const isHandKey = (event: KeyLike, pressed?: Node | null): boolean =>
 	!isTyping(event.target) &&
 	!pressesControl(event.target, pressed);
 
+/**
+ * Whether Enter is the canvas's, to finish what is under way (`commit`):
+ * Transform selection's Apply. Bare, outside a field, and not on a control
+ * the keyboard is on, whose own Enter it is, as Space's is (`isHandKey`); a
+ * control the last pointer press was in keeps the focus in Chrome, but the
+ * key is not aimed at it, and is the canvas's.
+ */
+export const isCommitKey = (event: KeyLike, pressed?: Node | null): boolean =>
+	event.key === 'Enter' &&
+	!event.ctrlKey &&
+	!event.metaKey &&
+	!event.altKey &&
+	!event.shiftKey &&
+	!isTyping(event.target) &&
+	!pressesControl(event.target, pressed, PRESSED_BY_ENTER);
+
 /** The arrows' nudge in the layer's pixels: one, or ten with Shift, as Photoshop's move tool's. */
 const NUDGES: Readonly<Record<string, readonly [number, number]>> = {
 	ArrowLeft: [-1, 0],
@@ -122,6 +144,34 @@ export const nudgeFor = (event: KeyLike): readonly [number, number] | undefined 
 	const by = event.shiftKey ? 10 : 1;
 	return [step[0] * by, step[1] * by];
 };
+
+/** Which of the two keys were held as a drag or a click began. */
+export type Held = Readonly<{ shiftKey: boolean; altKey: boolean }>;
+
+/**
+ * The keys that, held as a selection tool's drag or click begins, make it in
+ * a mode whatever the option says, as in Photoshop: Shift adds, Alt
+ * subtracts, and both intersect. A new selection has none: it is the
+ * option's with neither held. The options strip's tooltips read it too.
+ */
+const MODE_KEYS: readonly (readonly [AreaMode, Held])[] = [
+	['add', { shiftKey: true, altKey: false }],
+	['subtract', { shiftKey: false, altKey: true }],
+	['intersect', { shiftKey: true, altKey: true }],
+];
+
+/** The keys that make a drag or a click in `mode`; none for a new selection. */
+export const areaModeKeys = (mode: AreaMode): Held | undefined =>
+	MODE_KEYS.find(([each]) => each === mode)?.[1];
+
+/**
+ * The mode a drag or a click is made in: the one its keys make, else the
+ * option's (`ToolOptions.areaMode`).
+ */
+export const areaModeOf = (held: Held, option: AreaMode): AreaMode =>
+	MODE_KEYS.find(
+		([, keys]) => keys.shiftKey === held.shiftKey && keys.altKey === held.altKey
+	)?.[0] ?? option;
 
 const KEY_TOOLS: ReadonlyMap<string, ToolId> = new Map(TOOL_IDS.map((id) => [TOOL_KEYS[id], id]));
 
@@ -187,6 +237,8 @@ const PRIMARY_SHIFT_ACTIONS: Readonly<Record<string, EditAction>> = {
  */
 const BARE_ACTIONS: Readonly<Record<string, EditAction>> = {
 	Insert: 'newLayer',
+	// What is under way is done, as Photoshop's Enter applies a transform; Escape is its cancel.
+	Enter: 'commit',
 };
 
 /**
@@ -282,10 +334,20 @@ const SHORTCUTS: Readonly<Partial<Record<EditAction, Chord>>> = {
 	fillDialog: { key: 'F5', shift: true },
 	swapColors: { key: 'X' },
 	resetColors: { key: 'D' },
+	commit: { key: 'Enter' },
+	escape: { key: 'Escape' },
 };
 
 /** The keys a Mac's keyboard prints as a glyph; its delete key is Backspace, which deletes here too. */
-const MAC_GLYPHS: Readonly<Record<string, string>> = { Backspace: '⌫', Delete: '⌫' };
+const MAC_GLYPHS: Readonly<Record<string, string>> = {
+	Backspace: '⌫',
+	Delete: '⌫',
+	Enter: '↩',
+	Escape: '⎋',
+};
+
+/** The keys other keyboards print short. */
+const KEY_NAMES: Readonly<Record<string, string>> = { Escape: 'Esc' };
 
 /** A chord as each platform writes one: `⇧⌘I`, in Apple's order, on a Mac; `Ctrl+Shift+I` elsewhere. */
 const chordLabel = (chord: Chord, isMac: boolean): string => {
@@ -302,7 +364,7 @@ const chordLabel = (chord: Chord, isMac: boolean): string => {
 		chord.shift === true && 'Shift',
 		chord.alt === true && 'Alt',
 	];
-	return [...held.filter((name) => name !== false), chord.key].join('+');
+	return [...held.filter((name) => name !== false), KEY_NAMES[chord.key] ?? chord.key].join('+');
 };
 
 /** The key shown beside an action in a menu or a tooltip; none for an action without one here. */

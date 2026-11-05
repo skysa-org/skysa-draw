@@ -289,6 +289,19 @@
 	visibility: visible;
 }
 
+/*
+ * One of a few options, each by its icon (`ChoiceButtons`): the selection
+ * tools' four modes. Icon buttons a target either way, abutting so the group
+ * reads as one control, the one in force pressed as a tool is; never
+ * squeezed below a target where the strip runs short, which scrolls instead.
+ */
+.choice-buttons {
+	align-items: center;
+	display: flex;
+	flex: none;
+	gap: 0;
+}
+
 /* A row of controls a hair apart: a bar, a panel's header and its actions. */
 .toolbar,
 .panel-header,

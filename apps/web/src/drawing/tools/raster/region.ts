@@ -8,10 +8,18 @@ import {
 	setLayerLocked,
 } from '../../document/commands.js';
 import type { Command } from '../../document/model.js';
-import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
+import { areaModeOf, type Held } from '../../keys.js';
+import type {
+	AreaMode,
+	PointerSample,
+	Region,
+	RegionControl,
+	ToolBehavior,
+	ToolContext,
+	ToolOptions,
+} from '../types.js';
 import { type Box, constrainRect, type Point, rectFrom, simplify } from '../vector/geometry.js';
 import {
-	addToArea,
 	type Area,
 	areaHolds,
 	areaMask,
@@ -26,6 +34,7 @@ import {
 	translatePath,
 } from './area.js';
 import { fillAreaWith } from './areaFill.js';
+import { combineAreas } from './areaOps.js';
 import { activeLayerName, guardedLayer, guardedSurface, reportFailure } from './guard.js';
 import { heldMove } from './pixels.js';
 import { type RasterSurface, surfaceFor } from './surface.js';
@@ -35,33 +44,35 @@ import { type RasterSurface, surfaceFor } from './surface.js';
  * pixels in a region" on a raster layer, "Select elements in a region" on a
  * vector one), and Delete with an area selected. One drag makes the area for
  * both kinds of layer, with a preview on the overlay: the marquee a rectangle
- * from corner to corner, kept square by the constrain option and drawn from
- * its center with Alt; the lasso a freehand outline, closed where the pointer
- * lifts and simplified by Ramer–Douglas–Peucker (`simplify`). What the area
- * then is, is the layer's: on a raster layer it is set (`ToolContext.region`)
- * and outlives the tool, and the raster tools paint inside it; on a vector
- * layer it selects elements (`tools/vector/region.ts`).
+ * from corner to corner, kept square by the constrain option or by Shift, and
+ * drawn from its center with Alt; the lasso a freehand outline, closed where
+ * the pointer lifts and simplified by Ramer–Douglas–Peucker (`simplify`).
+ * What the area then is, is the layer's: on a raster layer it is set
+ * (`ToolContext.region`) and outlives the tool, and the raster tools paint
+ * inside it; on a vector layer it selects elements (`tools/vector/region.ts`).
  *
- * Shift held as the drag begins adds the new area to the one there, as a
- * second subpath, which under `nonzero` is the union of the two
- * (`addToArea`), and keeps its feather. Subtracting with Alt, as Photoshop
- * does, would take the difference of two arbitrary paths, which no fill rule
- * gives; it is not here, and Alt is the marquee's from-the-center at any
- * time. For the same reason Shift on an inverted area starts a new one:
- * Photoshop adds the new outline to what is selected, which for an inverse
- * is the outline there less the new one, a difference again; and making the
- * new outline part of the hole would take away what Shift was asked to add.
- * Shift pressed after the drag began keeps the marquee square, unless it
- * began the drag: that Shift is adding.
+ * The outline a drag makes meets what is selected in the drag's mode, the
+ * four buttons of Photoshop's options bar (`ToolOptions.areaMode`): a new
+ * selection, added to it, subtracted from it, or intersected with it. On a
+ * raster layer that is the area there met with the new outline
+ * (`combineAreas`), an inverted area read as the canvas outside its outline,
+ * so each mode is right for an inverse too, and what is left keeps the
+ * feather there. Shift held as the drag begins adds, Alt subtracts, and both
+ * intersect, for that drag, whatever the option says (`areaModeOf`), as in
+ * Photoshop. A key that chose the mode as the drag began does nothing else
+ * in it; pressed only after the drag began, Shift keeps the marquee square
+ * and Alt draws it from its center. A click makes nothing: in a new
+ * selection it drops the area, and in the other modes it leaves it as it is.
  *
- * On a raster layer a drag that begins inside the area, with neither Shift
- * nor Alt, moves its outline and nothing else, as Photoshop's selection
- * tools do: the outline's numbers moved with the pointer (`translatePath`),
- * Shift during the drag holding it to a multiple of 45°, the area still
- * inverted or feathered as it was. Inside is where the marching ants say:
- * within the outline under `nonzero`, or for an inverse on the canvas and
- * outside it (`areaHolds`). A click there drops the area, as a click
- * anywhere does; a drag that begins outside it makes a new one.
+ * On a raster layer a drag that begins inside the area in a new selection,
+ * the option's mode with neither key held, moves its outline and nothing
+ * else, as Photoshop's selection tools do: the outline's numbers moved with
+ * the pointer (`translatePath`), Shift during the drag holding it to a
+ * multiple of 45°, the area still inverted or feathered as it was. Inside is
+ * where the marching ants say: within the outline under `nonzero`, or for an
+ * inverse on the canvas and outside it (`areaHolds`). A click there drops the
+ * area, as a click anywhere does; a drag that begins outside it, or inside
+ * it in any other mode, makes a new outline.
  */
 
 type AreaKind = 'marquee' | 'lasso';
@@ -70,13 +81,15 @@ interface Drag {
 	readonly start: Point;
 	/** The lasso's points so far; the marquee needs only where it began. */
 	readonly points: readonly Point[];
-	/** Whether Shift was held as the drag began: the area made is added to the one there. */
-	readonly adding: boolean;
+	/** The mode it is made in, chosen as it began (`areaModeOf`). */
+	readonly mode: AreaMode;
+	/** The keys held as it began, which chose its mode, and so neither square nor center it. */
+	readonly held: Held;
 	readonly preview: Element;
 }
 
-/** What a drag that ended does with the area it made: none for a click. */
-type AreaMade = (context: ToolContext, path: string | undefined, adding: boolean) => void;
+/** What a drag that ended does with the outline it made, none for a click, in its mode. */
+type AreaMade = (context: ToolContext, path: string | undefined, mode: AreaMode) => void;
 
 /** A drag shorter than this on screen, in CSS pixels, either way, was a click. */
 const CLICK_PX = 3;
@@ -86,16 +99,15 @@ const LASSO_SLACK_PX = 0.5;
 
 const pointOf = (sample: PointerSample): Point => ({ x: sample.x, y: sample.y });
 
-/** The marquee's rectangle, from where the drag began to the pointer. */
-const marqueeBox = (
-	start: Point,
-	sample: PointerSample,
-	options: ToolOptions,
-	adding: boolean
-): Box => {
-	const square = options.constrain || (sample.shiftKey && !adding);
+/**
+ * The marquee's rectangle, from where the drag began to the pointer: square
+ * with the constrain option or Shift, from its center with Alt, unless the
+ * key was held as the drag began, when it chose the mode instead.
+ */
+const marqueeBox = (start: Point, sample: PointerSample, options: ToolOptions, held: Held): Box => {
+	const square = options.constrain || (sample.shiftKey && !held.shiftKey);
 	const end = constrainRect(start, pointOf(sample), square);
-	if (!sample.altKey) return rectFrom(start, end);
+	if (!sample.altKey || held.altKey) return rectFrom(start, end);
 	const dx = Math.abs(end.x - start.x);
 	const dy = Math.abs(end.y - start.y);
 	return { x: start.x - dx, y: start.y - dy, width: 2 * dx, height: 2 * dy };
@@ -128,7 +140,7 @@ const madeBy = (
 ): string | undefined => {
 	const scale = scaleOf(context);
 	if (kind === 'marquee') {
-		const box = marqueeBox(drag.start, sample, context.options, drag.adding);
+		const box = marqueeBox(drag.start, sample, context.options, drag.held);
 		if (Math.max(box.width, box.height) * scale < CLICK_PX) return undefined;
 		return rectPath(box);
 	}
@@ -145,7 +157,7 @@ const previewOf = (
 	context: ToolContext
 ): string =>
 	kind === 'marquee'
-		? (rectPath(marqueeBox(drag.start, sample, context.options, drag.adding)) ?? '')
+		? (rectPath(marqueeBox(drag.start, sample, context.options, drag.held)) ?? '')
 		: lassoPreview(drag.points);
 
 /**
@@ -176,7 +188,9 @@ export const areaDrag = (
 			preview.setAttribute('pointer-events', 'none');
 			context.overlay.appendChild(preview);
 			const start = pointOf(sample);
-			active.current = { start, points: [start], adding: sample.shiftKey, preview };
+			const held = { shiftKey: sample.shiftKey, altKey: sample.altKey };
+			const mode = areaModeOf(held, context.options.areaMode);
+			active.current = { start, points: [start], mode, held, preview };
 		},
 		move: (context, sample) => {
 			const drag = active.current;
@@ -191,7 +205,7 @@ export const areaDrag = (
 			if (drag === undefined) return;
 			active.current = undefined;
 			drag.preview.remove();
-			made(context, madeBy(kind, drag, sample, context), drag.adding);
+			made(context, madeBy(kind, drag, sample, context), drag.mode);
 		},
 		cancel,
 	};
@@ -211,31 +225,44 @@ const outlineMoved = (drag: OutlineDrag, sample: PointerSample): string => {
 	return translatePath(drag.path, by.x, by.y);
 };
 
+/** Whether two areas are one: the same outline, both inverted or neither, and the same feather. */
+const sameArea = (a: Region | undefined, b: Region | undefined): boolean =>
+	a === b ||
+	(a !== undefined &&
+		b !== undefined &&
+		a.path === b.path &&
+		a.inverted === b.inverted &&
+		a.feather === b.feather);
+
 /**
- * An area a tool made, set: with `adding`, Shift held as it began, added to
- * the area there, keeping its feather; without it, or over an inverted area,
- * a new plain one. Nothing made drops the area, unless it was adding. The
- * marquee's and the lasso's, and the magic wand's (`wand.ts`).
+ * The area made `next` through the control, which makes a plain one
+ * (`set`) or changes the one there (`update`), so that an inverse or a
+ * feather the result has is kept. Nothing is set where nothing changed, so
+ * the ants, and the move tool's float over the area, stay as they are.
  */
-export const selectArea: AreaMade = (context, path, adding) => {
-	if (path === undefined) {
-		if (!adding) context.region.set(undefined);
-		return;
-	}
-	const there = context.region.region;
-	if (adding && there !== undefined && !there.inverted) {
-		context.region.update({ path: addToArea(there.path, path) });
-		return;
-	}
-	context.region.set(path);
+const placeArea = (control: RegionControl, next: Region | undefined): void => {
+	if (sameArea(control.region, next)) return;
+	if (next === undefined || control.region === undefined) control.set(next?.path);
+	if (next !== undefined && !sameArea(control.region, next)) control.update(next);
 };
 
 /**
- * On a raster layer the area is set, and outlives the tool: a click with
- * nothing added drops it, as in every editor, and Shift adds to it, keeping
- * its feather; a new area without Shift, or with it over an inverted one, is
- * plain (`selectArea`); a drag from inside it moves its outline. Making or
- * moving an area changes no pixel, so a locked or a hidden layer may have one.
+ * An area a tool made, met with the area there in `mode` and set
+ * (`combineAreas`): a new plain one, or added to, subtracted from or
+ * intersected with the one there, keeping its feather. Nothing made, a
+ * click, drops the area in a new selection and leaves it in the others. The
+ * marquee's and the lasso's, and the magic wand's (`wand.ts`).
+ */
+export const selectArea: AreaMade = (context, path, mode) => {
+	placeArea(context.region, combineAreas(context.region.region, path, mode));
+};
+
+/**
+ * On a raster layer the area is set, and outlives the tool: a drag's outline
+ * met with it in the drag's mode (`selectArea`), and a click in a new
+ * selection drops it, as in every editor; a drag from inside it in a new
+ * selection moves its outline. Making or moving an area changes no pixel, so
+ * a locked or a hidden layer may have one.
  */
 export const regionBehavior = (kind: AreaKind): ToolBehavior => {
 	const making = areaDrag(kind, selectArea);
@@ -248,7 +275,8 @@ export const regionBehavior = (kind: AreaKind): ToolBehavior => {
 	return {
 		begin: (context, sample) => {
 			outline.current = undefined;
-			const area = sample.shiftKey || sample.altKey ? undefined : areaOf(context);
+			const fresh = areaModeOf(sample, context.options.areaMode) === 'new';
+			const area = fresh ? areaOf(context) : undefined;
 			if (area === undefined || !areaHolds(area, pointOf(sample))) {
 				making.begin(context, sample);
 				return;

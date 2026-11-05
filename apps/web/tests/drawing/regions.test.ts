@@ -1,7 +1,8 @@
 import { DEFAULT_DRAWING_SIZE, emptyDrawing, SVG_NAMESPACE } from '@skysa/draw-core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
+import { areaModeKeys, areaModeOf } from '../../src/drawing/keys.js';
 import {
 	addToArea,
 	antsPath,
@@ -16,8 +17,11 @@ import {
 	rectPath,
 	translatePath,
 } from '../../src/drawing/tools/raster/area.js';
+import type * as AreaOps from '../../src/drawing/tools/raster/areaOps.js';
+import { combineAreas } from '../../src/drawing/tools/raster/areaOps.js';
 import { rasterBehaviors } from '../../src/drawing/tools/raster/index.js';
 import {
+	type AreaMode,
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
 	type Region,
@@ -36,7 +40,21 @@ import { t } from '../../src/i18n/t.js';
  * test reads back. Painting inside the area is the raster tools' and is
  * tested with them (`raster.test.ts`, `smudge.test.ts`); the keys and the
  * marching ants are the viewport's (`viewport.test.tsx`).
+ *
+ * What a new outline makes of the area in each mode is `combineAreas`'s, and
+ * its own tests'; here an area a mode made is checked against what
+ * `combineAreas` makes of the same area and outline, so what is tested is
+ * that the tools give it the outline drawn and the mode chosen, which a spy
+ * that passes every call through records (`lastMet`).
  */
+
+vi.mock('../../src/drawing/tools/raster/areaOps.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof AreaOps>();
+	return { ...actual, combineAreas: vi.fn(actual.combineAreas) };
+});
+
+/** What the tool last asked `combineAreas` for: the area there, the outline made, the mode. */
+const lastMet = () => vi.mocked(combineAreas).mock.lastCall;
 
 const noop = (): undefined => undefined;
 
@@ -218,6 +236,8 @@ const raster = (id: 'marquee' | 'lasso'): ToolBehavior => {
 
 const RASTER = { id: 'layer-1', kind: 'raster' } as const;
 
+const plain = (path: string): Region => ({ path, inverted: false, feather: 0 });
+
 describe('the area’s paths', () => {
 	it('writes a rectangle clockwise from its corner, and nothing for one with no inside', () => {
 		expect(rectPath({ x: 10, y: 20, width: 30, height: 40 })).toBe(
@@ -300,14 +320,16 @@ describe('the marquee on a raster layer', () => {
 		expect(fake.area()).toBe('M 10 15 L 30 15 L 30 25 L 10 25 Z');
 	});
 
-	it('adds to the area with Shift held as it begins, as a second subpath, and not square', () => {
+	it('adds to the area with Shift held as it begins, and not square', () => {
 		const first = 'M 0 0 L 10 0 L 10 10 L 0 10 Z';
 		const fake = createFake({ layer: RASTER, area: first });
 		drag(raster('marquee'), fake.context, [
 			{ x: 60, y: 60, shiftKey: true },
 			{ x: 80, y: 70, shiftKey: true },
 		]);
-		expect(fake.area()).toBe(`${first} M 60 60 L 80 60 L 80 70 L 60 70 Z`);
+		expect(fake.region()).toEqual(
+			combineAreas(plain(first), 'M 60 60 L 80 60 L 80 70 L 60 70 Z', 'add')
+		);
 
 		const replaced = createFake({ layer: RASTER, area: first });
 		drag(raster('marquee'), replaced.context, [
@@ -319,19 +341,16 @@ describe('the marquee on a raster layer', () => {
 
 	it('keeps the feather when Shift adds, and makes a new area plain', () => {
 		const first = 'M 0 0 L 10 0 L 10 10 L 0 10 Z';
-		const feathered = createFake({
-			layer: RASTER,
-			region: { path: first, inverted: false, feather: 3 },
-		});
+		const there = { path: first, inverted: false, feather: 3 };
+		const feathered = createFake({ layer: RASTER, region: there });
 		drag(raster('marquee'), feathered.context, [
 			{ x: 60, y: 60, shiftKey: true },
 			{ x: 80, y: 70, shiftKey: true },
 		]);
-		expect(feathered.region()).toEqual({
-			path: `${first} M 60 60 L 80 60 L 80 70 L 60 70 Z`,
-			inverted: false,
-			feather: 3,
-		});
+		expect(feathered.region()).toEqual(
+			combineAreas(there, 'M 60 60 L 80 60 L 80 70 L 60 70 Z', 'add')
+		);
+		expect(feathered.region()?.feather).toBe(3);
 
 		// Begun in the hole, outside what an inverse selects: inside it, the drag would move it.
 		const replaced = createFake({
@@ -349,21 +368,15 @@ describe('the marquee on a raster layer', () => {
 		});
 	});
 
-	it('starts a new plain area with Shift over an inverted one, which no union of outlines adds to', () => {
-		const fake = createFake({
-			layer: RASTER,
-			region: { path: 'M 0 0 L 10 0 L 10 10 L 0 10 Z', inverted: true, feather: 2 },
-		});
+	it('adds with Shift over an inverted area too, which is read as the canvas outside its outline', () => {
+		const inverse = { path: 'M 0 0 L 10 0 L 10 10 L 0 10 Z', inverted: true, feather: 2 };
+		const fake = createFake({ layer: RASTER, region: inverse });
 		drag(raster('lasso'), fake.context, [
 			{ x: 60, y: 60, shiftKey: true },
 			{ x: 80, y: 60, shiftKey: true },
 			{ x: 80, y: 70, shiftKey: true },
 		]);
-		expect(fake.region()).toEqual({
-			path: 'M 60 60 L 80 60 L 80 70 Z',
-			inverted: false,
-			feather: 0,
-		});
+		expect(fake.region()).toEqual(combineAreas(inverse, 'M 60 60 L 80 60 L 80 70 Z', 'add'));
 
 		const clicked = createFake({
 			layer: RASTER,
@@ -514,20 +527,25 @@ describe('a drag from inside the area on a raster layer', () => {
 		expect(fake.area()).toBe('M 20 10 L 40 10 L 40 30 L 20 30 Z');
 	});
 
-	it('makes a new area from inside with Shift or Alt held as it begins', () => {
+	it('makes an outline from inside with Shift or Alt held as it begins, in the mode they make', () => {
 		const added = createFake({ layer: RASTER, area: FIRST });
 		drag(raster('marquee'), added.context, [
 			{ x: 20, y: 20, shiftKey: true },
 			{ x: 40, y: 40, shiftKey: true },
 		]);
-		expect(added.area()).toBe(`${FIRST} M 20 20 L 40 20 L 40 40 L 20 40 Z`);
+		expect(added.region()).toEqual(
+			combineAreas(plain(FIRST), 'M 20 20 L 40 20 L 40 40 L 20 40 Z', 'add')
+		);
 
-		const fromCenter = createFake({ layer: RASTER, area: FIRST });
-		drag(raster('marquee'), fromCenter.context, [
+		// Alt held from the start subtracts, and so does not draw from the center.
+		const taken = createFake({ layer: RASTER, area: FIRST });
+		drag(raster('marquee'), taken.context, [
 			{ x: 20, y: 20, altKey: true },
 			{ x: 25, y: 25, altKey: true },
 		]);
-		expect(fromCenter.area()).toBe('M 15 15 L 25 15 L 25 25 L 15 25 Z');
+		expect(taken.region()).toEqual(
+			combineAreas(plain(FIRST), 'M 20 20 L 25 20 L 25 25 L 20 25 Z', 'subtract')
+		);
 
 		// Pressed only once the drag began, Alt leaves it the outline's.
 		const later = createFake({ layer: RASTER, area: FIRST });
@@ -600,6 +618,205 @@ describe('a drag from inside the area on a raster layer', () => {
 	});
 });
 
+describe('the mode a drag or a click is made in', () => {
+	const keys = (shiftKey: boolean, altKey: boolean) => ({ shiftKey, altKey });
+
+	it('is the option’s with neither key held, whatever the option', () => {
+		(['new', 'add', 'subtract', 'intersect'] as const).forEach((option) => {
+			expect(areaModeOf(keys(false, false), option)).toBe(option);
+		});
+	});
+
+	it('is add with Shift, subtract with Alt and intersect with both, over any option, as in Photoshop', () => {
+		(['new', 'add', 'subtract', 'intersect'] as const).forEach((option) => {
+			expect(areaModeOf(keys(true, false), option)).toBe('add');
+			expect(areaModeOf(keys(false, true), option)).toBe('subtract');
+			expect(areaModeOf(keys(true, true), option)).toBe('intersect');
+		});
+	});
+
+	it('names the keys for each mode but a new selection, from the same table', () => {
+		expect(areaModeKeys('new')).toBeUndefined();
+		(['add', 'subtract', 'intersect'] as const).forEach((mode) => {
+			const held = areaModeKeys(mode);
+			if (held === undefined) throw new Error(`keys for ${mode}`);
+			expect(areaModeOf(held, 'new')).toBe(mode);
+		});
+	});
+});
+
+describe('the selection modes on a raster layer', () => {
+	const FIRST = 'M 10 10 L 30 10 L 30 30 L 10 30 Z';
+	const MADE = 'M 20 20 L 40 20 L 40 40 L 20 40 Z';
+	const MODES: readonly AreaMode[] = ['new', 'add', 'subtract', 'intersect'];
+
+	it.each(MODES)('meets the area with the outline in %s, the option’s mode', (mode) => {
+		const there = { path: FIRST, inverted: false, feather: 2 };
+		// Each begun outside the area, so a new selection makes an outline rather than moving it.
+		const marquee = createFake({ layer: RASTER, region: there, options: { areaMode: mode } });
+		drag(raster('marquee'), marquee.context, [
+			{ x: 40, y: 40 },
+			{ x: 20, y: 20 },
+		]);
+		expect(marquee.region()).toEqual(combineAreas(there, MADE, mode));
+
+		const lasso = createFake({ layer: RASTER, region: there, options: { areaMode: mode } });
+		drag(raster('lasso'), lasso.context, [
+			{ x: 40, y: 40 },
+			{ x: 20, y: 40 },
+			{ x: 20, y: 20 },
+			{ x: 40, y: 20 },
+		]);
+		expect(lasso.region()).toEqual(
+			combineAreas(there, 'M 40 40 L 20 40 L 20 20 L 40 20 Z', mode)
+		);
+	});
+
+	it('subtracts with Alt and intersects with Shift and Alt held as the drag begins, over the option', () => {
+		const there = plain(FIRST);
+		const taken = createFake({ layer: RASTER, region: there, options: { areaMode: 'add' } });
+		drag(raster('marquee'), taken.context, [
+			{ x: 40, y: 40, altKey: true },
+			{ x: 20, y: 20, altKey: true },
+		]);
+		expect(lastMet()).toEqual([there, MADE, 'subtract']);
+		expect(taken.region()).toEqual(combineAreas(there, MADE, 'subtract'));
+
+		const shared = createFake({ layer: RASTER, region: there });
+		drag(raster('lasso'), shared.context, [
+			{ x: 20, y: 20, shiftKey: true, altKey: true },
+			{ x: 40, y: 20, shiftKey: true, altKey: true },
+			{ x: 40, y: 40, shiftKey: true, altKey: true },
+			{ x: 20, y: 40, shiftKey: true, altKey: true },
+		]);
+		expect(lastMet()).toEqual([there, MADE, 'intersect']);
+		expect(shared.region()).toEqual(combineAreas(there, MADE, 'intersect'));
+
+		const added = createFake({
+			layer: RASTER,
+			region: there,
+			options: { areaMode: 'subtract' },
+		});
+		drag(raster('marquee'), added.context, [
+			{ x: 40, y: 40, shiftKey: true },
+			{ x: 20, y: 20, shiftKey: true },
+		]);
+		expect(added.region()).toEqual(combineAreas(there, MADE, 'add'));
+	});
+
+	it('keeps Shift and Alt pressed after the drag began for square and from the center, in any mode', () => {
+		const there = plain(FIRST);
+		const square = createFake({ layer: RASTER, region: there, options: { areaMode: 'add' } });
+		drag(raster('marquee'), square.context, [
+			{ x: 50, y: 50 },
+			{ x: 70, y: 60, shiftKey: true },
+		]);
+		expect(square.region()).toEqual(
+			combineAreas(there, 'M 50 50 L 70 50 L 70 70 L 50 70 Z', 'add')
+		);
+
+		const centered = createFake({
+			layer: RASTER,
+			region: there,
+			options: { areaMode: 'subtract' },
+		});
+		drag(raster('marquee'), centered.context, [
+			{ x: 20, y: 20 },
+			{ x: 25, y: 30, altKey: true },
+		]);
+		expect(centered.region()).toEqual(
+			combineAreas(there, 'M 15 10 L 25 10 L 25 30 L 15 30 Z', 'subtract')
+		);
+	});
+
+	it('neither squares nor centers by a key that chose the mode as the drag began', () => {
+		const there = plain(FIRST);
+		const both = createFake({ layer: RASTER, region: there });
+		drag(raster('marquee'), both.context, [
+			{ x: 20, y: 20, shiftKey: true, altKey: true },
+			{ x: 40, y: 30, shiftKey: true, altKey: true },
+		]);
+		expect(both.region()).toEqual(
+			combineAreas(there, 'M 20 20 L 40 20 L 40 30 L 20 30 Z', 'intersect')
+		);
+
+		// Shift chose add; Alt pressed later still draws from the center.
+		const later = createFake({ layer: RASTER, region: there });
+		drag(raster('marquee'), later.context, [
+			{ x: 50, y: 50, shiftKey: true },
+			{ x: 60, y: 55, shiftKey: true, altKey: true },
+		]);
+		expect(later.region()).toEqual(
+			combineAreas(there, 'M 40 45 L 60 45 L 60 55 L 40 55 Z', 'add')
+		);
+	});
+
+	it('moves the outline from inside it only in a new selection: another mode makes one there', () => {
+		const there = plain(FIRST);
+		(['add', 'subtract', 'intersect'] as const).forEach((mode) => {
+			const fake = createFake({ layer: RASTER, region: there, options: { areaMode: mode } });
+			drag(raster('marquee'), fake.context, [
+				{ x: 20, y: 20 },
+				{ x: 40, y: 40 },
+			]);
+			expect(lastMet()).toEqual([there, MADE, mode]);
+			expect(fake.region()).toEqual(combineAreas(there, MADE, mode));
+		});
+	});
+
+	it('drops the area on a click in a new selection, and leaves it as it is in the others', () => {
+		const there = { path: FIRST, inverted: true, feather: 4 };
+		(['add', 'subtract', 'intersect'] as const).forEach((mode) => {
+			const fake = createFake({ layer: RASTER, region: there, options: { areaMode: mode } });
+			drag(raster('marquee'), fake.context, [{ x: 50, y: 50 }]);
+			expect(fake.region()).toBe(there);
+			drag(raster('lasso'), fake.context, [{ x: 20, y: 20 }]);
+			expect(fake.region()).toBe(there);
+		});
+		const keyed = createFake({ layer: RASTER, region: there });
+		drag(raster('marquee'), keyed.context, [{ x: 50, y: 50, altKey: true }]);
+		expect(lastMet()).toEqual([there, undefined, 'subtract']);
+		expect(keyed.region()).toBe(there);
+		drag(raster('marquee'), keyed.context, [{ x: 50, y: 50 }]);
+		expect(keyed.region()).toBeUndefined();
+	});
+
+	it('sets the area combined whole, inverted and feathered as it comes, over an area or none', () => {
+		const result = { path: 'M 1 1 L 9 1 L 9 9 Z', inverted: true, feather: 5 };
+		[undefined, plain(FIRST)].forEach((there) => {
+			const fake = createFake({
+				layer: RASTER,
+				region: there,
+				options: { areaMode: 'subtract' },
+			});
+			vi.mocked(combineAreas).mockReturnValueOnce(result);
+			drag(raster('marquee'), fake.context, [
+				{ x: 40, y: 40 },
+				{ x: 20, y: 20 },
+			]);
+			expect(lastMet()).toEqual([there, MADE, 'subtract']);
+			expect(fake.region()).toEqual(result);
+		});
+	});
+
+	it('takes nothing from no area, and finds nothing in common with none', () => {
+		(['subtract', 'intersect'] as const).forEach((mode) => {
+			const fake = createFake({ layer: RASTER, options: { areaMode: mode } });
+			drag(raster('marquee'), fake.context, [
+				{ x: 20, y: 20 },
+				{ x: 40, y: 40 },
+			]);
+			expect(fake.region()).toEqual(combineAreas(undefined, MADE, mode));
+		});
+		const added = createFake({ layer: RASTER, options: { areaMode: 'add' } });
+		drag(raster('marquee'), added.context, [
+			{ x: 20, y: 20 },
+			{ x: 40, y: 40 },
+		]);
+		expect(added.region()).toEqual(plain(MADE));
+	});
+});
+
 describe('the marquee and the lasso on a vector layer', () => {
 	const marquee = createRegionSelect('marquee');
 	const lasso = createRegionSelect('lasso');
@@ -641,6 +858,68 @@ describe('the marquee and the lasso on a vector layer', () => {
 
 		drag(marquee, fake.context, [{ x: 500, y: 500 }]);
 		expect(fake.selected()).toEqual([]);
+	});
+
+	it('takes what the area touches from the selection with Alt, keeping the rest, in paint order', () => {
+		const fake = createFake({ selected: ['b', 'a', 'c'] });
+		drag(marquee, fake.context, [
+			{ x: -5, y: -5, altKey: true },
+			{ x: 35, y: 35, altKey: true },
+		]);
+		expect(fake.selected()).toEqual([fake.element('b')]);
+	});
+
+	it('keeps of the selection only what the area touches too, with Shift and Alt', () => {
+		const fake = createFake({ selected: ['a', 'b'] });
+		drag(marquee, fake.context, [
+			{ x: -5, y: -5, shiftKey: true, altKey: true },
+			{ x: 35, y: 35, shiftKey: true, altKey: true },
+		]);
+		expect(fake.selected()).toEqual([fake.element('a')]);
+
+		// An area that touches nothing leaves nothing in common.
+		drag(marquee, fake.context, [
+			{ x: 200, y: 200, shiftKey: true, altKey: true },
+			{ x: 300, y: 300, shiftKey: true, altKey: true },
+		]);
+		expect(fake.selected()).toEqual([]);
+	});
+
+	it('meets the selection in the option’s mode with no key held', () => {
+		const cases: readonly (readonly [AreaMode, readonly string[]])[] = [
+			['new', ['a', 'c']],
+			['add', ['a', 'b', 'c']],
+			['subtract', ['b']],
+			['intersect', ['a']],
+		];
+		cases.forEach(([mode, expected]) => {
+			const fake = createFake({ selected: ['a', 'b'], options: { areaMode: mode } });
+			drag(lasso, fake.context, [
+				{ x: -5, y: -5 },
+				{ x: 35, y: -5 },
+				{ x: 35, y: 35 },
+				{ x: -5, y: 35 },
+			]);
+			expect(fake.selected()).toEqual(expected.map(fake.element));
+		});
+	});
+
+	it('leaves the selection on a click in any mode but a new selection', () => {
+		(['add', 'subtract', 'intersect'] as const).forEach((mode) => {
+			const fake = createFake({ selected: ['b'], options: { areaMode: mode } });
+			drag(marquee, fake.context, [{ x: 5, y: 5 }]);
+			expect(fake.selected()).toEqual([fake.element('b')]);
+		});
+	});
+
+	it('does not draw from the center by the Alt that chose to subtract', () => {
+		// From the center, the box would reach back over `c`.
+		const fake = createFake({ selected: ['c'] });
+		drag(marquee, fake.context, [
+			{ x: 40, y: 40, altKey: true },
+			{ x: 50, y: 50, altKey: true },
+		]);
+		expect(fake.selected()).toEqual([fake.element('c')]);
 	});
 
 	it('selects with a lasso what its outline touches, not what its box does', () => {

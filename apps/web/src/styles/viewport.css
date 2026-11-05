@@ -48,14 +48,19 @@
    (`SHADOW_RULES` in `Viewport.tsx`) size it: nothing here reaches inside, and
    nothing of the drawing's reaches out. */
 .viewport-mount,
-.viewport-overlay {
+.viewport-overlay,
+.viewport-transform {
 	position: absolute;
 	inset: 0;
 }
 
 /* Previews and handles in the drawing's user units, over it and out of the
-   pointer's way; `visible` so a handle past the paper's edge is drawn. */
-.viewport-overlay {
+   pointer's way; `visible` so a handle past the paper's edge is drawn. The
+   transform's box (Transform selection, `viewport/areaTransform.ts`) is on a
+   layer of its own over the tools' overlay, which a tool empties and the box
+   outlives. */
+.viewport-overlay,
+.viewport-transform {
 	overflow: visible;
 	pointer-events: none;
 }

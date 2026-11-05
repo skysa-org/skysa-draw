@@ -28,6 +28,7 @@ import { nudgeArea } from './tools/raster/index.js';
 import type { PointerSample, ToolBehavior, ToolContext } from './tools/types.js';
 import { elementsOf } from './tools/vector/hit.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
+import { useAreaTransform } from './viewport/areaTransform.js';
 import { isLongPress, keyboardPoint, useCanvasMenu } from './viewport/canvasMenu.js';
 import { createToolContext, NO_SELECTION } from './viewport/context.js';
 import {
@@ -56,6 +57,7 @@ import {
 	ZOOM_STEP,
 	zoomAbout,
 } from './viewport/transform.js';
+import { useWheel } from './viewport/wheel.js';
 
 /**
  * The viewport (docs/ARCHITECTURE.md §7, "The editor" and "Input"): the
@@ -86,12 +88,12 @@ import {
  * that layer and the behavior for its kind, so the whole press, begin to
  * end, is that layer's, while the frame is still to show it. A press that is
  * canceled gives the layer back, as it leaves nothing else.
+ *
+ * Transform selection is a mode of the viewport's (`viewport/areaTransform.ts`):
+ * while it is on, its behavior takes the canvas's presses and hover in place
+ * of the tool's, its box is drawn on a layer of its own over the overlay, and
+ * it reads Enter, Escape and the arrows before the viewport's other keys.
  */
-
-/** How many screen pixels of wheel multiply the scale by e, with Ctrl or ⌘ held. */
-const WHEEL_ZOOM = 0.002;
-/** A wheel that counts in lines, as Firefox's does, is taken at this many pixels a line. */
-const LINE_PX = 16;
 
 const MAC = isMac();
 
@@ -118,10 +120,6 @@ type Stroke = Readonly<{
 
 /** The document and the user units the view was last fitted to, at a size it could measure. */
 type Fitted = Readonly<{ document: EditorDocument; box: ViewBox }>;
-
-/** A wheel's delta in pixels, whichever unit the browser gave it in. */
-const wheelPixels = (delta: number, mode: number): number =>
-	mode === WheelEvent.DOM_DELTA_LINE ? delta * LINE_PX : delta;
 
 /** Before layout, and always in a test, the viewport measures nothing: there is nothing to fit in. */
 const measurable = (size: DrawingSize): boolean => size.width > 0 && size.height > 0;
@@ -179,6 +177,7 @@ export const Viewport = ({
 	onActivateLayer,
 	onFeather,
 	onFill,
+	onModify,
 	onTool,
 	onOptions,
 	ref,
@@ -186,6 +185,7 @@ export const Viewport = ({
 	const region = useRef<HTMLDivElement>(null);
 	const mount = useRef<HTMLDivElement>(null);
 	const overlay = useRef<SVGSVGElement>(null);
+	const transformed = useRef<SVGSVGElement>(null);
 	const screen = useRef<HTMLCanvasElement>(null);
 	const stroke = useRef<Stroke | undefined>(undefined);
 	// The last stroke begun, ended or not, or the tool last given a context
@@ -250,6 +250,19 @@ export const Viewport = ({
 		current.giveBack?.();
 	}, []);
 
+	const toolId = tool.id;
+	const transform = useAreaTransform({
+		selection: held,
+		view: views,
+		layer: () => transformed.current,
+		abandon: cancelStroke,
+		toolId,
+		layerId,
+	});
+	/** The behavior for a press on a layer of `kind`: the transform's while it is on. */
+	const canvasBehavior = (kind: LayerInfo['kind'] | undefined): ToolBehavior | undefined =>
+		transform.active() ? transform.behavior : behaviorFor(tool, kind);
+
 	/** The overlay emptied of a tool's handles, unless a stroke is drawing its preview there. */
 	const clearOverlay = useCallback(() => {
 		if (stroke.current === undefined) overlay.current?.replaceChildren();
@@ -294,7 +307,6 @@ export const Viewport = ({
 	// new tool is one that works on it. Its `cancel` is told once, whether a
 	// stroke is under way or one has ended. The area stays: it is in a layer
 	// of its own.
-	const toolId = tool.id;
 	// Then a tool another one asked for is given what it is to edit; and the
 	// tool in hand is told of new options (`viewport/toolHandover.ts`).
 	const handover = useToolHandover({
@@ -372,30 +384,7 @@ export const Viewport = ({
 		};
 	}, []);
 
-	// A wheel scrolls the drawing and, with Ctrl or ⌘, zooms it about the
-	// cursor. By hand rather than React's `onWheel`, which is passive on the
-	// root and so cannot keep the page from scrolling too.
-	useEffect(() => {
-		const element = region.current;
-		if (element === null) return undefined;
-		const onWheel = (event: WheelEvent) => {
-			event.preventDefault();
-			const current = views.get();
-			const dx = wheelPixels(event.deltaX, event.deltaMode);
-			const dy = wheelPixels(event.deltaY, event.deltaMode);
-			if (event.ctrlKey || event.metaKey) {
-				const rect = element.getBoundingClientRect();
-				const [x, y] = toUser(current, event.clientX - rect.left, event.clientY - rect.top);
-				views.set(zoomAbout(current, Math.exp(-dy * WHEEL_ZOOM), x, y));
-				return;
-			}
-			views.set(panBy(current, -dx / current.scale, -dy / current.scale));
-		};
-		element.addEventListener('wheel', onWheel, { passive: false });
-		return () => {
-			element.removeEventListener('wheel', onWheel);
-		};
-	}, [views]);
+	useWheel(region, views);
 
 	const corner = (): Readonly<{ left: number; top: number }> => {
 		const rect = region.current?.getBoundingClientRect();
@@ -446,8 +435,10 @@ export const Viewport = ({
 		activate: (id) => onActivateLayer?.(id),
 		feather: () => onFeather?.(),
 		fill: onFill,
+		modify: onModify,
+		transform,
 	});
-	const perform = (action: SelectionActionId): boolean => commands.run(action);
+	const perform = transform.applyingFirst(commands.run);
 
 	useImperativeHandle(ref, (): ViewportHandle => ({
 		fit,
@@ -457,6 +448,8 @@ export const Viewport = ({
 		scale: view.scale,
 		perform,
 		fillArea: commands.fillWith,
+		undo: transform.undo,
+		redo: transform.redo,
 	}));
 
 	/**
@@ -481,6 +474,7 @@ export const Viewport = ({
 	// from the browser, whose own would select the page. Space held makes the
 	// next stroke the hand's.
 	const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+		if (transform.key(event, pointerPressed())) return;
 		// The arrows nudge the selected pixels with the move tool, before anything else reads them.
 		const nudge = event.defaultPrevented || toolId !== 'select' ? undefined : nudgeFor(event);
 		const nudging = nudge === undefined ? undefined : toolContext();
@@ -539,11 +533,11 @@ export const Viewport = ({
 			return;
 		}
 		if (effect === 'undo') {
-			document.undo();
+			if (!transform.undo()) document.undo();
 			return;
 		}
 		if (effect === 'redo') {
-			document.redo();
+			if (!transform.redo()) document.redo();
 			return;
 		}
 		const current = views.get();
@@ -595,7 +589,8 @@ export const Viewport = ({
 	 * the active one.
 	 */
 	const pickFor = (pressed: PointerSample): LayerInfo | undefined => {
-		if (spaceHeld || onActivateLayer === undefined || tool.pick === undefined) return undefined;
+		if (spaceHeld || transform.active() || onActivateLayer === undefined) return undefined;
+		if (tool.pick === undefined) return undefined;
 		const context = toolContext();
 		const picked = context === undefined ? undefined : tool.pick(context, pressed);
 		return picked?.id === layerId ? undefined : picked;
@@ -614,7 +609,7 @@ export const Viewport = ({
 		const pressed = sample(native);
 		const picked = pickFor(pressed);
 		const layer = picked ?? activeLayer();
-		const behavior = spaceHeld ? handBehavior : behaviorFor(tool, layer?.kind);
+		const behavior = spaceHeld ? handBehavior : canvasBehavior(layer?.kind);
 		if (behavior === undefined) {
 			onNotify(notAvailableMessage(tool, layer?.kind) ?? t('layers.noneActive'));
 			return;
@@ -642,7 +637,7 @@ export const Viewport = ({
 	// finger has none, and the hand held has nothing to preview.
 	const hover = (native: PointerEvent) => {
 		if (spaceHeld || native.pointerType === 'touch' || native.buttons !== 0) return;
-		const behavior = behaviorFor(tool, activeLayer()?.kind);
+		const behavior = canvasBehavior(activeLayer()?.kind);
 		if (behavior?.hover === undefined) return;
 		const context = toolContext();
 		if (context !== undefined) behavior.hover(context, sample(native));
@@ -695,7 +690,7 @@ export const Viewport = ({
 			? 'move'
 			: (tool.cursor ?? 'default')
 		: 'not-allowed';
-	const cursor = spaceHeld ? 'grab' : toolCursor;
+	const cursor = spaceHeld ? 'grab' : (transform.cursor ?? toolCursor);
 
 	return (
 		<>
@@ -753,6 +748,14 @@ export const Viewport = ({
 					<svg
 						className="viewport-overlay"
 						ref={overlay}
+						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
+						width={box.width}
+						height={box.height}
+						aria-hidden="true"
+					/>
+					<svg
+						className="viewport-transform"
+						ref={transformed}
 						viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
 						width={box.width}
 						height={box.height}

@@ -354,18 +354,24 @@ describe('editActionFor', () => {
 
 describe('shortcutFor', () => {
 	/** A shown key read back as the event it names: `⇧⌘I` or `Ctrl+Shift+I` as Shift, the primary key and I. */
+	const GLYPHS: Readonly<Record<string, string>> = {
+		'⌫': 'Backspace',
+		'↩': 'Enter',
+		'⎋': 'Escape',
+		Esc: 'Escape',
+	};
 	const pressed = (label: string, isMac: boolean): KeyLike => {
 		if (isMac) {
 			const name = label.replace(/^[⌥⇧⌘]+/, '');
-			return key(name === '⌫' ? 'Backspace' : name, {
+			return key(GLYPHS[name] ?? name, {
 				altKey: label.includes('⌥'),
 				shiftKey: label.includes('⇧'),
 				metaKey: label.includes('⌘'),
 			});
 		}
 		const parts = label.split('+');
-		const name = label.endsWith('++') ? '+' : (parts.at(-1) ?? '');
-		return key(name, {
+		const last = label.endsWith('++') ? '+' : (parts.at(-1) ?? '');
+		return key(GLYPHS[last] ?? last, {
 			ctrlKey: parts.includes('Ctrl'),
 			shiftKey: parts.includes('Shift'),
 			altKey: parts.includes('Alt'),
@@ -405,8 +411,17 @@ describe('shortcutFor', () => {
 	it('shows no key a Mac in a tab cannot press, nor one for an action without one', () => {
 		expect(shortcutFor('newLayer', false)).toBe('Insert');
 		expect(shortcutFor('newLayer', true)).toBeUndefined();
-		expect(shortcutFor('escape', false)).toBeUndefined();
+		expect(shortcutFor('sizeUp', false)).toBeUndefined();
 		expect(shortcutFor(undefined, false)).toBeUndefined();
+	});
+
+	it('shows Enter and Escape as each keyboard prints them, for a transform’s Apply and Cancel', () => {
+		expect(shortcutFor('commit', true)).toBe('↩');
+		expect(shortcutFor('commit', false)).toBe('Enter');
+		expect(shortcutFor('escape', true)).toBe('⎋');
+		expect(shortcutFor('escape', false)).toBe('Esc');
+		expect(editActionFor(key('Enter'), false)).toBe('commit');
+		expect(editActionFor(key('Enter', { target: field() }), false)).toBeUndefined();
 	});
 });
 

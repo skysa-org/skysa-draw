@@ -12,8 +12,6 @@ import {
 	parseTransform,
 	type Point,
 	rectFrom,
-	rotate,
-	scale,
 	transformBox,
 	translate,
 	unionBox,
@@ -37,12 +35,13 @@ import type { Measure } from './measure.js';
 import { hasNodes, pointsElementAt } from './node.js';
 import {
 	anchorOf,
-	axesOf,
 	clearSelectionBox,
 	drawSelectionBox,
 	type Handle,
 	handleAt,
 	hasSelectionBox,
+	resizeMatrix,
+	rotateMatrix,
 } from './selection.js';
 import { CHROME_STYLE, createSvg, setAttributes } from './svg.js';
 
@@ -70,12 +69,6 @@ import { CHROME_STYLE, createSvg, setAttributes } from './svg.js';
 
 /** How near a click may be to an element's box and still hit it, in CSS pixels. */
 const HIT_SLOP_PX = 4;
-
-/** A rotation with Shift snaps to this many degrees. */
-const ROTATE_STEP = 15;
-
-/** A resize is never made smaller than this fraction, which would flatten the element. */
-const LEAST_SCALE = 0.01;
 
 /** One selected element: where it is among the layer's elements, and its `transform` before the drag. */
 type Item = Readonly<{ element: Element; position: number; attribute: string | null; matrix: Mat }>;
@@ -149,42 +142,10 @@ const selectedOn = (layer: Element, context: ToolContext): readonly Element[] =>
 	return context.selection.elements.filter((element) => own.includes(element));
 };
 
-/** A factor kept away from zero, with its sign. */
-const safeScale = (factor: number): number =>
-	Math.abs(factor) < LEAST_SCALE ? (factor < 0 ? -LEAST_SCALE : LEAST_SCALE) : factor;
-
-/** The factor a drag from `from` to `to` scales by about `anchor`, along one axis. */
-const factorOf = (from: number, to: number, anchor: number): number =>
-	Math.abs(from - anchor) < 1e-9 ? 1 : safeScale((to - anchor) / (from - anchor));
-
-const resizeMatrix = (
-	drag: Transforming & Readonly<{ handle: Handle; anchor: Point }>,
-	to: Point,
-	keepRatio: boolean
-): Mat => {
-	const axes = axesOf(drag.handle);
-	const sx = axes.x ? factorOf(drag.from.x, to.x, drag.anchor.x) : 1;
-	const sy = axes.y ? factorOf(drag.from.y, to.y, drag.anchor.y) : 1;
-	if (!keepRatio) return scale(sx, sy, drag.anchor);
-	// The ratio kept: both sides by the factor the drag changed more, or the one axis it has.
-	const uniform = !axes.y || (axes.x && Math.abs(sx - 1) >= Math.abs(sy - 1)) ? sx : sy;
-	return scale(uniform, uniform, drag.anchor);
-};
-
-const rotateMatrix = (
-	drag: Transforming & Readonly<{ center: Point }>,
-	to: Point,
-	snap: boolean
-): Mat => {
-	const start = Math.atan2(drag.from.y - drag.center.y, drag.from.x - drag.center.x);
-	const now = Math.atan2(to.y - drag.center.y, to.x - drag.center.x);
-	const degrees = ((now - start) * 180) / Math.PI;
-	return rotate(snap ? Math.round(degrees / ROTATE_STEP) * ROTATE_STEP : degrees, drag.center);
-};
-
 /**
  * What the drag does so far, in the drawing's units, where the box and its
- * handles are drawn, so a resize follows the box the user sees.
+ * handles are drawn, so a resize follows the box the user sees
+ * (`resizeMatrix`, `rotateMatrix`, which Transform selection drags by too).
  */
 const deltaOf = (drag: TransformDrag, sample: PointerSample): Mat => {
 	const to = pointOf(sample);

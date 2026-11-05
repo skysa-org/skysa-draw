@@ -190,6 +190,36 @@ const CropIcon = (props: IconProps) => (
 	</Icon>
 );
 
+// ---- The selection tools' modes -----------------------------------------------
+// Photoshop's four: what is selected after is filled, and the outlines met are drawn.
+
+const AreaNewIcon = (props: IconProps) => (
+	<Icon {...props}>
+		<rect x="5.5" y="5.5" width="13" height="13" fill="currentColor" />
+	</Icon>
+);
+
+const AreaAddIcon = (props: IconProps) => (
+	<Icon {...props}>
+		<path d="M3.5 3.5h11v6h6v11h-11v-6h-6z" fill="currentColor" />
+	</Icon>
+);
+
+const AreaSubtractIcon = (props: IconProps) => (
+	<Icon {...props}>
+		<path d="M3.5 3.5h11v6h-5v5h-6z" fill="currentColor" />
+		<rect x="9.5" y="9.5" width="11" height="11" />
+	</Icon>
+);
+
+const AreaIntersectIcon = (props: IconProps) => (
+	<Icon {...props}>
+		<rect x="3.5" y="3.5" width="11" height="11" />
+		<rect x="9.5" y="9.5" width="11" height="11" />
+		<rect x="9.5" y="9.5" width="5" height="5" fill="currentColor" />
+	</Icon>
+);
+
 // ---- Panels and the top bar ---------------------------------------------------
 
 export const LayersIcon = (props: IconProps) => (
@@ -450,6 +480,10 @@ export const ICONS = {
 	lasso: LassoIcon,
 	wand: WandIcon,
 	crop: CropIcon,
+	areaNew: AreaNewIcon,
+	areaAdd: AreaAddIcon,
+	areaSubtract: AreaSubtractIcon,
+	areaIntersect: AreaIntersectIcon,
 	layers: LayersIcon,
 	color: ColorIcon,
 	undo: UndoIcon,

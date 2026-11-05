@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
 import { areaOf, reachesArea, rectPath } from '../../src/drawing/tools/raster/area.js';
+import type * as AreaOps from '../../src/drawing/tools/raster/areaOps.js';
+import { combineAreas } from '../../src/drawing/tools/raster/areaOps.js';
 import type * as Space from '../../src/drawing/tools/raster/space.js';
 import {
 	type Pixels,
@@ -17,6 +19,7 @@ import {
 	wandMask,
 } from '../../src/drawing/tools/raster/wand.js';
 import {
+	type AreaMode,
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
 	type Region,
@@ -41,7 +44,19 @@ import { installFakeCanvas, registerPicture, uninstallFakeCanvas } from './fakeC
  *
  * jsdom has no SVG transforms, so where a layer's `transform` is read here it
  * is read from the attribute, as a browser reads one on a layer at the root.
+ *
+ * What the wand's outline makes of the area in each mode is `combineAreas`'s;
+ * here the area is checked against what it makes of the same inputs, and a
+ * spy that passes every call through says which mode the click asked for.
  */
+
+vi.mock('../../src/drawing/tools/raster/areaOps.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof AreaOps>();
+	return { ...actual, combineAreas: vi.fn(actual.combineAreas) };
+});
+
+/** What the wand last asked `combineAreas` for: the area there, the outline made, the mode. */
+const lastMet = () => vi.mocked(combineAreas).mock.lastCall;
 
 vi.mock('../../src/drawing/tools/raster/space.js', async (importOriginal) => {
 	const geometry = await vi.importActual<typeof Geometry>(
@@ -279,24 +294,68 @@ describe('the magic wand on a raster layer', () => {
 	});
 
 	it('adds to the area with Shift, as the marquee adds, keeping its feather', async () => {
-		const there = rectPath({ x: 0, y: 0, width: 4, height: 4 }) ?? '';
-		const fake = rasterFake({ region: { path: there, inverted: false, feather: 2 } });
-		click(wandBehavior(), fake.context, onPixel(12, 8, { shiftKey: true }));
-		await settled();
-		expect(fake.region()).toEqual({
-			path: `${there} ${RED_SQUARE}`,
+		const there = {
+			path: rectPath({ x: 0, y: 0, width: 4, height: 4 }) ?? '',
 			inverted: false,
 			feather: 2,
-		});
-	});
-
-	it('starts a new area with Shift over an inverted one, as the marquee does', async () => {
-		const fake = rasterFake({
-			region: { path: 'M 0 0 L 4 0 L 4 4 L 0 4 Z', inverted: true, feather: 0 },
-		});
+		};
+		const fake = rasterFake({ region: there });
 		click(wandBehavior(), fake.context, onPixel(12, 8, { shiftKey: true }));
 		await settled();
-		expect(fake.region()).toEqual(plain(RED_SQUARE));
+		expect(lastMet()).toEqual([there, RED_SQUARE, 'add']);
+		expect(fake.region()).toEqual(combineAreas(there, RED_SQUARE, 'add'));
+		expect(fake.region()?.feather).toBe(2);
+	});
+
+	it('adds with Shift over an inverted area too, as the marquee does', async () => {
+		const there = { path: 'M 0 0 L 4 0 L 4 4 L 0 4 Z', inverted: true, feather: 0 };
+		const fake = rasterFake({ region: there });
+		click(wandBehavior(), fake.context, onPixel(12, 8, { shiftKey: true }));
+		await settled();
+		expect(lastMet()).toEqual([there, RED_SQUARE, 'add']);
+		expect(fake.region()).toEqual(combineAreas(there, RED_SQUARE, 'add'));
+	});
+
+	it('subtracts with Alt and intersects with Shift and Alt held as the press began', async () => {
+		const there = plain(`${RED_SQUARE} ${NEAR_RED_SQUARE}`);
+		const taken = rasterFake({ region: there });
+		const tool = wandBehavior();
+		tool.begin(taken.context, onPixel(12, 8, { altKey: true }));
+		tool.end(taken.context, onPixel(12, 8));
+		await settled();
+		expect(lastMet()).toEqual([there, RED_SQUARE, 'subtract']);
+		expect(taken.region()).toEqual(combineAreas(there, RED_SQUARE, 'subtract'));
+
+		const shared = rasterFake({ region: there });
+		click(wandBehavior(), shared.context, onPixel(12, 8, { shiftKey: true, altKey: true }));
+		await settled();
+		expect(lastMet()).toEqual([there, RED_SQUARE, 'intersect']);
+		expect(shared.region()).toEqual(combineAreas(there, RED_SQUARE, 'intersect'));
+	});
+
+	it.each(['new', 'add', 'subtract', 'intersect'] as const)(
+		'meets the area in %s, the option’s mode, with no key held',
+		async (mode: AreaMode) => {
+			const there = { path: 'M 0 0 L 4 0 L 4 4 L 0 4 Z', inverted: false, feather: 1 };
+			const fake = rasterFake({ region: there, options: { areaMode: mode } });
+			click(wandBehavior(), fake.context, onPixel(12, 8));
+			await settled();
+			expect(lastMet()).toEqual([there, RED_SQUARE, mode]);
+			expect(fake.region()).toEqual(combineAreas(there, RED_SQUARE, mode));
+		}
+	);
+
+	it('keeps the area on a click outside the layer’s pixels in every mode but a new selection', async () => {
+		const there = { path: 'M 0 0 L 4 0 L 4 4 L 0 4 Z', inverted: true, feather: 3 };
+		const fakes = (['add', 'subtract', 'intersect'] as const).map((mode) => {
+			const fake = rasterFake({ region: there, options: { areaMode: mode } });
+			click(wandBehavior(), fake.context, sample(55, 45));
+			return fake;
+		});
+		await settled();
+		fakes.forEach((fake) => {
+			expect(fake.region()).toBe(there);
+		});
 	});
 
 	it('deselects on a click outside the layer’s pixels, and keeps the area there with Shift', async () => {
@@ -620,6 +679,40 @@ describe('the magic wand on a vector layer', () => {
 		const replaced = vectorFake({ selected: ['blue'] });
 		click(tool, replaced.context, on('redLine'));
 		expect(replaced.selected()).toEqual(['redLine', 'nearRedLine', 'line']);
+	});
+
+	it('takes what it finds from the selection with Alt, and keeps only what is in both with Shift and Alt', () => {
+		const taken = vectorFake({ selected: ['red', 'blue', 'redLine'] });
+		click(tool, taken.context, on('nearRed', { altKey: true }));
+		expect(taken.selected()).toEqual(['blue', 'redLine']);
+		const shared = vectorFake({ selected: ['red', 'blue', 'redLine'] });
+		click(tool, shared.context, on('nearRed', { shiftKey: true, altKey: true }));
+		expect(shared.selected()).toEqual(['red']);
+	});
+
+	it('meets the selection in the option’s mode with no key held', () => {
+		const cases: readonly (readonly [AreaMode, readonly string[]])[] = [
+			['new', ['red', 'nearRed', 'styled']],
+			['add', ['red', 'nearRed', 'blue', 'styled']],
+			['subtract', ['blue']],
+			['intersect', ['red']],
+		];
+		cases.forEach(([mode, expected]) => {
+			const fake = vectorFake({ selected: ['red', 'blue'], options: { areaMode: mode } });
+			click(tool, fake.context, on('red'));
+			expect(fake.selected()).toEqual(expected);
+		});
+	});
+
+	it('leaves the selection on a click on nothing in every mode but a new selection', () => {
+		(['add', 'subtract', 'intersect'] as const).forEach((mode) => {
+			const fake = vectorFake({ selected: ['blue'], options: { areaMode: mode } });
+			click(tool, fake.context, sample(150, 150));
+			expect(fake.selected()).toEqual(['blue']);
+		});
+		const keyed = vectorFake({ selected: ['blue'], options: { areaMode: 'add' } });
+		click(tool, keyed.context, sample(150, 150, { altKey: true }));
+		expect(keyed.selected()).toEqual(['blue']);
 	});
 
 	it('drops the area and outlines what it selected on the overlay', () => {

@@ -43,14 +43,40 @@ An option that is on or off, Auto-select, Contiguous, Pressure or Constrain, is 
 | Line | L | A `<line>` | A line of pixels |
 | Pen | P | A Bézier `<path>`, point by point | — |
 | Text | T | A `<text>` | — |
-| Marquee, Lasso | M, Q | Select elements in a region | Select pixels in a region |
-| Magic wand | W | Select the elements painted in a color near the one clicked | Select the pixels of a color near the one clicked, joined to it or anywhere |
+| Marquee, Lasso | M, Q | Select elements in a region, in the four selection modes | Select pixels in a region, in the four selection modes |
+| Magic wand | W | Select the elements painted in a color near the one clicked, in the four selection modes | Select the pixels of a color near the one clicked, joined to it or anywhere, in the four selection modes |
 | Crop | C | The canvas's `viewBox` | The canvas's `viewBox` |
 
 Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and D drops the selection, Shift with I inverts it, J makes a new layer of what is selected (Layer via copy) and duplicates the layer when nothing is, and Shift with J cuts what is selected to a new layer (Layer via cut), as in Photoshop; the arrows nudge the selected pixels with the select tool, a pixel at a time or ten with Shift; Shift F6 feathers the selection; Shift F5 or Shift Backspace opens Fill…; Alt or Option Backspace fills it at once with the fill color, the one Alt chord the map takes, and Ctrl or ⌘ Backspace with the stroke color; inside a text field all three stay the field's; Shift Delete still deletes; `[` and `]` change a brush's size; X swaps the two colors and D puts back the default ones; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
 A new layer is Insert, Krita's key, with no modifier, since Shift and Ctrl with Insert are paste and copy on Windows and Linux; Photoshop's Ctrl or ⌘ Shift N is kept for an installed window, but a browser tab never receives it, and a Mac keyboard has no Insert, so on a Mac in a tab the layers panel is the way.
 The map is one file, `drawing/keys.ts`, so a dispute about a key is settled in one place.
 Chrome on Windows and Linux keeps Ctrl Shift I for its developer tools in a tab, so there the context menu and the selection bar are the way to Select inverse, as the layers panel is to a new layer on a Mac.
+
+**Selection modes.**
+The marquee, the lasso and the magic wand have Photoshop's four modes as their first option, four icon buttons in a group named Selection mode: New selection, Add to selection, Subtract from selection and Intersect with selection, the one in force pressed.
+Shift held as a drag or a click begins adds, Alt or Option subtracts and both intersect, for that one, whatever the option says, as in Photoshop; each button's tooltip names its keys.
+A key that chose the mode as the drag began does nothing else in it, so Alt held from the start subtracts and does not draw from the center; pressed only after the drag began, Shift keeps the marquee square and Alt draws it from its center.
+On a raster layer the new outline meets the area as the mode says, an inverted area read as the canvas outside its outline, so each mode is right for an inverse too, and what is left keeps the feather there.
+On a vector layer the elements found meet the elements selected the same way.
+A click makes nothing: in a new selection it drops what is selected, and in the other modes it leaves it as it is.
+A drag that begins inside the area moves its outline only in a new selection with neither key held; in another mode it makes an outline there, as in Photoshop.
+The buttons are pressed or not in a group, as the tool bar's tools are, not radios: a radio group promises that the arrows move the choice, and in the options strip the arrows are the bar's, moving the focus along all its buttons (`components/ui/ChoiceButtons.tsx`).
+Rejected: a select of the four, which hides three behind a press where Photoshop's options bar shows them all.
+
+**Transform selection.**
+Transform selection puts a box with handles on the marching ants, as Photoshop's Select > Transform Selection does, and moves, scales and rotates the area's outline, not its pixels.
+The box is the select tool's, around the outline as it is now, with its eight handles and the rotate handle above, dragged as the select tool's is: inside it moves, a handle scales about the side or corner across, and outside it, or the rotate handle, rotates about its middle.
+Shift keeps the ratio and snaps a rotation to 15°, as with the select tool; Alt scales about the middle, as the marquee draws from its middle with Alt; Shift holds a move across, down or at 45°, as a drag of the outline with the marquee does.
+Each handle takes a press 44 px across on the screen, the nearest winning, and the middle half of the box always moves, so a box too small for its handles can still be moved.
+The marching ants follow every sample and the feather is kept; an inverted area has no outline of its own to put a box on, and is not transformed.
+While the box is up the tool in hand does nothing on the canvas and Auto-select picks no layer; Space still pans, and two fingers still pan and pinch, the second putting back the drag the first began.
+Enter, or Apply in the selection bar or the menu, keeps the outline, and Escape or Cancel puts it back; while the box is up the menu and the bar show only those two, as Photoshop's options bar does, and the bar shows them whatever tool is in hand.
+Enter aimed at a field, or at a control the keyboard is on, is that control's, as Space is.
+The arrows nudge the outline a unit, or ten with Shift.
+Ctrl or ⌘ Z, and the top bar's Undo, step back through the drags and nudges, and the redo forward again, as Photoshop does during a transform; while the box is up neither reaches the drawing's history, nor does a two-finger tap.
+A new tool, another layer made active, or any other of the selection's actions, Deselect included, applies it first, where Photoshop asks: a question at every change of tool is one more dialog on a touch screen, and Apply is nearly always its answer.
+An area is never a step of the history, so neither is a transform of it.
+Not built: a box that turns with the outline, as Photoshop's does; the select tool's box stays square to the screen, and two boxes that drag differently would be two gestures to learn.
 
 **The two colors.**
 The fill and the stroke are at the foot of the tool bar, after the tools, as Photoshop shows its foreground and background: the fill's square in front at the top left, the stroke's behind it at the bottom right, none struck through.
@@ -97,7 +123,7 @@ A right-click, a barrel button and, on a Mac, a Control-click start no stroke, a
 A keyboard's `contextmenu` is told from a pointer's by its `pointerType`, which is empty for the keyboard (Pointer Events 3), or, where the browser still sends a plain `MouseEvent`, by the Menu key or Shift F10 having come just before.
 A menu the keyboard opens sits at the middle of what is selected, or of the canvas when nothing is, kept inside the canvas.
 What it lists depends on what is selected.
-With an area selected: Deselect, Select inverse, Feather…; Layer via copy, Layer via cut; Fill…, Clear; Crop to selection.
+With an area selected: Deselect, Select inverse, Feather…, Modify…, Transform selection; Layer via copy, Layer via cut; Fill…, Clear; Crop to selection.
 With elements selected on a vector layer: Deselect, Select inverse; Layer via copy, Layer via cut; Delete.
 With nothing selected: Select all; Undo, Redo; New layer, Duplicate layer.
 An action that cannot be done is shown disabled, never hidden: the pixels' actions on a vector, locked or hidden layer (a copy only reads, so a locked raster layer allows it), and Crop to selection on an inverted area.
@@ -110,6 +136,11 @@ It asks the contents first, the fill color, the stroke color, Color… with a co
 The focus starts on the contents chosen, Enter applies from any control but a button or a text field, and Escape or Cancel leaves the layer as it was.
 It opens at what was last applied, for the page's life, as Photoshop's does; a Cancel changes nothing.
 Rejected: a Fill submenu of the context menu, which cannot hold a mode and an opacity, and a fill option on the fill tool, which floods by tolerance and is not the area's.
+Modify… is a dialog of the frame's too, Photoshop's Select > Modify less Feather, in one dialog rather than four: Expand, Contract, Smooth or Border, each with a line saying what it does, and one radius in px, 1 to 500, or to 200 for Border, as Photoshop's are.
+One radius serves the four, and a way with a smaller range shows it at that range's end without forgetting it.
+The focus starts on the way chosen, Enter applies from any control but a button or a text field, and it opens at what was last applied, for the page's life.
+A Modify that would leave nothing selected is not applied, and a notice says so, since an area is not a step of the history and could not be had back.
+Rejected: a submenu of four dialogs, which is four places for one radius.
 A tool that does nothing on the active layer's kind says so and is not available, rather than doing something else.
 
 Rejected: a component library, which brings tokens of its own to reconcile with the brand's and more than this app uses, when the set here is small and in the house style already; an icon font or icon package, when thirty line icons at 24 px are drawn by hand in `icons.tsx` and cost nothing to load; touch and mouse events beside pointer events, which is the same stroke handled twice; a "simplified" phone editor with fewer tools, since the tools are the product and the screen only decides where they sit.

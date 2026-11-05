@@ -85,7 +85,18 @@ export interface ToolOptions {
 	 * press does the other.
 	 */
 	readonly autoSelect: boolean;
+	/**
+	 * How the marquee, the lasso and the magic wand meet what is selected, as
+	 * the four buttons of Photoshop's options bar: a new selection, added to
+	 * it, taken from it, or what the two share (`AreaMode`). Shift, Alt, or
+	 * both, held as the drag or the click begins, do add, subtract or
+	 * intersect for that one.
+	 */
+	readonly areaMode: AreaMode;
 }
+
+/** How a selection tool's new outline meets what is selected (`ToolOptions.areaMode`). */
+export type AreaMode = 'new' | 'add' | 'subtract' | 'intersect';
 
 export type ToolOptionKey = keyof ToolOptions;
 
@@ -105,6 +116,7 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
 	strength: 0.5,
 	contiguous: true,
 	autoSelect: false,
+	areaMode: 'new',
 };
 
 /** The viewport, as a tool may move it. */

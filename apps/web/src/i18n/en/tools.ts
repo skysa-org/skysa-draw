@@ -42,6 +42,23 @@ export const tools = {
 		contiguous: 'Contiguous',
 		/** The move tool: a press first makes the topmost layer with something under it the active one, as Photoshop's Auto-Select. */
 		autoSelect: 'Auto-select',
+		/** The selection tools' four modes, as a group: new, add, subtract, intersect. */
+		areaMode: 'Selection mode',
+	},
+	/**
+	 * The selection tools' four modes, each a button of the group, by
+	 * Photoshop's names for them: what the next outline does with what is
+	 * selected.
+	 */
+	areaModes: {
+		/** The outline is the selection, in place of what was. */
+		new: 'New selection',
+		/** The outline is added to what is selected. */
+		add: 'Add to selection',
+		/** The outline is taken out of what is selected. */
+		subtract: 'Subtract from selection',
+		/** What is selected is kept only where the outline is too. */
+		intersect: 'Intersect with selection',
 	},
 	/** The magic wand on a raster layer whose picture would not decode: nothing is selected. */
 	wandUnreadable: 'This layer’s picture could not be read, so nothing can be selected from it.',

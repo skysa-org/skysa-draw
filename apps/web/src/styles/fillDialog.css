@@ -91,6 +91,12 @@
 	flex: 1;
 }
 
+/* The number field beside the slider says the opacity, and is the one to
+   type in: the slider's own read-out would only be squeezed under it. */
+.fill-opacity .slider output {
+	display: none;
+}
+
 .fill-field {
 	background: var(--bg);
 	border: 1px solid var(--border);

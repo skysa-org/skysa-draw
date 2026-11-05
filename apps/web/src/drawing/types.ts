@@ -28,6 +28,13 @@ export interface ViewportHandle {
 	readonly perform: (action: SelectionActionId) => boolean;
 	/** Fill…'s Apply: the area filled as the dialog says (`fillAreaWith`). Whether it was the area's to do. */
 	readonly fillArea: (spec: FillSpec) => boolean;
+	/**
+	 * The top bar's Undo and Redo, while Transform selection is on: a step of
+	 * the transform's own, as Ctrl or ⌘ Z is then. Whether it was the
+	 * transform's, so the frame steps the drawing's history when it was not.
+	 */
+	readonly undo: () => boolean;
+	readonly redo: () => boolean;
 }
 
 export interface ViewportProps {
@@ -62,6 +69,12 @@ export interface ViewportProps {
 	 * viewport given none does nothing for Fill….
 	 */
 	readonly onFill?: () => void;
+	/**
+	 * Modify… was asked for, by the context menu or the selection bar, with an
+	 * area selected: the frame opens its dialog. A viewport given none does
+	 * nothing for Modify….
+	 */
+	readonly onModify?: () => void;
 	/**
 	 * A tool asked for another to be in hand (`ToolContext.useTool`): the
 	 * select tool's double press on a text or a path. The frame puts it in

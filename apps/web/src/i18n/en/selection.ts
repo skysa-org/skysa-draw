@@ -14,6 +14,14 @@ export const selection = {
 		deselect: 'Deselect',
 		selectInverse: 'Select inverse',
 		feather: 'Feather…',
+		/** Modify…: the dialog that expands, contracts, smooths or borders the area, as Photoshop's Select > Modify. */
+		modify: 'Modify…',
+		/** A box and handles on the area's outline, to scale, rotate and move it, as Photoshop's Select > Transform Selection. */
+		transformSelection: 'Transform selection',
+		/** The outline kept as the box and handles left it. */
+		applyTransform: 'Apply',
+		/** The outline put back as it was before the transform. */
+		cancelTransform: 'Cancel',
 		layerViaCopy: 'Layer via copy',
 		layerViaCut: 'Layer via cut',
 		/** Fill…: the dialog that asks what the area is filled with, and how, as Photoshop's Edit > Fill. */
@@ -43,6 +51,48 @@ export const selection = {
 		radiusValue: 'Feather radius in pixels',
 		hint: 'How far the edge of the selection fades, on either side of it. 0 is a hard edge.',
 		apply: 'Apply',
+	},
+	/**
+	 * Modify…: the selection expanded, contracted, smoothed or made a border,
+	 * as Photoshop's Select > Modify, in one dialog. Each way has its name, a
+	 * line on what it does, and the radius's label as Photoshop's own dialog
+	 * for that way names it.
+	 */
+	modify: {
+		title: 'Modify selection',
+		/** The four ways, as a group, named for a screen reader: the title says it to the eye. */
+		ways: 'How to modify the selection',
+		expand: {
+			name: 'Expand',
+			hint: 'Grows the selection outward on every side.',
+			/** The slider's label. */
+			radius: 'Expand by',
+			/** The number field beside the slider, for a screen reader. */
+			radiusValue: 'Expand by, in pixels',
+		},
+		contract: {
+			name: 'Contract',
+			hint: 'Shrinks the selection inward on every side.',
+			radius: 'Contract by',
+			radiusValue: 'Contract by, in pixels',
+		},
+		smooth: {
+			name: 'Smooth',
+			/** Photoshop's Smooth: what is smaller than the radius, a bump, a dent, a speck or a gap, is evened out. */
+			hint: 'Rounds off corners and clears away specks.',
+			radius: 'Sample radius',
+			radiusValue: 'Sample radius in pixels',
+		},
+		border: {
+			name: 'Border',
+			/** The selection becomes a band on its own outline, as wide as the width, and the inside is left out. */
+			hint: 'Selects only a band along the edge.',
+			radius: 'Width',
+			radiusValue: 'Border width in pixels',
+		},
+		apply: 'Apply',
+		/** After an Apply that would leave nothing of the area, most often a Contract wider than it: the area is kept as it was. */
+		nothingLeft: 'That would leave nothing selected, so the selection is unchanged.',
 	},
 	/**
 	 * Fill…: what the area is filled with, and how it is laid over the

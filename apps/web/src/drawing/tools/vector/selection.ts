@@ -1,4 +1,4 @@
-import type { Box, Point } from './geometry.js';
+import { type Box, type Mat, type Point, rotate, scale as scaleBy } from './geometry.js';
 import { CHROME_STYLE, createSvg } from './svg.js';
 
 /**
@@ -6,11 +6,13 @@ import { CHROME_STYLE, createSvg } from './svg.js';
  * a dashed rectangle around what is selected, eight square handles to resize by
  * and one above to rotate by, as Figma and Illustrator draw it. The overlay is
  * in the drawing's user units, so anything that should stay the same size on
- * screen is divided by the viewport's scale.
+ * screen is divided by the viewport's scale. What a drag of a handle does is
+ * here too (`resizeMatrix`, `rotateMatrix`), so the select tool's box and
+ * Transform selection's (`tools/raster/areaTransform.ts`) are dragged alike.
  */
 export type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 
-const HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rotate'];
+export const HANDLES: readonly Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rotate'];
 
 /** A handle's side on screen, in CSS pixels. */
 const HANDLE_PX = 8;
@@ -22,7 +24,7 @@ const ROTATE_OFFSET_PX = 24;
 const MARK = 'data-draw-selection';
 
 /** Where each handle sits around `box`. */
-const handlePositions = (box: Box, scale: number): Readonly<Record<Handle, Point>> => {
+export const handlePositions = (box: Box, scale: number): Readonly<Record<Handle, Point>> => {
 	const { x, y, width, height } = box;
 	const right = x + width;
 	const bottom = y + height;
@@ -70,10 +72,58 @@ export const anchorOf = (box: Box, handle: Handle, scale: number): Point =>
 	handlePositions(box, scale)[OPPOSITE[handle]];
 
 /** Whether a resize by `handle` changes the width, and whether the height. */
-export const axesOf = (handle: Handle): Readonly<{ x: boolean; y: boolean }> => ({
+const axesOf = (handle: Handle): Readonly<{ x: boolean; y: boolean }> => ({
 	x: handle.includes('w') || handle.includes('e'),
 	y: handle.includes('n') || handle.includes('s'),
 });
+
+/** A rotation with Shift snaps to this many degrees. */
+const ROTATE_STEP = 15;
+
+/** A resize is never made smaller than this fraction, which would flatten the element. */
+const LEAST_SCALE = 0.01;
+
+/** A factor kept away from zero, with its sign. */
+const safeScale = (factor: number): number =>
+	Math.abs(factor) < LEAST_SCALE ? (factor < 0 ? -LEAST_SCALE : LEAST_SCALE) : factor;
+
+/** The factor a drag from `from` to `to` scales by about `anchor`, along one axis. */
+const factorOf = (from: number, to: number, anchor: number): number =>
+	Math.abs(from - anchor) < 1e-9 ? 1 : safeScale((to - anchor) / (from - anchor));
+
+/**
+ * A resize by `handle`, dragged from `from` to `to`, about `anchor`, in the
+ * drawing's units: along the axes the handle changes, and with `keepRatio`
+ * (Shift) both by the factor the drag changed more, or the one axis it has.
+ */
+export const resizeMatrix = (
+	drag: Readonly<{ from: Point; handle: Handle; anchor: Point }>,
+	to: Point,
+	keepRatio: boolean
+): Mat => {
+	const axes = axesOf(drag.handle);
+	const sx = axes.x ? factorOf(drag.from.x, to.x, drag.anchor.x) : 1;
+	const sy = axes.y ? factorOf(drag.from.y, to.y, drag.anchor.y) : 1;
+	if (!keepRatio) return scaleBy(sx, sy, drag.anchor);
+	// The ratio kept: both sides by the factor the drag changed more, or the one axis it has.
+	const uniform = !axes.y || (axes.x && Math.abs(sx - 1) >= Math.abs(sy - 1)) ? sx : sy;
+	return scaleBy(uniform, uniform, drag.anchor);
+};
+
+/**
+ * A rotation about `center` by the angle a drag from `from` to `to` turned
+ * through, with `snap` (Shift) to a multiple of 15°.
+ */
+export const rotateMatrix = (
+	drag: Readonly<{ from: Point; center: Point }>,
+	to: Point,
+	snap: boolean
+): Mat => {
+	const start = Math.atan2(drag.from.y - drag.center.y, drag.from.x - drag.center.x);
+	const now = Math.atan2(to.y - drag.center.y, to.x - drag.center.x);
+	const degrees = ((now - start) * 180) / Math.PI;
+	return rotate(snap ? Math.round(degrees / ROTATE_STEP) * ROTATE_STEP : degrees, drag.center);
+};
 
 export const clearSelectionBox = (overlay: SVGSVGElement): void => {
 	overlay.querySelectorAll(`[${MARK}]`).forEach((element) => element.remove());

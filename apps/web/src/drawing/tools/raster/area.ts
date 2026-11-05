@@ -133,7 +133,7 @@ export const areaPolygons = (d: string): readonly (readonly Point[])[] =>
  * not `Math.min(...)`, which a magic wand's outline of more than a hundred
  * thousand corners would take past the engine's argument limit.
  */
-const boundsOf = (polygons: readonly (readonly Point[])[]): Box | undefined => {
+export const boundsOf = (polygons: readonly (readonly Point[])[]): Box | undefined => {
 	const points = polygons.flat();
 	const [first] = points;
 	if (first === undefined) return undefined;

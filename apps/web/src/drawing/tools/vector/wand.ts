@@ -1,3 +1,4 @@
+import { areaModeOf } from '../../keys.js';
 import { colorDistance, parseColor, type Rgba } from '../raster/pixels.js';
 import { onRelease } from '../raster/wand.js';
 import type { ToolBehavior } from '../types.js';
@@ -5,18 +6,21 @@ import { apply } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace } from './guard.js';
 import { elementsOf, paintedColor, topmostAt } from './hit.js';
 import type { Measure } from './measure.js';
-import { showSelection } from './region.js';
+import { combineElements, showSelection } from './region.js';
 
 /**
  * The magic wand on a vector layer (docs/decisions/0004-the-interface.md:
  * "Select elements of a color"), as Illustrator's with its default, the
  * fill: a click on an element selects every element of the active layer
  * painted within `tolerance` of it, by the raster wand's distance
- * (`colorDistance`), in paint order. Shift adds them to what is selected;
- * a click on nothing deselects, and with Shift keeps what there is. The
- * area is dropped, as the marquee drops it on a vector layer, and the
- * selection is shown as the marquee shows it, outlined until the select
- * tool takes it up.
+ * (`colorDistance`), in paint order. They meet what is selected in the
+ * click's mode, as the marquee's do (`combineElements`), by the option or
+ * by Shift, Alt or both held as the press began (`areaModeOf`): in place of
+ * it, added to it, taken from it, or only those in both. A click on nothing
+ * finds nothing, which deselects in a new selection and leaves the
+ * selection in the other modes. The area is dropped, as the marquee drops
+ * it on a vector layer, and the selection is shown as the marquee shows it,
+ * outlined until the select tool takes it up.
  *
  * What an element is painted with is its fill where that is a color, and
  * its stroke where the fill is not one (none, a gradient, a pattern) but the
@@ -58,6 +62,22 @@ const paintOf = (element: Element, root: Element): Paint | undefined => {
 const matches = (a: Paint | undefined, b: Paint, tolerance: number): boolean =>
 	a !== undefined && a.by === b.by && colorDistance(a.color, b.color) <= tolerance;
 
+/**
+ * What a click on `hit` finds: every element painted near it, or it alone
+ * where it is painted with no color.
+ */
+const foundFrom = (
+	elements: readonly Element[],
+	hit: Element,
+	root: Element,
+	tolerance: number
+): readonly Element[] => {
+	const paint = paintOf(hit, root);
+	return paint === undefined
+		? [hit]
+		: elements.filter((element) => matches(paintOf(element, root), paint, tolerance));
+};
+
 export const createWand = (measure: Measure): ToolBehavior =>
 	onRelease((context, sample) => {
 		if (guardLayer(context) === undefined) return;
@@ -67,18 +87,13 @@ export const createWand = (measure: Measure): ToolBehavior =>
 		const elements = elementsOf(layer);
 		const point = apply(layerSpace(layer).into, { x: sample.x, y: sample.y });
 		const hit = topmostAt(elements, point, measure);
-		const { root } = context.document;
-		const paint = hit === undefined ? undefined : paintOf(hit, root);
 		const tolerance = Math.max(0, context.options.tolerance);
-		const found = new Set(
-			paint === undefined
-				? [hit].filter((element) => element !== undefined)
-				: elements.filter((element) => matches(paintOf(element, root), paint, tolerance))
-		);
-		const kept = new Set(sample.shiftKey ? context.selection.elements : []);
-		// In paint order, and only the layer's own: a selection left from
-		// another layer is not this one's to keep.
-		const next = elements.filter((element) => kept.has(element) || found.has(element));
+		const found =
+			hit === undefined
+				? undefined
+				: foundFrom(elements, hit, context.document.root, tolerance);
+		const mode = areaModeOf(sample, context.options.areaMode);
+		const next = combineElements(elements, context.selection.elements, found, mode);
 		context.selection.set(next);
 		showSelection(context, next, false);
 	});
