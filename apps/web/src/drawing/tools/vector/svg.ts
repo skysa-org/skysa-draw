@@ -34,7 +34,7 @@ export const createSvg = (
 
 /**
  * How the overlay's own marks look: the selection box and its handles, the
- * marquee, the eraser's ring. The app's tokens through `var()`, which a
+ * marquee, the path's points. The app's tokens through `var()`, which a
  * `style` attribute takes and a presentation attribute does not, so the chrome
  * follows the theme (`styles/tokens.css`), with the light theme's values as the
  * fallback.

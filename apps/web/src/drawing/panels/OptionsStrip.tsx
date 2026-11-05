@@ -6,7 +6,7 @@ import { ICONS } from '../../components/ui/icons.js';
 import type { MenuItem } from '../../components/ui/Menu.js';
 import { Slider } from '../../components/ui/Slider.js';
 import { Toggle } from '../../components/ui/Toggle.js';
-import { ToolBar } from '../../components/ui/ToolBar.js';
+import { ToolBar, ToolBarRule } from '../../components/ui/ToolBar.js';
 import { t } from '../../i18n/t.js';
 import { SIZE_MAX, SIZE_MIN } from '../editorState.js';
 import { areaModeKeys, type Held } from '../keys.js';
@@ -49,7 +49,8 @@ const LENGTHS = {
 } as const;
 
 type LengthKey = keyof typeof LENGTHS;
-type FractionKey = 'opacity' | 'hardness' | 'smoothing' | 'tolerance' | 'strength';
+type FractionKey =
+	'opacity' | 'hardness' | 'smoothing' | 'tolerance' | 'strength' | 'pupilSize' | 'darken';
 type ToggleKey = 'pressure' | 'constrain' | 'contiguous' | 'autoSelect';
 
 const isLength = (key: ToolOptionKey): key is LengthKey => key in LENGTHS;
@@ -58,7 +59,9 @@ const isFraction = (key: ToolOptionKey): key is FractionKey =>
 	key === 'hardness' ||
 	key === 'smoothing' ||
 	key === 'tolerance' ||
-	key === 'strength';
+	key === 'strength' ||
+	key === 'pupilSize' ||
+	key === 'darken';
 const isToggle = (key: ToolOptionKey): key is ToggleKey =>
 	key === 'pressure' || key === 'constrain' || key === 'contiguous' || key === 'autoSelect';
 
@@ -194,9 +197,7 @@ const SelectionBar = ({ actions }: Readonly<{ actions: readonly MenuItem[] }>) =
 	<div role="group" aria-label={t('selection.bar')} className="options-selection">
 		{actions.map((item) => (
 			<Fragment key={item.id}>
-				{item.separatorBefore === true && (
-					<span role="separator" aria-orientation="vertical" className="options-rule" />
-				)}
+				{item.separatorBefore === true && <ToolBarRule orientation="horizontal" />}
 				<ActionButton item={item} />
 			</Fragment>
 		))}

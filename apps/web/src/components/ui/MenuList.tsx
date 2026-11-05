@@ -4,6 +4,7 @@ import {
 	type KeyboardEvent,
 	type MouseEvent,
 	type PointerEvent,
+	type ReactNode,
 	type Ref,
 } from 'react';
 
@@ -26,6 +27,14 @@ export interface MenuItem {
 	readonly danger?: boolean;
 	/** A rule before this item, beginning a group of its own. */
 	readonly separatorBefore?: boolean;
+	/** What the item is drawn as, before its name, as a tool's icon in the tool bar's menus. */
+	readonly icon?: ReactNode;
+	/**
+	 * Whether this is the one in force among the menu's choices, as the tool
+	 * in hand among a tool group's: given, the item is a `menuitemradio` and
+	 * says so, drawn as a pressed tool is.
+	 */
+	readonly checked?: boolean;
 }
 
 /** Why a list asks to be closed: Escape, Tab, or an item chosen. */
@@ -57,7 +66,7 @@ export const raise = (list: HTMLElement): boolean => {
 
 /** The items the arrow keys move among: a disabled one is read, but passed over, and so is a rule. */
 export const enabledItems = (menu: HTMLElement): HTMLElement[] => [
-	...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'),
+	...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"])'),
 ];
 
 /** Where a key moves focus from `at` among `count` items, wrapping; `at` is -1 off the items. */
@@ -163,7 +172,8 @@ export const MenuList = ({
 						)}
 						<button
 							type="button"
-							role="menuitem"
+							role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+							aria-checked={item.checked}
 							tabIndex={-1}
 							className={classes(
 								'menu-item',
@@ -173,6 +183,11 @@ export const MenuList = ({
 							aria-describedby={keyId}
 							onClick={() => choose(item)}
 						>
+							{item.icon !== undefined && (
+								<span className="menu-item-icon" aria-hidden="true">
+									{item.icon}
+								</span>
+							)}
 							<span className="menu-item-label">{item.label}</span>
 							{item.shortcut !== undefined && (
 								<kbd id={keyId} className="menu-shortcut" aria-hidden="true">

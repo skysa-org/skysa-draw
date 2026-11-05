@@ -6,7 +6,7 @@ import { type Box, transformBox, unionBox } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
 import { elementsOf, placedBox, positionsIn } from './hit.js';
 import { measureOf } from './measure.js';
-import { clearSelectionBox, drawSelectionBox } from './selection.js';
+import { clearSelectionBox, drawSelectionBox, hiddenAsSeen } from './selection.js';
 import { createSvg } from './svg.js';
 
 /**
@@ -44,7 +44,8 @@ const clearOutlines = (overlay: SVGSVGElement): void => {
 /**
  * The selection shown on the overlay: a dashed outline around each element,
  * or, with `handles`, the select tool's own box and handles, which that tool
- * then works from, so the two never disagree. Nothing for nothing selected.
+ * then works from, so the two never disagree. Nothing for nothing selected,
+ * and nothing on a layer out of sight (`hiddenAsSeen`).
  */
 export const showSelection = (
 	context: ToolContext,
@@ -55,6 +56,10 @@ export const showSelection = (
 	clearOutlines(overlay);
 	const layer = activeLayerElement(context);
 	if (layer === undefined) return;
+	if (hiddenAsSeen(context.document.snapshot().layers, context.layer?.id)) {
+		clearSelectionBox(overlay);
+		return;
+	}
 	const boxes = elements.map((element) => boxIn(layer, element));
 	if (handles) {
 		drawSelectionBox(overlay, unionBox(boxes), context.viewport.scale);

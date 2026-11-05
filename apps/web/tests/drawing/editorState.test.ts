@@ -152,24 +152,18 @@ describe('the editor state', () => {
 		).toBeUndefined();
 	});
 
-	it('opens the color panel on the color asked for, and closes it when asked again for that one', () => {
-		expect(initialEditorState.colorSlot).toBe('fill');
-		const onStroke = after({ type: 'editColor', which: 'stroke' });
-		expect(onStroke.panel).toBe('color');
-		expect(onStroke.colorSlot).toBe('stroke');
-		const moved = after(
-			{ type: 'editColor', which: 'stroke' },
-			{ type: 'editColor', which: 'fill' }
+	it('opens the color panel from the tool bar’s colors and closes it on the next press, the colors as they were', () => {
+		const opened = after(
+			{ type: 'setColor', which: 'fill', value: '#ff0000' },
+			{ type: 'togglePanel', panel: 'color' }
 		);
-		expect(moved.panel).toBe('color');
-		expect(moved.colorSlot).toBe('fill');
-		expect(
-			after({ type: 'editColor', which: 'fill' }, { type: 'editColor', which: 'fill' }).panel
-		).toBeUndefined();
-		expect(
-			after({ type: 'togglePanel', panel: 'layers' }, { type: 'editColor', which: 'stroke' })
-				.panel
-		).toBe('color');
+		expect(opened.panel).toBe('color');
+		expect(opened.options.fill).toBe('#ff0000');
+		const closed = editorReducer(opened, { type: 'togglePanel', panel: 'color' });
+		expect(closed.panel).toBeUndefined();
+		expect(closed.options).toBe(opened.options);
+		// The panel is not opened on either color: there is no color it remembers being opened on.
+		expect(Object.keys(initialEditorState)).not.toContain('colorSlot');
 	});
 
 	it('puts back the default colors, which is no color picked', () => {

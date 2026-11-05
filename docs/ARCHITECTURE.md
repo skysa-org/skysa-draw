@@ -338,7 +338,8 @@ Undo and redo are per open drawing, in memory, as long as the session, capped by
 **Layers**, as §3 defines them: add, delete, duplicate, reorder, hide, lock, rename, opacity, blend mode, group and ungroup, clip to the layer below, merge down and rasterize, with the file's shape for each in `decisions/0003-layers.md`.
 Merge down of two vector layers stays vector; a merge that involves pixels, and rasterize, render the layers to pixels (`document/layerPixels.ts`, through the export's render) as a job the document waits for, dropped if the drawing changed while it rendered.
 Moving a layer into or out of a group is to come.
-One layer is active; tools act on it, and a tool that does nothing on its kind says so and is not available.
+One layer is active; tools act on it, a tool that does nothing on its kind says so and is not available, and the tool bar shows only the tools that act on it, with the tool in hand kept, faded, where it does not (`availableOn`).
+The tool bar holds the tools in Photoshop's groups and order, a light rule between each two (`tools/groups.ts`), and folds the largest groups into one button each, with the rest in its menu, only where the bar it is measured in is too short to show them all (`panels/ToolGroups.tsx`; `decisions/0004-the-interface.md`, "The tool bar").
 
 **Tools.**
 One tool is one tool: the same name, the same key and the same options whether the active layer is vector or raster, doing on each what a user of that tool expects (`decisions/0004-the-interface.md` lists them).
@@ -430,19 +431,38 @@ A vector layer is read by the select tool's own hit (`elementAt`), a raster laye
 On a 4096 × 3072 PNG the first read took 66 to 120 ms in Chromium, Firefox and WebKit, the browser's own decode, and every read after it under a tenth of a millisecond, against 89 to 183 ms and 48 MB for a surface.
 The viewport asks the tool before the press begins, has the frame make the layer active (`onActivateLayer`), and begins the press with a context of that layer and the behavior for its kind, so the whole press is that layer's before the frame shows it.
 Activating a layer is not a command, and a canceled press gives the layer back.
-A selection is dropped when another layer is made active unless it is that layer's own, so the element the press selected stays selected.
+A selection is dropped when another layer is made active unless it is that layer's own, so the element the press selected stays selected; its box goes with it at once, under a press too, since a press that picks a raster layer draws no box over the old one (`viewport/selectionFollows.ts`), and the area stays.
+A selection on a layer that is hidden, or in a hidden group, stays selected with no box and no handles, and Auto-select keeps no handle there; the box comes back with the first movement over the canvas once the layer is shown, as Photoshop's transform controls do (`hiddenAsSeen`, `tools/vector/selection.ts`).
 Ctrl or ⌘ A selects all, the elements on a vector layer and the canvas elsewhere, and D drops both.
 The selection's actions are one list (`drawing/selectionActions.ts`) built from the area, the selected elements, the active layer and the history; the canvas's context menu and the options strip's selection bar both show it (`decisions/0004-the-interface.md`, "The context menu").
 What each action does is the viewport's (`viewport/selectionCommands.ts`), reached through `ViewportHandle.perform`, so a key, a menu item and a bar button do the same thing.
 The frame holds the selection (`viewport/selectionState.ts`) and passes it to the viewport, so the bar and the dialogs can see it.
 Layer via copy and cut on a vector layer is one command (`document/layerVia.ts`) that keeps only the selected elements in a copy of the layer, and for a cut takes them from the source, and undoes to the file's exact bytes; on a raster layer it is the raster tools' `layerViaArea`.
 Smudge pushes the layer's own pixels, each dab picking up what lies under the one before, in one command when the stroke ends.
+A tool with a size, the brush, the pencil, the eraser, the smudge and Remove, has the brush's outline for its pointer, as Photoshop's Normal Brush Tip (`tools/common/brushOutline.ts`): a circle `size` across in the drawing's user units, drawn on the overlay in them, so as big on the screen as what it paints at any zoom, with a small crosshair at its middle, and the crosshair alone where the circle would be under 6 screen pixels across.
+Each is a light halo under a dark hairline, one width on the screen at any zoom (`viewport.css`), and it shows the whole size whatever the pressure.
+It follows a hovering mouse or pen and the stroke, takes a new size at once (`optionsChanged`), and goes when the pointer leaves the canvas with nothing down (`ToolBehavior.leave`, from the viewport's `pointerleave`), on cancel and when the tool is put down; it is never shown for a finger.
+The canvas has the tool's crosshair until the outline is first drawn; while it shows and the cursor is the tool's own (`data-tool-cursor`), the system's is hidden, and under Space's hand, a transform's grips or a tool that does nothing on the layer the outline is hidden and their cursor shows.
+A size is in the drawing's user units on every layer, whatever its `transform`: a raster stamp is a disk in user units drawn through the map to the layer's pixels (`brushEngine.ts`), as the Remove tool's footprint is, so a scaled, turned or skewed layer gets the ellipse it makes on its pixels and the stroke lands as it was shown; a smudge dab's radius, a vector path's width and the eraser's reach are the size through the layer's scale (`lengthScale`), the mean of the two where they differ.
+The Remove tool paints a round, hard brush `size` across over what should go, shown live on the screen canvas as a translucent highlight, and when the stroke ends makes those pixels again from the rest of the layer, as Photoshop's Remove does (`tools/raster/remove.ts`).
+Each sample adds the disk where it is and the band from the sample before, through the layer's pixel map and `transform`, so a fast stroke has no gap and a scaled layer gets the ellipse the disk makes on its pixels (`tools/raster/removeFootprint.ts`).
+That footprint, kept to the area where one is selected, is the coverage Fill…'s Content-Aware makes again, with its status, Stop, Escape and stale check, and it is laid over the layer by the coverage at full opacity in one command (`makeAgainUnder`, `tools/raster/areaFill.ts`).
+A stroke begun while the engine is still making pixels again, for Remove or for Fill…, paints nothing and says so, since whichever landed second would be dropped as stale.
+The Red eye tool makes a pupil a flash turned red a dark neutral, in one command, on a raster layer alone (`tools/raster/redEye.ts`, its arithmetic in `redEyeFix.ts`).
+A click looks for the pupil in a square 100 CSS px across on the screen around it, the nearest red winning, and lets the pupil grow to a square three times that; a drag keeps both to its box.
+A pixel's redness is red's lead over the stronger of green and blue, less green's lead over blue, as a share of its brightness, and a seed must also pass GEGL's red-eye test, `0.5133 · r ≥ g`.
+The pupil is flooded from the seed's red through pixels above a threshold Pupil size sets, from the core alone down to a floor that takes a pink rim and stops short of skin and a brown iris; each is moved toward the mean of its green and blue, darkened by Darken amount, by as much as its redness clears the threshold and the area covers it, its alpha kept.
+A press that finds no red pupil, or red only outside the area, writes nothing and says so.
 
 **Export** (`drawing/export/`) is a render of the SVG onto a canvas (`<img>` of a `blob:` URL drawn with `drawImage`, the root given the export's pixels as its size) for PNG, JPEG and WebP from 0.5× to 4×, the longer side kept to 16,384 px (`EXPORT_MAX_SIDE`), a JPEG on white unless another background is chosen; and the file itself for SVG.
 A picture placed from a file, a paste or a drop is a new raster layer holding the file's bytes as they came, of the type its header says, fitted inside the canvas and never enlarged (`placePicture`); an SVG is placed the same way, as `data:image/svg+xml`, which a browser draws as a picture with no script.
 
 **Still an image.**
 A drawing that is not open in the editor, in the list, as a thumbnail, or one the sanitizer could not parse at all, is shown through an `<img>` of a `blob:` URL (`DrawingView`), which renders any SVG with no script running and no reach into the page.
+
+**The transparency grid.**
+Behind a drawing, in the editor and as an image, is Photoshop's transparency grid, white and light gray squares (`--checker-grid`), so what is clear or has nothing on it shows as such; it is the page's, never the drawing's, and an export is as clear as the drawing is.
+In the editor its squares are 8 CSS px on screen at every zoom: the paper is in the stage the view scales, so its tile is set in user units, 16 px over the scale (`checkerSize`).
 
 ### The interface
 
@@ -451,7 +471,7 @@ Decided 2026-11-04; see [`decisions/0004-the-interface.md`](decisions/0004-the-i
 **Size classes.**
 The window is `compact` under 600 px wide, `medium` from 600 to 839 and `expanded` from 840, Material's window size classes, read from `matchMedia` by `useSizeClass` (`components/ui/sizeClass.ts`) and nowhere else: a component never asks how wide the window is; the frame places it, and the component fits its container (`@container`).
 
-**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Toggle` (an option on or off, a check box beside its name), `ChoiceButtons` (one of a few options, each by its icon, as the selection modes are), `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke at the foot of the tool bar), `Select`, `Menu`, `ContextMenu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
+**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Toggle` (an option on or off, a check box beside its name), `ChoiceButtons` (one of a few options, each by its icon, as the selection modes are), `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke as one tool button), `Select`, `Menu`, `ContextMenu`, `Notice`, and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
 Every control is at least 44 CSS px in either direction, whatever the size class and whatever the pointer; keyboard focus shows a ring; words come from the catalog.
 
 **The frame** (`drawing/Editor.tsx`) places them:
@@ -474,8 +494,9 @@ expanded   ┌ top bar ───────────────────
 An open drawing fills the window on every size; the library (folders and drawings) is the screen before it on compact and a drawer from the top bar elsewhere, as a gallery is to a canvas.
 On compact the zoom and the saving status are under More, to keep the bar to one row; the options row comes after the canvas in the page there and before it elsewhere, so reading order is the order seen.
 The color panel is a drawer on medium and expanded alike; the dock holds layers and properties, follows the 1200 px rule until the layers button is pressed, and then stays as the user left it.
-The two colors sit at the foot of the tool bar (`ColorPair`; `decisions/0004-the-interface.md`, "The two colors"): on the rail the fill, the stroke and the swap, a 44 px target each; on compact both colors as one control and the swap; on every window the reset is the color panel's, and D's.
-A press on a color opens the color panel on it (`editColor`, `colorSlot` in `editorState.ts`).
+The two colors are one tool button at the foot of the tool bar, on the rail and on compact alike (`ColorPair`; `decisions/0004-the-interface.md`, "The two colors"): its face shows both, and a press opens the color panel and the next closes it (`togglePanel` in `editorState.ts`).
+The swap and the reset are the color panel's, in its header, and X's and D's.
+The panel lays out each color as Fill… lays out its groups (`.field-groups` in `ui.css`): `ColorField` stacked, its name over its row and the recent colors under it, where a bar has it inline, its name beside its row.
 
 **Input.**
 Pointer Events only, `touch-action: none` on the canvas; a pen draws, a finger draws unless a pen is down (palm rejection), two fingers pan and pinch to zoom, a two-finger tap undoes and a three-finger tap redoes; a wheel scrolls, with Ctrl or ⌘ zooms, and Space held pans, except on a control the keyboard brought the focus to, which Space presses (`isHandKey`, `viewport/pointerPressed.ts`).
@@ -536,8 +557,8 @@ Known gaps in what is built, each for an issue:
 
 - Tested under jsdom, which has no 2D canvas, no `getBBox`, no `DOMMatrix` and no stylesheets from an SVG `<style>`, and driven once by hand in headless Chromium under the real Content-Security-Policy (vector and raster strokes, smudge, pen, text, merge down, rasterize, undo, PNG export, the frame at three widths); not yet on a touch screen, with a stylus, or in Safari or Firefox.
 - Renaming a drawing reopens it and loses its undo history, since `renameDrawing` rewrites the row's text.
-- A tool that does nothing on the active layer's kind says so when pressed, but its button is not shown as unavailable.
 - The library drawer's own rows (`Sidebar`, `DrawingList`) are below the 44 px target.
+- The brush's outline's crosshair, and whether its circle is too small to show, are read at the zoom of the pointer's last move, so a zoom by the keys or the wheel with the pointer still shows them at the old zoom until it moves; the viewport telling the tool in hand of a new view would fix it.
 - A stroke still under way when the editor reopens on a change from elsewhere is lost; an undo pressed while a raster stroke is encoding is overtaken when the stroke lands.
 - A drawing's `@font-face` does not apply inside the shadow root in Chromium, so its embedded fonts may not show in the editor.
 - Deleting a layer leaves the clips that name it, and those layers show nothing until their clip is released; a clipped layer moved by a `transform` moves its mask with it.

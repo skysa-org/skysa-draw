@@ -36,13 +36,16 @@ const field = (): HTMLInputElement => {
 };
 
 describe('TOOL_KEYS', () => {
-	it('gives every tool one capital letter, and no two the same', () => {
+	it('gives every tool one capital letter, shared only by Photoshop’s healing group', () => {
 		expect(Object.keys(TOOL_KEYS).sort()).toEqual([...TOOL_IDS].sort());
 		const letters = Object.values(TOOL_KEYS);
-		expect(new Set(letters).size).toBe(letters.length);
 		letters.forEach((letter) => {
 			expect(letter).toMatch(/^[A-Z]$/);
 		});
+		const shared = TOOL_IDS.filter(
+			(id) => letters.filter((letter) => letter === TOOL_KEYS[id]).length > 1
+		);
+		expect(shared).toEqual(['remove', 'redEye']);
 	});
 
 	it('is the table in the decision', () => {
@@ -55,6 +58,8 @@ describe('TOOL_KEYS', () => {
 			brush: 'B',
 			eraser: 'E',
 			smudge: 'S',
+			remove: 'J',
+			redEye: 'J',
 			fill: 'G',
 			eyedropper: 'I',
 			rectangle: 'R',
@@ -71,12 +76,26 @@ describe('TOOL_KEYS', () => {
 });
 
 describe('toolFor', () => {
-	it('picks a tool by its letter, in either case, on every platform', () => {
+	it('picks a tool by its letter, in either case, on every platform, keeping the one in hand of its group', () => {
 		TOOL_IDS.forEach((id) => {
 			const letter = TOOL_KEYS[id];
-			expect(toolFor(key(letter), false)).toBe(id);
-			expect(toolFor(key(letter.toLowerCase()), true)).toBe(id);
+			expect(toolFor(key(letter), false, id)).toBe(id);
+			expect(toolFor(key(letter.toLowerCase()), true, id)).toBe(id);
 		});
+		TOOL_IDS.filter((id) => id !== 'redEye').forEach((id) => {
+			expect(toolFor(key(TOOL_KEYS[id]), false)).toBe(id);
+		});
+	});
+
+	it('picks a group’s first from another tool, and goes round the group with Shift, as Photoshop’s J', () => {
+		expect(toolFor(key('j'), false, 'brush')).toBe('remove');
+		expect(toolFor(key('J'), false)).toBe('remove');
+		expect(toolFor(key('j'), false, 'redEye')).toBe('redEye');
+		expect(toolFor(key('J', { shiftKey: true }), false, 'remove')).toBe('redEye');
+		expect(toolFor(key('J', { shiftKey: true }), true, 'redEye')).toBe('remove');
+		expect(toolFor(key('J', { shiftKey: true }), false, 'brush')).toBe('remove');
+		// A letter of one tool takes no Shift.
+		expect(toolFor(key('B', { shiftKey: true }), false, 'brush')).toBeUndefined();
 	});
 
 	it('is nothing with a modifier, for a key that is not a letter, or for a letter nobody uses', () => {
@@ -86,7 +105,8 @@ describe('toolFor', () => {
 		expect(toolFor(key('V', { shiftKey: true }), false)).toBeUndefined();
 		expect(toolFor(key('Escape'), false)).toBeUndefined();
 		expect(toolFor(key('F1'), false)).toBeUndefined();
-		expect(toolFor(key('j'), false)).toBeUndefined();
+		expect(toolFor(key('k'), false)).toBeUndefined();
+		expect(toolFor(key('j', { altKey: true }), false)).toBeUndefined();
 	});
 
 	it('is nothing while typing in a field', () => {

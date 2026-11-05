@@ -52,7 +52,7 @@ const noop = (): ToolBehavior => ({
 });
 
 describe('TOOLS', () => {
-	it('names tools the catalog knows, each once, in the bar order', () => {
+	it('names tools the catalog knows, each once, in the bar order, which is the groups’', () => {
 		const ids = TOOLS.map((tool) => tool.id);
 		expect(new Set(ids).size).toBe(ids.length);
 		ids.forEach((id) => {
@@ -60,24 +60,26 @@ describe('TOOLS', () => {
 		});
 		expect(ids).toEqual([
 			'select',
-			'node',
 			'marquee',
 			'lasso',
 			'wand',
-			'hand',
-			'zoom',
 			'crop',
-			'pencil',
-			'brush',
-			'eraser',
-			'smudge',
-			'fill',
 			'eyedropper',
+			'remove',
+			'redEye',
+			'smudge',
+			'brush',
+			'pencil',
+			'eraser',
+			'fill',
 			'pen',
 			'text',
+			'node',
 			'rectangle',
 			'ellipse',
 			'line',
+			'hand',
+			'zoom',
 		]);
 	});
 

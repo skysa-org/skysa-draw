@@ -636,6 +636,8 @@ describe('Transform selection', () => {
 		expect(cursor()).toBe('ns-resize');
 		hover(100, 100);
 		expect(cursor()).toBe('crosshair');
+		// The rotate grip's crosshair is the transform's, not the tool's own (`viewport.css`).
+		expect(canvas.hasAttribute('data-tool-cursor')).toBe(false);
 		key(' ', {}, canvas);
 		expect(cursor()).toBe('grab');
 		drag(canvas, [30, 20], [60, 20]);
@@ -643,5 +645,6 @@ describe('Transform selection', () => {
 		fire(window, new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
 		perform('applyTransform');
 		expect(cursor()).toBe('crosshair');
+		expect(canvas.hasAttribute('data-tool-cursor')).toBe(true);
 	});
 });

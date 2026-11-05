@@ -40,6 +40,7 @@ import {
 	type Handle,
 	handleAt,
 	hasSelectionBox,
+	hiddenAsSeen,
 	resizeMatrix,
 	rotateMatrix,
 } from './selection.js';
@@ -132,6 +133,10 @@ const setTransform = (element: Element, value: string): void => {
 
 const restore = (item: Item): void => setTransform(item.element, item.attribute ?? '');
 
+/** Whether the active layer is out of sight, where no box is drawn and no handle is pressed (`hiddenAsSeen`). */
+const activeHidden = (context: ToolContext): boolean =>
+	hiddenAsSeen(context.document.snapshot().layers, context.layer?.id);
+
 /**
  * What is selected on the active layer. A selection made on another layer, or
  * one an undo left behind, is not this layer's to change: a command of this
@@ -177,7 +182,7 @@ export const onSelectionHandle = (
 	point: Point
 ): boolean => {
 	const layer = activeLayerElement(context);
-	if (layer === undefined) return false;
+	if (layer === undefined || activeHidden(context)) return false;
 	const box = selectionBox(measure, selectedOn(layer, context), layerSpace(layer));
 	return box !== undefined && handleAt(box, point, context.viewport.scale) !== undefined;
 };
@@ -220,11 +225,13 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 	const boxOf = (elements: readonly Element[], space: LayerSpace): Box | undefined =>
 		selectionBox(measure, elements, space);
 
-	/** The box around `elements`, drawn over the active layer. */
+	/** The box around `elements`, drawn over the active layer; none while it is out of sight. */
 	const redraw = (context: ToolContext, elements: readonly Element[]): void => {
 		drawSelectionBox(
 			context.overlay,
-			boxOf(elements, layerSpace(activeLayerElement(context))),
+			activeHidden(context)
+				? undefined
+				: boxOf(elements, layerSpace(activeLayerElement(context))),
 			context.viewport.scale
 		);
 	};
@@ -476,10 +483,12 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 			abandon(context);
 		},
 
-		// The viewport empties the overlay when the tool changes; the box comes
-		// back with the first movement over the canvas.
+		// The viewport empties the overlay when the tool changes, and takes the
+		// box away while the layer is hidden; it comes back with the first
+		// movement over the canvas, once the layer is in sight.
 		hover: (context) => {
 			if (context.selection.elements.length === 0 || hasSelectionBox(context.overlay)) return;
+			if (activeHidden(context)) return;
 			const layer = activeLayerElement(context);
 			if (layer === undefined) return;
 			redraw(context, selectedOn(layer, context));

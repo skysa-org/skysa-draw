@@ -281,6 +281,13 @@ export const apply = (m: Mat, p: Point): Point => {
 	return { x: a * p.x + c * p.y + e, y: b * p.x + d * p.y + f };
 };
 
+/**
+ * How much a matrix scales a length, as one factor: the square root of what
+ * it scales an area by. Exact for a scale the same either way, turned or
+ * not; for any other, the mean of the two.
+ */
+export const lengthScale = (m: Mat): number => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+
 /** The inverse, where there is one; the identity for a matrix that flattens the plane. */
 export const invert = (m: Mat): Mat => {
 	const [a, b, c, d, e, f] = m;

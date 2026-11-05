@@ -189,6 +189,15 @@ const pastTheSave = () => new Promise((resolve) => setTimeout(resolve, AUTOSAVE_
 const precedes = (a: Element, b: Element): boolean =>
 	(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
+/** The tool bar's one button for both colors. */
+const colors = () => screen.getByRole('button', { name: 'Colors' });
+
+/** What a screen reader says after the colors' name: each color's sentence, the fill's first. */
+const colorsSaid = () =>
+	(colors().getAttribute('aria-describedby') ?? '')
+		.split(' ')
+		.map((id) => document.getElementById(id)?.textContent);
+
 const rowText = async (db: DrawDatabase, id: string) => (await getDrawing(db, id))?.text;
 /** The rows a user can see: a delete leaves a tombstone until the push sends it. */
 const liveRows = async (db: DrawDatabase) => (await db.drawings.toArray()).filter(isLive);
@@ -349,76 +358,83 @@ describe('the editor frame', () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
-	it('swaps the colors with X and puts them back with the color panel’s reset, as the pair in the tool bar shows', async () => {
+	it('swaps the colors with X and puts them back with the color panel’s reset, as the tool bar’s colors show', async () => {
 		const user = userEvent.setup();
 		await renderEditor('expanded');
-		const fill = () => screen.getByRole('button', { name: /^Fill color: / });
-		expect(fill().getAttribute('aria-label')).toBe('Fill color: #111827');
+		expect(colorsSaid()).toEqual(['Fill color: #111827', 'Stroke color: none']);
 		// The default stroke is none, so after the swap the fill is.
 		fireEvent.keyDown(window, { key: 'x' });
-		await waitFor(() => expect(fill().getAttribute('aria-label')).toBe('Fill color: none'));
-		expect(screen.getByRole('button', { name: 'Stroke color: #111827' })).toBeDefined();
-		// The bar has no reset of its own: it is the color panel's, which a color opens.
+		await waitFor(() =>
+			expect(colorsSaid()).toEqual(['Fill color: none', 'Stroke color: #111827'])
+		);
+		// The bar has no reset of its own: it is the color panel's, which the colors open.
 		expect(screen.queryByRole('button', { name: 'Reset colors' })).toBeNull();
-		await user.click(fill());
+		await user.click(colors());
 		await user.click(await screen.findByRole('button', { name: 'Reset colors' }));
-		expect(fill().getAttribute('aria-label')).toBe('Fill color: #111827');
-		expect(screen.getByRole('button', { name: 'Stroke color: none' })).toBeDefined();
+		expect(colorsSaid()).toEqual(['Fill color: #111827', 'Stroke color: none']);
 	});
 
-	it('opens the color panel on the color pressed in the tool bar, and goes back to it on closing', async () => {
+	it.each(['medium', 'compact'] as const)(
+		'has one button for both colors on a %s window, and no swap, the panel’s and X’s',
+		async (size) => {
+			await renderEditor(size);
+			const both = colors();
+			expect(both.classList.contains('tool-button')).toBe(true);
+			expect(screen.queryByRole('button', { name: /^(Fill|Stroke) color: / })).toBeNull();
+			expect(screen.queryByRole('button', { name: 'Swap colors' })).toBeNull();
+			fireEvent.keyDown(window, { key: 'x' });
+			await waitFor(() =>
+				expect(
+					both.querySelector('.color-pair-mark-fill')?.classList.contains('is-none')
+				).toBe(true)
+			);
+		}
+	);
+
+	it('opens the color panel with the colors’ button, closes it with the next press, and goes back to it on closing', async () => {
 		const user = userEvent.setup();
 		await renderEditor('medium');
-		const stroke = screen.getByRole('button', { name: 'Stroke color: none' });
-		await user.click(stroke);
+		await user.click(colors());
 		const dialog = await screen.findByRole('dialog', { name: 'Color' });
-		expect(stroke.getAttribute('aria-pressed')).toBe('true');
-		await waitFor(() =>
-			expect(document.activeElement).toBe(within(dialog).getByLabelText('Stroke'))
+		expect(colors().getAttribute('aria-pressed')).toBe('true');
+		expect(within(dialog).getByRole('button', { name: 'Swap colors' }).title).toBe(
+			'Swap colors (X)'
 		);
 		expect(within(dialog).getByRole('button', { name: 'Reset colors' }).title).toBe(
 			'Reset colors (D)'
 		);
+		await user.click(colors());
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(colors().getAttribute('aria-pressed')).toBe('false');
 
+		await user.click(colors());
+		await screen.findByRole('dialog', { name: 'Color' });
 		await user.keyboard('{Escape}');
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-		expect(document.activeElement).toBe(stroke);
-		expect(stroke.getAttribute('aria-pressed')).toBe('false');
+		expect(document.activeElement).toBe(colors());
+		expect(colors().getAttribute('aria-pressed')).toBe('false');
 	});
 
-	it('shows both colors as one control on a compact window, with the swap, and opens the color sheet', async () => {
+	it('opens the color sheet on a compact window, and swaps there as X does', async () => {
 		const user = userEvent.setup();
 		await renderEditor('compact');
-		const both = screen.getByRole('button', { name: 'Colors' });
-		expect(screen.queryByRole('button', { name: /^Fill color: / })).toBeNull();
-		fireEvent.keyDown(window, { key: 'x' });
-		await waitFor(() =>
-			expect(both.querySelector('.color-pair-mark-fill')?.classList.contains('is-none')).toBe(
-				true
-			)
-		);
-		await user.click(screen.getByRole('button', { name: 'Swap colors' }));
-		expect(both.querySelector('.color-pair-mark-fill')?.classList.contains('is-none')).toBe(
-			false
-		);
-		await user.click(both);
-		expect(await screen.findByRole('dialog', { name: 'Color' })).toBeDefined();
-		expect(both.getAttribute('aria-pressed')).toBe('true');
+		await user.click(colors());
+		const sheet = await screen.findByRole('dialog', { name: 'Color' });
+		expect(colors().getAttribute('aria-pressed')).toBe('true');
+		await user.click(within(sheet).getByRole('button', { name: 'Swap colors' }));
+		expect(colorsSaid()).toEqual(['Fill color: none', 'Stroke color: #111827']);
 	});
 
 	it('puts the colors back with D, and leaves D with the primary key to the selection', async () => {
 		await renderEditor('expanded');
 		fireEvent.keyDown(window, { key: 'x' });
-		await waitFor(() =>
-			expect(screen.getByRole('button', { name: 'Fill color: none' })).toBeDefined()
-		);
+		await waitFor(() => expect(colorsSaid()[0]).toBe('Fill color: none'));
 		fireEvent.keyDown(window, { key: 'd', ctrlKey: true, metaKey: true });
-		expect(screen.getByRole('button', { name: 'Fill color: none' })).toBeDefined();
+		expect(colorsSaid()[0]).toBe('Fill color: none');
 		fireEvent.keyDown(window, { key: 'd' });
 		await waitFor(() =>
-			expect(screen.getByRole('button', { name: 'Fill color: #111827' })).toBeDefined()
+			expect(colorsSaid()).toEqual(['Fill color: #111827', 'Stroke color: none'])
 		);
-		expect(screen.getByRole('button', { name: 'Stroke color: none' })).toBeDefined();
 	});
 
 	it('closes a sheet with Escape, and it stays closed', async () => {

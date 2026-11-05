@@ -1,5 +1,6 @@
 import { cell } from '@skysa/draw-core';
 
+import { withBrushOutline } from '../common/brushOutline.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, distance, pressureWidth } from '../vector/geometry.js';
 import { inkOf } from '../vector/svg.js';
@@ -18,6 +19,9 @@ import { clearCanvas, type CompositeMode, type RasterSurface } from './surface.j
  * the brush committed as `destination-out`, so what it stamps is taken away
  * instead of put down. Where an area is selected (`ToolContext.region`) all
  * three paint inside it, and a stroke that never reaches it writes nothing.
+ * The size is in the drawing's user units on any layer (`brushEngine.ts`), and
+ * the pointer of all three is the brush's outline, which shows it
+ * (`tools/common/brushOutline.ts`).
  */
 
 type BrushKind = 'brush' | 'pencil' | 'eraser';
@@ -120,7 +124,7 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 		context.document.pending(work);
 	};
 
-	return {
+	return withBrushOutline({
 		begin: (context, sample) => {
 			const surface = guardedSurface(context);
 			if (surface === undefined) return;
@@ -187,5 +191,5 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 			clearCanvas(stroke.surface.stroke);
 			clearScreen(context.screen);
 		},
-	};
+	});
 };

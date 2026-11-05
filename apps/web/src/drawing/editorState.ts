@@ -40,8 +40,6 @@ export type EditorState = Readonly<{
 	notice: Readonly<{ message: string }> | undefined;
 	/** The colors picked most recently, newest first, as `#rrggbb` where they have one. */
 	recentColors: readonly string[];
-	/** The color the color panel opens on, as the tool bar's pair last asked for it. */
-	colorSlot: ColorSlot;
 }>;
 
 /** How many colors the swatches remember. */
@@ -65,10 +63,8 @@ export type EditorAction =
 	| Readonly<{ type: 'setOptions'; change: Partial<ToolOptions> }>
 	| Readonly<{ type: 'setColor'; which: ColorSlot; value: string }>
 	| Readonly<{ type: 'swapColors' }>
-	/** The fill and the stroke a new drawing starts with, put back: D, and the pair's reset. */
+	/** The fill and the stroke a new drawing starts with, put back: D, and the color panel's reset. */
 	| Readonly<{ type: 'resetColors' }>
-	/** The color panel, on one of the two colors: a press on that color in the tool bar. */
-	| Readonly<{ type: 'editColor'; which: ColorSlot }>
 	| Readonly<{ type: 'setActiveLayer'; id: string | undefined }>
 	| Readonly<{ type: 'togglePanel'; panel: PanelId }>
 	| Readonly<{ type: 'closePanel' }>
@@ -87,7 +83,6 @@ export const initialEditorState: EditorState = {
 	libraryOpen: false,
 	notice: undefined,
 	recentColors: [],
-	colorSlot: 'fill',
 };
 
 /**
@@ -142,12 +137,6 @@ export const activeLayerIn = (
 	return (fromTop.find((layer) => layer.kind !== 'group') ?? fromTop[0])?.id;
 };
 
-/** The color panel on `which`; asked again for the color it is open on, it closes, as a toggle does. */
-const editingColor = (state: EditorState, which: ColorSlot): EditorState =>
-	state.panel === 'color' && state.colorSlot === which
-		? { ...state, panel: undefined }
-		: { ...state, panel: 'color', colorSlot: which };
-
 export const editorReducer = (state: EditorState, action: EditorAction): EditorState => {
 	switch (action.type) {
 		case 'setTool':
@@ -193,8 +182,6 @@ export const editorReducer = (state: EditorState, action: EditorAction): EditorS
 			return { ...state, activeLayerId: action.id };
 		case 'togglePanel':
 			return { ...state, panel: state.panel === action.panel ? undefined : action.panel };
-		case 'editColor':
-			return editingColor(state, action.which);
 		case 'closePanel':
 			return { ...state, panel: undefined };
 		case 'setDockOpen':

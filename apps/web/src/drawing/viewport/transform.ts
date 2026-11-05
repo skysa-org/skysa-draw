@@ -104,6 +104,19 @@ export const parseViewBox = (value: string | null | undefined): ViewBox | undefi
  * is the `viewBox`'s origin, not always (0, 0): so the stage is translated to
  * where that user point lands on the screen.
  */
+/** The transparency grid's tile on screen, in CSS px: two squares of 8 each way, as Photoshop's medium grid. */
+const CHECKER_TILE_PX = 16;
+
+/**
+ * The transparency grid's tile as the stage, which the view scales, takes it:
+ * in user units, so the scale brings it back to `CHECKER_TILE_PX` on screen
+ * whatever the zoom.
+ */
+export const checkerSize = (view: View): string => {
+	const side = CHECKER_TILE_PX / view.scale;
+	return `${side}px ${side}px`;
+};
+
 export const stageTransform = (view: View, origin: Readonly<{ x: number; y: number }>): string => {
 	const [sx, sy] = toScreen(view, origin.x, origin.y);
 	return `translate(${sx}px, ${sy}px) scale(${view.scale})`;

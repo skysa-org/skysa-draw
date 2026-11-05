@@ -185,6 +185,13 @@ const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSa
 	...extra,
 });
 
+/**
+ * What a tool drew on the overlay, but for the brush's outline, the pointer
+ * of a tool with a size, which stays where a mouse lifted (`brushOutline.test.ts`).
+ */
+const previewsOn = (overlay: SVGSVGElement): Element[] =>
+	[...overlay.children].filter((child) => !child.hasAttribute('data-brush-outline'));
+
 /** A whole stroke: begin at the first point, move through the rest, end at the last. */
 const stroke = (
 	behavior: ToolBehavior,
@@ -224,7 +231,7 @@ describe('the guard', () => {
 		expect(notices).toEqual([t('layers.noneActive')]);
 		expect(labels).toEqual([]);
 		expect(layer.children.length).toBe(0);
-		expect(context.overlay.children.length).toBe(0);
+		expect(previewsOn(context.overlay).length).toBe(0);
 	});
 
 	it('says which layer is locked, by its number, and draws nothing', () => {
@@ -343,7 +350,7 @@ describe('the pencil', () => {
 		expect(path?.getAttribute('fill')).toBe('none');
 		expect(path?.getAttribute('stroke-linecap')).toBe('round');
 		expect(path?.getAttribute('opacity')).toBe('0.5');
-		expect(context.overlay.children.length).toBe(0);
+		expect(previewsOn(context.overlay).length).toBe(0);
 	});
 
 	it('prefers the stroke color, previews on the overlay, and makes a dot of a stroke that did not move', () => {
@@ -352,11 +359,11 @@ describe('the pencil', () => {
 		const { context } = createFake(root, [info], info, { stroke: '#00ff00', opacity: 1 });
 		const pencil = tool('pencil');
 		pencil.begin(context, at(5, 5));
-		expect(context.overlay.children.length).toBe(1);
-		expect(context.overlay.firstElementChild?.getAttribute('stroke')).toBe('#00ff00');
+		expect(previewsOn(context.overlay).length).toBe(1);
+		expect(previewsOn(context.overlay)[0]?.getAttribute('stroke')).toBe('#00ff00');
 		expect(layer.children.length).toBe(0);
 		pencil.end(context, at(5, 5));
-		expect(context.overlay.children.length).toBe(0);
+		expect(previewsOn(context.overlay).length).toBe(0);
 		const path = layer.firstElementChild;
 		expect(path?.getAttribute('d')).toBe('M 5 5 L 5 5');
 		expect(path?.getAttribute('stroke')).toBe('#00ff00');
@@ -385,7 +392,7 @@ describe('the pencil', () => {
 		pencil.cancel(context);
 		pencil.end(context, at(9, 9));
 		expect(layer.children.length).toBe(0);
-		expect(context.overlay.children.length).toBe(0);
+		expect(previewsOn(context.overlay).length).toBe(0);
 		expect(labels).toEqual([]);
 	});
 });
@@ -407,7 +414,7 @@ describe('the brush', () => {
 		expect(path?.getAttribute('fill-rule')).toBe('nonzero');
 		expect(path?.hasAttribute('stroke')).toBe(false);
 		expect(path?.getAttribute('d')).toMatch(/^M .* Z$/);
-		expect(context.overlay.children.length).toBe(0);
+		expect(previewsOn(context.overlay).length).toBe(0);
 	});
 
 	it('paints in the stroke color where there is no fill color', () => {
@@ -430,14 +437,16 @@ describe('the eraser', () => {
 		const { context, labels } = createFake(root, [info], info, { size: 8 });
 		const eraser = tool('eraser');
 		eraser.begin(context, at(10, 10));
-		expect(context.overlay.firstElementChild?.localName).toBe('circle');
-		expect(context.overlay.firstElementChild?.getAttribute('r')).toBe('4');
+		// Its reach is the brush's outline, its pointer.
+		expect(
+			context.overlay.querySelector('[data-brush-outline] circle')?.getAttribute('r')
+		).toBe('4');
 		eraser.move(context, at(40, 10));
 		eraser.move(context, at(52, 10));
 		eraser.end(context, at(52, 10));
 		expect(labels).toEqual(['tools.eraser']);
 		expect([...layer.children].map((child) => child.id)).toEqual(['b']);
-		expect(context.overlay.children.length).toBe(0);
+		expect(previewsOn(context.overlay)).toEqual([]);
 	});
 
 	it('finds what it erased by its place, so a redo erases it from a layer an undo rebuilt', () => {
@@ -467,6 +476,57 @@ describe('the eraser', () => {
 		]);
 		expect(labels).toEqual([]);
 		expect(layer.children.length).toBe(1);
+	});
+});
+
+describe('a size on a scaled layer', () => {
+	// The size is in the drawing's units, as the brush's outline shows it
+	// (`tools/common/brushOutline.ts`), whatever the layer's `transform`: on a
+	// layer drawn twice as large, a mark is half as wide in the layer's own units.
+	const scaled = (children: Record<string, string>[] = []) => {
+		const drawing = createDrawing(children);
+		drawing.layer.setAttribute('transform', 'scale(2)');
+		return drawing;
+	};
+
+	it('draws the pencil its size across in the drawing’s units', () => {
+		const { root, layer } = scaled();
+		const info = layerInfo('layer-1');
+		const { context } = createFake(root, [info], info, { size: 6, smoothing: 0 });
+		stroke(tool('pencil'), context, [
+			{ x: 20, y: 20 },
+			{ x: 40, y: 20 },
+		]);
+		const path = layer.firstElementChild;
+		expect(path?.getAttribute('d')).toBe('M 10 10 L 20 10');
+		expect(path?.getAttribute('stroke-width')).toBe('3');
+	});
+
+	it('draws the brush its size across in the drawing’s units', () => {
+		const { root, layer } = scaled();
+		const info = layerInfo('layer-1');
+		const { context } = createFake(root, [info], info, { size: 10, pressure: false });
+		stroke(tool('brush'), context, [{ x: 20, y: 20 }]);
+		// One dab: a circle 10 across in the drawing, 5 in the layer, about (10, 10).
+		expect(layer.firstElementChild?.getAttribute('d')).toBe(
+			'M 12.5 10 A 2.5 2.5 0 1 1 7.5 10 A 2.5 2.5 0 1 1 12.5 10 Z'
+		);
+	});
+
+	it('erases within half the eraser’s size in the drawing’s units', () => {
+		// 0 to 5 across in the layer: 0 to 10 in the drawing.
+		const { root, layer } = scaled([
+			{ id: 'a', x: '0', y: '0', width: '5', height: '5' },
+			{ id: 'b', x: '40', y: '0', width: '5', height: '5' },
+		]);
+		const info = layerInfo('layer-1');
+		const { context } = createFake(root, [info], info, { size: 8 });
+		// 3 of the layer's units past `a`'s edge, 6 of the drawing's: beyond the reach of 4.
+		stroke(tool('eraser'), context, [{ x: 16, y: 4 }]);
+		expect([...layer.children].map((child) => child.id)).toEqual(['a', 'b']);
+		// 1.5 past it, 3 of the drawing's: within it.
+		stroke(tool('eraser'), context, [{ x: 13, y: 4 }]);
+		expect([...layer.children].map((child) => child.id)).toEqual(['b']);
 	});
 });
 

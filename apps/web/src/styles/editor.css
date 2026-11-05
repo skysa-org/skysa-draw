@@ -149,6 +149,8 @@
 /* One row of options for the tool in hand; it scrolls sideways when narrow (`ui.css`). */
 .options-strip {
 	border-block-end: 1px solid var(--border);
+	/* An option is a name and its control, a step apart from the next, as Photoshop's options bar spaces them. */
+	column-gap: var(--space-l);
 	grid-area: options;
 	height: calc(var(--target) + 2 * var(--space-2xs));
 }
@@ -182,6 +184,32 @@
 
 /* The color and the layers at the bar's far end: past the tools where there
    is room, and kept in reach over them where the tools scroll. */
+/*
+ * The tools, in their groups (`ToolGroups`): what is left of the bar after
+ * the colors and the layers, measured to fold groups that do not fit, and
+ * scrolling what is still over, the bar's own scrollbar hidden as the bar's is.
+ */
+.tool-groups {
+	align-items: center;
+	display: flex;
+	flex: 1 1 0;
+	gap: var(--space-2xs);
+	min-height: 0;
+	min-width: 0;
+	overflow: auto;
+	scrollbar-width: none;
+}
+
+.toolbar-horizontal > .tool-groups {
+	align-self: stretch;
+	flex-direction: row;
+}
+
+.toolbar-vertical > .tool-groups {
+	align-self: stretch;
+	flex-direction: column;
+}
+
 .tool-group-end {
 	background: var(--bg);
 	display: flex;
@@ -200,12 +228,6 @@
 	flex-direction: column;
 	inset-block-end: 0;
 	margin-block-start: auto;
-}
-
-/* The color the color panel was opened on, from the tool bar's pair: its name in the "on" color. */
-.color-panel-slot[data-editing] .field-label {
-	color: var(--on-fg);
-	font-weight: 600;
 }
 
 /* The layers: top first, each row an eye, the kind, the name and a lock. */
@@ -450,14 +472,6 @@
 .options-action:disabled {
 	cursor: default;
 	opacity: 0.4;
-}
-
-.options-rule {
-	align-self: stretch;
-	background: var(--border);
-	flex: none;
-	margin-block: var(--space-xs);
-	width: 1px;
 }
 
 /* Modify…: the ways, the radius as a slider and a number together, and

@@ -19,20 +19,20 @@ afterEach(() => {
 
 const renderTool = (props: Partial<Parameters<typeof ToolButton>[0]> = {}) => {
 	const onClick = vi.fn();
-	const onLongPress = vi.fn();
+	const onMenu = vi.fn();
 	const utils = render(
 		<ToolButton
 			icon={<svg data-testid="icon" />}
 			label="Brush"
 			onClick={onClick}
-			onLongPress={onLongPress}
+			onMenu={onMenu}
 			{...props}
 		/>
 	);
 	return {
 		...utils,
 		onClick,
-		onLongPress,
+		onMenu,
 		button: screen.getByRole('button', { name: 'Brush' }),
 	};
 };
@@ -71,27 +71,27 @@ describe('ToolButton', () => {
 		expect(button.querySelector('.tool-button-badge')?.textContent).toBe('red');
 	});
 
-	it('calls onClick on a short press, and never onLongPress', () => {
-		const { button, onClick, onLongPress } = renderTool();
+	it('calls onClick on a short press, and never onMenu', () => {
+		const { button, onClick, onMenu } = renderTool();
 		press(button, 499);
 		act(() => {
 			vi.advanceTimersByTime(1000);
 		});
 		expect(onClick).toHaveBeenCalledTimes(1);
-		expect(onLongPress).not.toHaveBeenCalled();
+		expect(onMenu).not.toHaveBeenCalled();
 	});
 
-	it('calls onLongPress after 500 ms held, and swallows the click that follows', () => {
-		const { button, onClick, onLongPress } = renderTool();
+	it('calls onMenu after 500 ms held, and swallows the click that follows', () => {
+		const { button, onClick, onMenu } = renderTool();
 		fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
 		act(() => {
 			vi.advanceTimersByTime(499);
 		});
-		expect(onLongPress).not.toHaveBeenCalled();
+		expect(onMenu).not.toHaveBeenCalled();
 		act(() => {
 			vi.advanceTimersByTime(1);
 		});
-		expect(onLongPress).toHaveBeenCalledTimes(1);
+		expect(onMenu).toHaveBeenCalledTimes(1);
 
 		fireEvent.pointerUp(button, { button: 0, pointerId: 1 });
 		fireEvent.click(button);
@@ -100,11 +100,11 @@ describe('ToolButton', () => {
 		// The next press is an ordinary one again.
 		press(button, 100);
 		expect(onClick).toHaveBeenCalledTimes(1);
-		expect(onLongPress).toHaveBeenCalledTimes(1);
+		expect(onMenu).toHaveBeenCalledTimes(1);
 	});
 
 	it('is not a long press once the pointer leaves, is canceled, or is not the primary button', () => {
-		const { button, onLongPress } = renderTool();
+		const { button, onMenu } = renderTool();
 		fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
 		fireEvent.pointerLeave(button, { pointerId: 1 });
 		fireEvent.pointerDown(button, { button: 0, pointerId: 2 });
@@ -113,31 +113,64 @@ describe('ToolButton', () => {
 		act(() => {
 			vi.advanceTimersByTime(2000);
 		});
-		expect(onLongPress).not.toHaveBeenCalled();
+		expect(onMenu).not.toHaveBeenCalled();
 	});
 
 	it('takes the click of a key after a long press that was let go off the button', () => {
-		const { button, onClick, onLongPress } = renderTool();
+		const { button, onClick, onMenu } = renderTool();
 		fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
 		act(() => {
 			vi.advanceTimersByTime(500);
 		});
 		fireEvent.pointerLeave(button, { pointerId: 1 });
-		expect(onLongPress).toHaveBeenCalledTimes(1);
+		expect(onMenu).toHaveBeenCalledTimes(1);
 
 		fireEvent.keyDown(button, { key: 'Enter' });
 		fireEvent.click(button);
 		expect(onClick).toHaveBeenCalledTimes(1);
 	});
 
-	it("keeps the browser's own menu off a button with a long press, and only there", () => {
+	it("keeps the browser's own menu off a button with a menu, and only there", () => {
 		const { button, rerender, onClick } = renderTool();
 		expect(fireEvent.contextMenu(button)).toBe(false);
 		rerender(<ToolButton icon={null} label="Brush" onClick={onClick} />);
 		expect(fireEvent.contextMenu(button)).toBe(true);
 	});
 
-	it('without onLongPress, a held press is still a click', () => {
+	it('asks for its menu on a right-click and on the menu key, from the button itself', () => {
+		const { button, onMenu, onClick } = renderTool();
+		fireEvent.pointerDown(button, { button: 2, pointerId: 1 });
+		fireEvent.contextMenu(button);
+		expect(onMenu).toHaveBeenCalledTimes(1);
+		expect(onMenu).toHaveBeenLastCalledWith(button);
+		// The menu key: a context menu with no press before it.
+		fireEvent.contextMenu(button);
+		expect(onMenu).toHaveBeenCalledTimes(2);
+		expect(onClick).not.toHaveBeenCalled();
+	});
+
+	it('opens one menu for a long press, not a second for the touch menu after it', () => {
+		const { button, onMenu } = renderTool();
+		fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
+		// A touch screen's own menu, arriving before the long press is up.
+		fireEvent.contextMenu(button);
+		expect(onMenu).not.toHaveBeenCalled();
+		act(() => {
+			vi.advanceTimersByTime(500);
+		});
+		fireEvent.contextMenu(button);
+		expect(onMenu).toHaveBeenCalledTimes(1);
+		expect(onMenu).toHaveBeenLastCalledWith(button);
+	});
+
+	it('says it has a menu only when it has one', () => {
+		const { button, rerender, onClick } = renderTool();
+		expect(button.getAttribute('aria-haspopup')).toBe('menu');
+		rerender(<ToolButton icon={null} label="Brush" onClick={onClick} />);
+		expect(button.hasAttribute('aria-haspopup')).toBe(false);
+	});
+
+	it('without onMenu, a held press is still a click', () => {
 		const onClick = vi.fn();
 		render(<ToolButton icon={null} label="Hand" onClick={onClick} />);
 		press(screen.getByRole('button', { name: 'Hand' }), 2000);
@@ -145,13 +178,13 @@ describe('ToolButton', () => {
 	});
 
 	it('leaves no timer behind when taken down mid-press', () => {
-		const { button, unmount, onLongPress } = renderTool();
+		const { button, unmount, onMenu } = renderTool();
 		fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
 		unmount();
 		act(() => {
 			vi.advanceTimersByTime(1000);
 		});
-		expect(onLongPress).not.toHaveBeenCalled();
+		expect(onMenu).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while disabled', () => {

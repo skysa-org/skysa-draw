@@ -483,6 +483,24 @@ const at = (x: number, y: number, extra: Partial<PointerSample> = {}): PointerSa
 
 type Point = Readonly<{ x: number; y: number }>;
 
+/**
+ * The stamps drawn on a context, in its own pixels: each `arc`'s center and
+ * radius through the transform it was drawn under, since a stamp is a disk
+ * in user units drawn through the map to the pixels.
+ */
+const stampsOn = (ctx: FakeContext): number[][] => {
+	let transform = [1, 0, 0, 1, 0, 0];
+	const stamps: number[][] = [];
+	ctx.calls.forEach((call) => {
+		if (call.name === 'setTransform') transform = call.args as number[];
+		if (call.name !== 'arc') return;
+		const [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0] = transform;
+		const [x = 0, y = 0, r = 0] = call.args as number[];
+		stamps.push([a * x + c * y + e, b * x + d * y + f, r * Math.hypot(a, b)]);
+	});
+	return stamps;
+};
+
 /** A whole stroke: begin at the first point, move through the rest, end at the last. */
 const stroke = (
 	behavior: ToolBehavior,
@@ -560,7 +578,7 @@ describe('the brush', () => {
 		expect(fills.length).toBeGreaterThan(3);
 		expect(fills.every((call) => call.alpha === 1)).toBe(true);
 		// The first stamp is under the pointer, half the pressured width across.
-		expect(strokeCtx.named('arc')[0]?.args.slice(0, 3)).toEqual([10, 10, 2.5]);
+		expect(stampsOn(strokeCtx)[0]).toEqual([10, 10, 2.5]);
 		expect(fake.screen.style.getPropertyValue('opacity')).toBe('0.4');
 
 		await Promise.all(fake.pending);
@@ -603,9 +621,7 @@ describe('the brush', () => {
 		tool('brush').cancel(fake.context);
 		tool('brush').begin(fake.context, at(10, 10, { pressure: 1 }));
 		tool('brush').cancel(fake.context);
-		const radii = fakeOf(surface.stroke)
-			.named('arc')
-			.map((call) => call.args[2]);
+		const radii = stampsOn(fakeOf(surface.stroke)).map(([, , r]) => r);
 		expect(radii).toEqual([1, 4]);
 		expect(fakeOf(surface.stroke).named('createRadialGradient')).toHaveLength(2);
 	});
@@ -655,7 +671,7 @@ describe('the pencil and the eraser', () => {
 		tool('pencil').cancel(fake.context);
 		const strokeCtx = fakeOf(surface.stroke);
 		expect(strokeCtx.named('createRadialGradient')).toHaveLength(0);
-		expect(strokeCtx.named('arc').map((call) => call.args[2])).toEqual([3, 3]);
+		expect(stampsOn(strokeCtx).map(([, , r]) => r)).toEqual([3, 3]);
 		expect(strokeCtx.named('fill').map((call) => call.fillStyle)).toEqual([
 			'#ff0000',
 			'#ff0000',
@@ -845,7 +861,10 @@ describe('what may not be drawn on', () => {
 		await tick();
 		expect(fake.notices).toEqual(DRAWING_TOOLS.map(() => message));
 		expect([fake.labels, fake.pending]).toEqual([[], []]);
-		expect(fake.context.overlay.childElementCount).toBe(0);
+		// Nothing but the brush's outline, the pointer of a tool with a size, where the pen lifted.
+		expect(
+			[...fake.context.overlay.children].map((child) => child.getAttribute('class'))
+		).toEqual(['brush-outline']);
 		expect(fake.layer.attributes.getNamedItem('transform')).toBeNull();
 		expect(imageOf(fake.layer)).toBeUndefined();
 	});
@@ -940,7 +959,7 @@ describe('the surface', () => {
 			{ x: -90, y: -40 },
 			{ x: -60, y: -40 },
 		]);
-		expect(fakeOf(surface.stroke).named('arc')[0]?.args.slice(0, 2)).toEqual([10, 10]);
+		expect(stampsOn(fakeOf(surface.stroke))[0]?.slice(0, 2)).toEqual([10, 10]);
 		await Promise.all(fake.pending);
 		expect(geometryOf(imageOf(fake.layer))).toEqual({
 			x: '-100',
@@ -960,7 +979,7 @@ describe('the surface', () => {
 			{ x: 100, y: 100 },
 			{ x: 100, y: 100 },
 		]);
-		expect(fakeOf(surface.stroke).named('arc')[0]?.args.slice(0, 3)).toEqual([50, 50, 2]);
+		expect(stampsOn(fakeOf(surface.stroke))[0]).toEqual([50, 50, 2]);
 		await Promise.all(fake.pending);
 		expect(geometryOf(imageOf(fake.layer))).toEqual({
 			x: '0',

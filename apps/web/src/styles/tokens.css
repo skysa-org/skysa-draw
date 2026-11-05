@@ -59,6 +59,18 @@
 	--shadow-l: 0 0.5rem 1.5rem rgb(0 0 0 / 12%);
 	--shadow-xl: 0 1rem 2.5rem rgb(0 0 0 / 25%);
 
+	/* The transparency grid behind a drawing, Photoshop's: white and light gray
+	   squares, the same in either theme, since it stands for no color at all
+	   and a drawing's own colors are judged against it. One tile is two
+	   squares each way. */
+	--checker-light: #ffffff;
+	--checker-dark: #cccccc;
+	--checker-grid: repeating-conic-gradient(
+			var(--checker-dark) 0% 25%,
+			var(--checker-light) 0% 50%
+		)
+		0 0 / 1rem 1rem;
+
 	/* Words, by size, for the app around a note. The editors' own text is not one
 	   of these (the headings in `rich.css`, the Markdown editor's in `shell.css`),
 	   nor a size in `em`, which follows the words around it. `--text-field-floor`

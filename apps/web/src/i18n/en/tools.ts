@@ -12,6 +12,10 @@ export const tools = {
 	brush: 'Brush',
 	eraser: 'Eraser',
 	smudge: 'Smudge',
+	/** Photoshop's Remove tool: paint over something, and it is made again from what is around it. */
+	remove: 'Remove',
+	/** Photoshop's Red Eye tool: a click on a pupil a flash turned red darkens it. */
+	redEye: 'Red eye',
 	fill: 'Fill',
 	eyedropper: 'Eyedropper',
 	rectangle: 'Rectangle',
@@ -23,6 +27,20 @@ export const tools = {
 	lasso: 'Lasso',
 	wand: 'Magic wand',
 	crop: 'Crop',
+	/**
+	 * The tool bar's groups, in Photoshop's order (`drawing/tools/groups.ts`):
+	 * each names the menu a folded group opens.
+	 */
+	groups: {
+		move: 'Move tools',
+		select: 'Selection tools',
+		crop: 'Crop and sample tools',
+		retouch: 'Retouching tools',
+		paint: 'Painting tools',
+		draw: 'Pen and type tools',
+		shape: 'Shape tools',
+		view: 'Navigation tools',
+	},
 	options: {
 		size: 'Size',
 		opacity: 'Opacity',
@@ -44,6 +62,10 @@ export const tools = {
 		autoSelect: 'Auto-select',
 		/** The selection tools' four modes, as a group: new, add, subtract, intersect. */
 		areaMode: 'Selection mode',
+		/** The red eye tool: how much of the red around a click is darkened, as Photoshop's Pupil Size. */
+		pupilSize: 'Pupil size',
+		/** The red eye tool: how dark the corrected pupil is made, as Photoshop's Darken Amount. */
+		darken: 'Darken amount',
 	},
 	/**
 	 * The selection tools' four modes, each a button of the group, by

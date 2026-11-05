@@ -12,7 +12,9 @@ import { folders } from './folders.js';
 import { layers } from './layers.js';
 import { paths } from './paths.js';
 import { raster } from './raster.js';
+import { redEye } from './redEye.js';
 import { regions } from './regions.js';
+import { remove } from './remove.js';
 import { scheduler } from './scheduler.js';
 import { selection } from './selection.js';
 import { shell } from './shell.js';
@@ -41,6 +43,8 @@ export const en = {
 	paths,
 	text,
 	regions,
+	remove,
+	redEye,
 	selection,
 	exporting,
 	connection,

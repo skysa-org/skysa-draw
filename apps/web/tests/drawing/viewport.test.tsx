@@ -1,11 +1,12 @@
 import { DEFAULT_DRAWING_SIZE, emptyDrawing, type LayerKind } from '@skysa/draw-core';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { type ComponentProps, createRef } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type * as ContextMenuModule from '../../src/components/ui/ContextMenu.js';
 import type { MenuPoint } from '../../src/components/ui/ContextMenu.js';
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
+import { withBrushOutline } from '../../src/drawing/tools/common/brushOutline.js';
 import { ZOOM_CLICK, ZOOM_DRAG_PX } from '../../src/drawing/tools/common/zoom.js';
 import { toolById } from '../../src/drawing/tools/index.js';
 import type { FillSpec } from '../../src/drawing/tools/raster/areaFill.js';
@@ -1757,5 +1758,73 @@ describe('a tool asking for another, and the options changing', () => {
 		rerender(<Viewport {...props} options={options} />);
 		expect(text.names()).toEqual(['optionsChanged']);
 		expect(text.told[0]?.context.options).toBe(options);
+	});
+});
+
+describe('the brush’s outline over the canvas', () => {
+	/** A tool with a size, whose pointer is the brush's outline, around a behavior that records what it is told. */
+	const sizeTool = (kind: LayerKind = 'vector') => {
+		const recorded = recorder();
+		const leaves: ToolContext[] = [];
+		const behavior = withBrushOutline({
+			...recorded.behavior,
+			leave: (context) => {
+				leaves.push(context);
+			},
+		});
+		return { tool: fakeTool('brush', { [kind]: behavior }), leaves };
+	};
+
+	const outlineIn = (overlay: SVGSVGElement) => overlay.querySelector('[data-brush-outline]');
+
+	const leave = (region: HTMLElement) => {
+		act(() => {
+			fireEvent.pointerLeave(region);
+		});
+	};
+
+	it('follows a hovering mouse, the size across, and goes when the pointer leaves the canvas', () => {
+		const { tool, leaves } = sizeTool();
+		const { region, overlay } = setup(tool, { options: { ...DEFAULT_TOOL_OPTIONS, size: 20 } });
+		fire(region, pointer('pointermove', { clientX: 30, clientY: 40, buttons: 0 }));
+		const circle = outlineIn(overlay)?.querySelector('circle');
+		expect([circle?.getAttribute('cx'), circle?.getAttribute('cy')]).toEqual(['30', '40']);
+		expect(circle?.getAttribute('r')).toBe('10');
+		leave(region);
+		expect(outlineIn(overlay)).toBeNull();
+		expect(leaves).toHaveLength(1);
+	});
+
+	it('is not told the pointer left while a stroke holds it', () => {
+		const { tool, leaves } = sizeTool();
+		const { region, overlay } = setup(tool);
+		fire(region, pointer('pointerdown', { clientX: 30, clientY: 40 }));
+		leave(region);
+		expect(leaves).toEqual([]);
+		expect(outlineIn(overlay)).not.toBeNull();
+	});
+
+	it('goes when the tool is put down', () => {
+		const { tool } = sizeTool();
+		const { region, overlay, rerender, props } = setup(tool);
+		fire(region, pointer('pointermove', { clientX: 30, clientY: 40, buttons: 0 }));
+		expect(outlineIn(overlay)).not.toBeNull();
+		rerender(
+			<Viewport {...props} tool={fakeTool('marquee', { vector: recorder().behavior })} />
+		);
+		expect(outlineIn(overlay)).toBeNull();
+	});
+
+	it('marks the cursor the tool’s own, which it is not under Space’s hand or on a layer the tool does nothing on', () => {
+		const { region, rerender, props } = setup(sizeTool().tool);
+		expect(region.hasAttribute('data-tool-cursor')).toBe(true);
+		keyDown(' ');
+		expect(region.hasAttribute('data-tool-cursor')).toBe(false);
+		keyUp(' ');
+		expect(region.hasAttribute('data-tool-cursor')).toBe(true);
+		// The active layer is a vector one, and this brush works on a raster one alone.
+		rerender(<Viewport {...props} tool={sizeTool('raster').tool} />);
+		expect(region.style.cursor).toBe('not-allowed');
+		expect(region.hasAttribute('data-tool-cursor')).toBe(false);
 	});
 });

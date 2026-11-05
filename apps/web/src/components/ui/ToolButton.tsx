@@ -1,6 +1,7 @@
 import { type PointerEvent, type ReactNode, useEffect, useRef } from 'react';
 
 import { t } from '../../i18n/t.js';
+import { classes } from './classes.js';
 
 /** How long a pointer is held before the press is a long one. */
 const LONG_PRESS_MS = 500;
@@ -10,12 +11,15 @@ const LONG_PRESS_MS = 500;
  * when it is the active tool, with the tool's key in its tooltip and, when a
  * `badge` is given, a corner mark such as the current color.
  *
- * A long press — the pointer held `LONG_PRESS_MS` without leaving — calls
- * `onLongPress` instead of `onClick`, which a phone has no other way to ask
- * for a tool's options; the click the browser sends as the pointer comes up
- * is then swallowed. A key is never a long press. Pointer Events only, as
- * everything here (docs/decisions/0004-the-interface.md): the one handler sees
- * a finger, a pen and a mouse alike.
+ * With `onMenu`, the button has more under it, as a collapsed tool group has
+ * its other tools, and says so (`aria-haspopup`, and a mark in its corner,
+ * as Photoshop's tools with more under them have). A long press — the
+ * pointer held `LONG_PRESS_MS` without leaving — asks for it, which a phone
+ * has no other way to; the click the browser sends as the pointer comes up
+ * is then swallowed. So does a right-click, and the keyboard's menu key, which
+ * the browser sends as one. A key is never a long press. Pointer Events only,
+ * as everything here (docs/decisions/0004-the-interface.md): the one handler
+ * sees a finger, a pen and a mouse alike.
  */
 export const ToolButton = ({
 	icon,
@@ -23,8 +27,10 @@ export const ToolButton = ({
 	shortcut,
 	pressed,
 	disabled,
+	unavailable,
+	describedBy,
 	onClick,
-	onLongPress,
+	onMenu,
 	badge,
 }: {
 	icon: ReactNode;
@@ -32,8 +38,17 @@ export const ToolButton = ({
 	shortcut?: string;
 	pressed?: boolean;
 	disabled?: boolean;
+	/**
+	 * The tool does nothing where it would act now, as a tool in hand on a
+	 * layer of a kind it has no use for: shown faded, and still pressed and
+	 * pressable, so it does not vanish from under the hand.
+	 */
+	unavailable?: boolean;
+	/** The ids of what says more than the name, as the colors the color pair holds. */
+	describedBy?: string;
 	onClick: () => void;
-	onLongPress?: () => void;
+	/** The button's menu asked for, with the button to open it from. */
+	onMenu?: (button: HTMLButtonElement) => void;
 	badge?: ReactNode;
 }) => {
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -51,13 +66,15 @@ export const ToolButton = ({
 	useEffect(() => cancel, []);
 
 	const start = (event: PointerEvent<HTMLButtonElement>) => {
-		if (onLongPress === undefined || event.button !== 0) return;
+		// Any press begins afresh, a right one too, whose menu is not a long press's.
 		longPressed.current = false;
+		if (onMenu === undefined || event.button !== 0) return;
+		const button = event.currentTarget;
 		cancel();
 		timer.current = setTimeout(() => {
 			timer.current = undefined;
 			longPressed.current = true;
-			onLongPress();
+			onMenu(button);
 		}, LONG_PRESS_MS);
 	};
 
@@ -73,9 +90,11 @@ export const ToolButton = ({
 		<button
 			type="button"
 			// An icon button in looks, and a tool button for its badge.
-			className="icon-button tool-button"
+			className={classes('icon-button tool-button', unavailable === true && 'is-unavailable')}
 			aria-pressed={pressed}
+			aria-haspopup={onMenu === undefined ? undefined : 'menu'}
 			aria-label={label}
+			aria-describedby={describedBy}
 			title={shortcut === undefined ? label : t('ui.labelWithShortcut', { label, shortcut })}
 			disabled={disabled}
 			onClick={click}
@@ -88,9 +107,17 @@ export const ToolButton = ({
 			onPointerUp={cancel}
 			onPointerLeave={cancel}
 			onPointerCancel={cancel}
-			// A long press is this button's own; the browser's menu for one is not wanted on it.
+			// The button's own menu, for a right-click and the menu key, in
+			// place of the browser's; a long press is already one, so the menu
+			// a touch screen sends after it is not a second.
 			onContextMenu={
-				onLongPress === undefined ? undefined : (event) => event.preventDefault()
+				onMenu === undefined
+					? undefined
+					: (event) => {
+							event.preventDefault();
+							if (longPressed.current || timer.current !== undefined) return;
+							onMenu(event.currentTarget);
+						}
 			}
 		>
 			<span className="tool-button-icon">{icon}</span>

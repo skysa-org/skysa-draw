@@ -41,6 +41,7 @@ export const editor = {
 	/** The hidden file field "Place picture…" opens. */
 	pictureFile: 'Picture to place',
 
+	/** The color panel, which the tool bar's colors open: each color's name over its field, and the swap in its header. */
 	color: {
 		title: 'Color',
 		fill: 'Fill',

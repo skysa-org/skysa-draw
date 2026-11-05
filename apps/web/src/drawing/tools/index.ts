@@ -45,25 +45,28 @@ const CROSSHAIR = 'crosshair';
 
 export const TOOLS: readonly Tool[] = [
 	{ ...tool('select', ['autoSelect'], 'default'), pick: autoSelect(measureOf) },
-	tool('node', [], 'default'),
 	// The selection tools' mode first, as Photoshop's options bar has it.
 	tool('marquee', ['areaMode', 'constrain'], CROSSHAIR),
 	tool('lasso', ['areaMode'], CROSSHAIR),
 	tool('wand', ['areaMode', 'tolerance', 'contiguous'], CROSSHAIR),
-	tool('hand', [], 'grab', handBehavior),
-	tool('zoom', [], 'zoom-in', zoomBehavior),
 	tool('crop', ['constrain'], CROSSHAIR, cropBehavior()),
-	tool('pencil', ['size', 'smoothing', 'stroke', 'opacity'], CROSSHAIR),
-	tool('brush', ['size', 'opacity', 'hardness', 'pressure', 'smoothing', 'fill'], CROSSHAIR),
-	tool('eraser', ['size', 'hardness'], CROSSHAIR),
-	tool('smudge', ['size', 'strength', 'hardness'], CROSSHAIR),
-	tool('fill', ['fill', 'tolerance'], CROSSHAIR),
 	tool('eyedropper', [], CROSSHAIR),
+	// Photoshop's healing group, J: a stroke painted over what goes, and a click on a red pupil.
+	tool('remove', ['size'], CROSSHAIR),
+	tool('redEye', ['pupilSize', 'darken'], CROSSHAIR),
+	tool('smudge', ['size', 'strength', 'hardness'], CROSSHAIR),
+	tool('brush', ['size', 'opacity', 'hardness', 'pressure', 'smoothing', 'fill'], CROSSHAIR),
+	tool('pencil', ['size', 'smoothing', 'stroke', 'opacity'], CROSSHAIR),
+	tool('eraser', ['size', 'hardness'], CROSSHAIR),
+	tool('fill', ['fill', 'tolerance'], CROSSHAIR),
 	tool('pen', ['fill', 'stroke', 'strokeWidth'], CROSSHAIR),
 	tool('text', ['fill', 'fontSize'], 'text'),
+	tool('node', [], 'default'),
 	tool('rectangle', ['fill', 'stroke', 'strokeWidth', 'cornerRadius', 'constrain'], CROSSHAIR),
 	tool('ellipse', ['fill', 'stroke', 'strokeWidth', 'constrain'], CROSSHAIR),
 	tool('line', ['stroke', 'strokeWidth', 'constrain'], CROSSHAIR),
+	tool('hand', [], 'grab', handBehavior),
+	tool('zoom', [], 'zoom-in', zoomBehavior),
 ];
 
 export const toolById = (id: ToolId): Tool | undefined =>
@@ -72,6 +75,16 @@ export const toolById = (id: ToolId): Tool | undefined =>
 /** What the tool does on a layer of this kind: its own behavior for the kind, else the one for any. */
 export const behaviorFor = (tool: Tool, kind: LayerKind | undefined): ToolBehavior | undefined =>
 	(kind === undefined ? undefined : tool.behaviors[kind]) ?? tool.behaviors.any;
+
+/**
+ * Whether the tool does anything on a layer of this kind, for the tool bar to
+ * show only the tools that do (docs/decisions/0004-the-interface.md): one
+ * with a behavior for it or for any kind, or one that picks the layer a press
+ * acts on (`Tool.pick`, the move tool's Auto-select), which may act inside a
+ * group. With no layer, every tool, since there is nothing to fit them to.
+ */
+export const availableOn = (tool: Tool, kind: LayerKind | undefined): boolean =>
+	kind === undefined || behaviorFor(tool, kind) !== undefined || tool.pick !== undefined;
 
 const NOT_ON = {
 	vector: 'tools.notOnVector',

@@ -1,7 +1,9 @@
 import type { Behaviors } from '../types.js';
 import { brushBehavior } from './brush.js';
 import { eyedropper, fill } from './fill.js';
+import { redEyeBehavior } from './redEye.js';
 import { regionBehavior } from './region.js';
+import { removeBehavior } from './remove.js';
 import { select } from './select.js';
 import { shapeBehavior } from './shapes.js';
 import { smudgeBehavior } from './smudge.js';
@@ -23,6 +25,8 @@ export const rasterBehaviors: Behaviors = {
 	brush: brushBehavior('brush'),
 	eraser: brushBehavior('eraser'),
 	smudge: smudgeBehavior(),
+	remove: removeBehavior(),
+	redEye: redEyeBehavior(),
 	fill,
 	eyedropper,
 	rectangle: shapeBehavior('rectangle'),

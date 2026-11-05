@@ -121,7 +121,8 @@ body {
 }
 
 .drawing-canvas img {
-	background: #ffffff;
+	/* The transparency grid, as the editor's canvas has it. */
+	background: var(--checker-grid);
 	box-shadow: var(--shadow-m);
 	max-height: 100%;
 	max-width: 100%;

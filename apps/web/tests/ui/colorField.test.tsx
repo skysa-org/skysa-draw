@@ -199,4 +199,50 @@ describe('ColorField', () => {
 		renderField({ recent: [] });
 		expect(screen.queryByRole('group', { name: 'Recent colors' })).toBeNull();
 	});
+
+	describe('layout', () => {
+		/** The field, its children's classes in order, and its row's controls in order. */
+		const shape = () => {
+			const field = document.querySelector<HTMLElement>('.color-field');
+			const row = field?.querySelector('.color-field-row');
+			return {
+				field,
+				children: [...(field?.children ?? [])].map((child) => child.className),
+				row: [...(row?.children ?? [])].map(
+					(child) => child.getAttribute('aria-label') ?? child.className
+				),
+			};
+		};
+
+		it('is inline unless asked otherwise: the name beside its row, as a bar has it', () => {
+			renderField({ allowNone: true });
+			const { field, children } = shape();
+			expect(field?.className).toBe('color-field color-field-inline');
+			expect(children).toEqual(['field-label', 'color-field-row']);
+		});
+
+		it('keeps the swatch, the hex and None in one row, whichever the layout', () => {
+			renderField({ allowNone: true, layout: 'stacked' });
+			expect(shape().row).toEqual(['color-swatch', 'Fill (hex)', 'color-none']);
+		});
+
+		it('stacked, puts its name over the row as a group’s legend, and the colors used lately under it', () => {
+			const { picker } = renderField({
+				allowNone: true,
+				layout: 'stacked',
+				recent: ['#ff0000'],
+			});
+			const { field, children } = shape();
+			expect(field?.className).toBe('color-field color-field-stacked');
+			expect(children).toEqual(['field-legend', 'color-field-row', 'color-recent']);
+			// Still the picker's name.
+			expect(screen.getByText('Fill').getAttribute('for')).toBe(picker.id);
+		});
+
+		it('stacked with its label hidden, keeps the label for the picker alone', () => {
+			const { picker } = renderField({ layout: 'stacked', hideLabel: true });
+			expect(screen.getByText('Fill').className).toBe('visually-hidden');
+			expect(picker.type).toBe('color');
+		});
+	});
 });

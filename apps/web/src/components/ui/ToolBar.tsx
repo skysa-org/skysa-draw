@@ -2,7 +2,7 @@ import { type FocusEvent, type KeyboardEvent, type ReactNode, useEffect, useRef 
 
 import { classes } from './classes.js';
 
-type Orientation = 'horizontal' | 'vertical';
+export type Orientation = 'horizontal' | 'vertical';
 
 /** The arrow keys that move along a bar, by the way it runs. */
 const ARROWS = {
@@ -15,8 +15,23 @@ const ARROWS = {
  * so is the item of a menu open in the bar, whose arrows are the menu's own.
  */
 const enabledButtons = (bar: HTMLElement): HTMLButtonElement[] => [
-	...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([role="menuitem"])'),
+	...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([role^="menuitem"])'),
 ];
+
+/**
+ * A light rule between groups of a bar's controls, as Photoshop's tool bar
+ * and options bar have between theirs: across a bar that runs down, and
+ * upright in one that runs across (`ui.css`). Every bar's rule is this one,
+ * so that they cannot come to differ.
+ */
+export const ToolBarRule = ({ orientation }: Readonly<{ orientation: Orientation }>) => (
+	<span
+		role="separator"
+		// A rule runs across the bar it is in.
+		aria-orientation={orientation === 'horizontal' ? 'vertical' : 'horizontal'}
+		className="toolbar-rule"
+	/>
+);
 
 /** Where a key moves focus from `at` among `count` buttons, wrapping at the ends. */
 const moveTo = (

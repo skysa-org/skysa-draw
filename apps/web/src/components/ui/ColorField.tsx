@@ -11,6 +11,21 @@ const DEFAULT_HEX = '#000000';
 const withHash = (text: string): string => (text.startsWith('#') ? text : `#${text}`);
 
 /**
+ * How a color is laid out (`ui.css`): `inline`, its name then its row on one
+ * line, as a bar and a form of inline fields have it; `stacked`, as a panel's
+ * and a dialog's groups are (`field-group`), its name over its row, the hex
+ * as wide as the row leaves it, and the colors used lately under the row.
+ * Either way the row is never broken.
+ */
+export type ColorFieldLayout = 'inline' | 'stacked';
+
+/** What the label is: hidden from the eye, a field's name beside it, or a group's over it. */
+const labelClass = (layout: ColorFieldLayout, hideLabel: boolean | undefined): string => {
+	if (hideLabel === true) return 'visually-hidden';
+	return layout === 'stacked' ? 'field-legend' : 'field-label';
+};
+
+/**
  * A color (docs/ARCHITECTURE.md §7, "The interface"): a fill, a stroke. The
  * native picker as the swatch, named by the field's label; a field for the hex
  * beside it, which takes a typed color on Enter or on leaving it and goes
@@ -26,6 +41,7 @@ export const ColorField = ({
 	allowNone,
 	recent,
 	hideLabel,
+	layout = 'inline',
 }: {
 	label: string;
 	value: string;
@@ -33,6 +49,7 @@ export const ColorField = ({
 	allowNone?: boolean;
 	recent?: readonly string[];
 	hideLabel?: boolean;
+	layout?: ColorFieldLayout;
 }) => {
 	const pickerId = useId();
 	const none = isNone(value);
@@ -67,52 +84,52 @@ export const ColorField = ({
 	};
 
 	return (
-		<div className="color-field">
-			<label
-				htmlFor={pickerId}
-				className={hideLabel === true ? 'visually-hidden' : 'field-label'}
-			>
+		<div className={classes('color-field', `color-field-${layout}`)}>
+			<label htmlFor={pickerId} className={labelClass(layout, hideLabel)}>
 				{label}
 			</label>
-			{/* The swatch is drawn in `currentColor` under a picker that cannot be seen but takes the press. */}
-			<span
-				className={classes('color-swatch', none && 'is-none')}
-				style={{ color: hex ?? held }}
-			>
-				<input
-					id={pickerId}
-					type="color"
-					value={hex ?? held}
-					onChange={(event) => commit(event.target.value)}
-				/>
-			</span>
-			<input
-				type="text"
-				className="color-hex"
-				aria-label={t('ui.hex', { label })}
-				inputMode="text"
-				autoCapitalize="off"
-				autoCorrect="off"
-				spellCheck={false}
-				maxLength={7}
-				value={draft ?? (none ? '' : (hex ?? value))}
-				placeholder={none ? t('ui.none') : undefined}
-				onChange={(event) => setDraft(event.target.value)}
-				onKeyDown={onHexKeyDown}
-				onBlur={(event) => {
-					if (draft !== undefined) commit(event.target.value);
-				}}
-			/>
-			{allowNone === true && (
-				<button
-					type="button"
-					className="color-none"
-					aria-pressed={none}
-					onClick={() => onChange(none ? held : 'none')}
+			{/* One row, never broken: the swatch, the hex and None. */}
+			<div className="color-field-row">
+				{/* The swatch is drawn in `currentColor` under a picker that cannot be seen but takes the press. */}
+				<span
+					className={classes('color-swatch', none && 'is-none')}
+					style={{ color: hex ?? held }}
 				>
-					{t('ui.none')}
-				</button>
-			)}
+					<input
+						id={pickerId}
+						type="color"
+						value={hex ?? held}
+						onChange={(event) => commit(event.target.value)}
+					/>
+				</span>
+				<input
+					type="text"
+					className="color-hex"
+					aria-label={t('ui.hex', { label })}
+					inputMode="text"
+					autoCapitalize="off"
+					autoCorrect="off"
+					spellCheck={false}
+					maxLength={7}
+					value={draft ?? (none ? '' : (hex ?? value))}
+					placeholder={none ? t('ui.none') : undefined}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={onHexKeyDown}
+					onBlur={(event) => {
+						if (draft !== undefined) commit(event.target.value);
+					}}
+				/>
+				{allowNone === true && (
+					<button
+						type="button"
+						className="color-none"
+						aria-pressed={none}
+						onClick={() => onChange(none ? held : 'none')}
+					>
+						{t('ui.none')}
+					</button>
+				)}
+			</div>
 			{recent !== undefined && recent.length > 0 && (
 				<div className="color-recent" role="group" aria-label={t('ui.recentColors')}>
 					{recent.map((color) => {

@@ -26,7 +26,6 @@ import { behaviorFor, notAvailableMessage } from './tools/index.js';
 import { antsPath } from './tools/raster/area.js';
 import { nudgeArea } from './tools/raster/index.js';
 import type { PointerSample, ToolBehavior, ToolContext } from './tools/types.js';
-import { elementsOf } from './tools/vector/hit.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
 import { useAreaTransform } from './viewport/areaTransform.js';
 import { isLongPress, keyboardPoint, useCanvasMenu } from './viewport/canvasMenu.js';
@@ -42,11 +41,13 @@ import { observable } from './viewport/observable.js';
 import { isMac, pointerTypeOf, sampleFrom } from './viewport/pointer.js';
 import { usePointerPressed } from './viewport/pointerPressed.js';
 import { useSelectionCommands } from './viewport/selectionCommands.js';
+import { useSelectionFollows } from './viewport/selectionFollows.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 import { shadowOf } from './viewport/shadow.js';
 import { useToolHandover } from './viewport/toolHandover.js';
 import {
 	actualSizeView,
+	checkerSize,
 	fitView,
 	IDENTITY_VIEW,
 	panBy,
@@ -336,29 +337,16 @@ export const Viewport = ({
 		arrive();
 	}, [toolId, cancelStroke, selections]);
 
-	// What is selected is on the active layer, and a key that deletes it acts
-	// on that layer: another layer made active lets go of it, unless it is that
-	// layer's own, as it is when Auto-Select made the layer active under a
-	// press that selected an element of it.
-	useEffect(() => {
-		const active = layerId === undefined ? undefined : document.layer(layerId);
-		const own = active === undefined ? [] : elementsOf(active);
-		const selected = selections.get();
-		const kept = selected.filter((element) => own.includes(element));
-		if (kept.length > 0 && kept.length === selected.length) return;
-		selections.set(kept.length === 0 ? NO_SELECTION : kept);
-		clearOverlay();
-	}, [document, layerId, selections, clearOverlay]);
-
-	// An undo puts a layer's markup back, which replaces its elements: one that
-	// left the drawing is no longer selected, and its box goes with it.
-	useEffect(() => {
-		const selected = selections.get();
-		const kept = selected.filter((element) => document.root.contains(element));
-		if (kept.length === selected.length) return;
-		selections.set(kept.length === 0 ? NO_SELECTION : kept);
-		clearOverlay();
-	}, [document, snapshot, selections, clearOverlay]);
+	// What is selected is the active layer's and in the drawing, and its box
+	// goes with what is let go of, under a press too (`viewport/selectionFollows.ts`).
+	useSelectionFollows({
+		document,
+		snapshot,
+		layerId,
+		selection: selections,
+		overlay,
+		clearOverlay,
+	});
 
 	// The screen canvas in device pixels, as big as the viewport; set only
 	// when the size changed, since setting a canvas's size clears it.
@@ -676,6 +664,12 @@ export const Viewport = ({
 		if (stroke.current?.pointerId === event.nativeEvent.pointerId) cancelStroke();
 	};
 
+	// The pointer gone from the canvas with nothing down: what the tool's hover showed goes with it.
+	const onPointerLeave = () => {
+		const context = stroke.current === undefined ? toolContext() : undefined;
+		if (context !== undefined) behaviorFor(tool, activeLayer()?.kind)?.leave?.(context);
+	};
+
 	// A tool that does nothing on the active layer says so on a click, and
 	// shows it before one; a tool that picks the layer a press acts on, with
 	// Auto-Select on, may act on a group's layers while the group is active.
@@ -689,6 +683,8 @@ export const Viewport = ({
 			: (tool.cursor ?? 'default')
 		: 'not-allowed';
 	const cursor = spaceHeld ? 'grab' : (transform.cursor ?? toolCursor);
+	// The tool's own cursor, which the brush's outline stands in for (`viewport.css`).
+	const ownCursor = !spaceHeld && transform.cursor === undefined && available;
 
 	return (
 		<>
@@ -698,6 +694,7 @@ export const Viewport = ({
 				role="region"
 				aria-label={t('editor.panes.canvas')}
 				style={{ cursor }}
+				data-tool-cursor={ownCursor ? '' : undefined}
 				// Focusable, so the keys act where the drawing is and a keyboard
 				// user can reach it: to the rule a landmark is nothing the keyboard
 				// stops at, and this one is where it works.
@@ -708,6 +705,7 @@ export const Viewport = ({
 				onPointerUp={onPointerUp}
 				onPointerCancel={onPointerCancel}
 				onLostPointerCapture={onLostPointerCapture}
+				onPointerLeave={onPointerLeave}
 			>
 				<div
 					className="viewport-stage"
@@ -717,7 +715,7 @@ export const Viewport = ({
 						height: box.height,
 					}}
 				>
-					<div className="viewport-paper" />
+					<div className="viewport-paper" style={{ backgroundSize: checkerSize(view) }} />
 					<div className="viewport-mount" ref={mount} />
 					<svg
 						className="viewport-area"

@@ -16,6 +16,7 @@ import {
 } from '../../src/drawing/viewport/pointer.js';
 import {
 	actualSizeView,
+	checkerSize,
 	clampScale,
 	FIT_MARGIN,
 	fitView,
@@ -108,6 +109,12 @@ describe('the view', () => {
 	it("puts the stage's corner where the viewBox's origin lands", () => {
 		expect(stageTransform(view, { x: 0, y: 0 })).toBe('translate(10px, 20px) scale(2)');
 		expect(stageTransform(view, { x: 5, y: -10 })).toBe('translate(20px, 0px) scale(2)');
+	});
+
+	it('sizes the transparency grid in user units, so the scale keeps it 16 px on screen', () => {
+		expect(checkerSize(view)).toBe('8px 8px');
+		expect(checkerSize({ ...view, scale: 0.25 })).toBe('64px 64px');
+		expect(checkerSize(IDENTITY_VIEW)).toBe('16px 16px');
 	});
 });
 

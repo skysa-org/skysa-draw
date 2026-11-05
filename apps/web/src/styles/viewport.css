@@ -36,11 +36,13 @@
 	transform-origin: 0 0;
 }
 
-/* White paper under the drawing; a checkerboard behind transparent pixels is for later. */
+/* The transparency grid under the drawing, so what is clear or empty shows as
+   such. The viewport sizes its tile in the stage's units (`checkerSize`), so
+   the squares stay one size on screen at every zoom, as Photoshop's do. */
 .viewport-paper {
 	position: absolute;
 	inset: 0;
-	background: #fff;
+	background: var(--checker-grid);
 	box-shadow: var(--shadow-m);
 }
 
@@ -72,4 +74,37 @@
 	width: 100%;
 	height: 100%;
 	pointer-events: none;
+}
+
+/* The brush's outline, the pointer of every tool with a size
+   (`tools/common/brushOutline.ts`), as Photoshop's Normal Brush Tip: a circle
+   as big as what the tool paints, in the drawing's units, and a crosshair at
+   its middle, each a light halo under a dark hairline so it reads on any
+   picture, the same widths on the screen at any zoom. */
+.brush-outline {
+	fill: none;
+	pointer-events: none;
+}
+
+.brush-outline-halo {
+	stroke: rgb(255 255 255 / 0.85);
+	stroke-width: 3px;
+}
+
+.brush-outline-line {
+	stroke: rgb(0 0 0 / 0.9);
+	stroke-width: 1px;
+}
+
+/* The outline is the pointer while it shows and the cursor is the tool's own
+   (`data-tool-cursor`), so the system's is hidden, over the inline cursor the
+   tool sets; until the outline is first drawn the tool's crosshair shows.
+   Space's hand, a transform's grips and a tool that does nothing on the layer
+   keep their cursors, and the outline is not shown under them. */
+.viewport[data-tool-cursor]:has(.viewport-overlay > .brush-outline) {
+	cursor: none !important;
+}
+
+.viewport:not([data-tool-cursor]) .brush-outline {
+	display: none;
 }

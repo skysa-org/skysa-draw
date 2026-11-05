@@ -1,8 +1,10 @@
 import { cell } from '@skysa/draw-core';
 
+import { withBrushOutline } from '../common/brushOutline.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, unionBox } from '../vector/geometry.js';
 import { type Area, areaMask, areaOf, pixelsToScreen, reachesArea } from './area.js';
+import { pixelsPerUnit } from './brushEngine.js';
 import { claimScreen, clearScreen, guardedSurface, releaseScreen, reportFailure } from './guard.js';
 import { dabStrength, type Point, smudgeDab, stampsAlong, stampSpacing } from './pixels.js';
 import type { RasterSurface } from './surface.js';
@@ -24,7 +26,9 @@ import type { RasterSurface } from './surface.js';
  * file's, so the surface is forgotten and read from the file again. Where an
  * area is selected each dab changes a pixel by as much as the area covers
  * it (`areaMask`): nothing outside, less over a feathered edge, and for an
- * inverse the canvas outside the outline.
+ * inverse the canvas outside the outline. Its pointer is the brush's
+ * outline (`tools/common/brushOutline.ts`), a dab's size in the drawing's
+ * units on any layer.
  */
 
 interface Stroke {
@@ -53,13 +57,20 @@ const MIN_RADIUS = 0.5;
 
 const pointOf = (sample: PointerSample): Point => ({ x: sample.x, y: sample.y });
 
-/** The dab's radius in the layer's pixels. */
+/**
+ * The dab's radius in the layer's pixels: half its size, which is in the
+ * drawing's units as the brush's outline shows it, through the layer's
+ * `transform` (`pixelsPerUnit`). A dab is round on the pixels, so on a layer
+ * scaled more one way than the other it is the disk of the mean of the two.
+ */
 const radiusOf = (surface: RasterSurface, options: ToolOptions): number =>
-	Math.max(MIN_RADIUS, (options.size / 2) * surface.ppu);
+	Math.max(MIN_RADIUS, (options.size / 2) * pixelsPerUnit(surface));
 
 /** How far apart the dabs are, in user units: the brush's spacing for the same radius. */
-const spacingOf = (surface: RasterSurface, options: ToolOptions): number =>
-	stampSpacing(radiusOf(surface, options)) / surface.ppu;
+const spacingOf = (surface: RasterSurface, options: ToolOptions): number => {
+	const unit = pixelsPerUnit(surface);
+	return unit > 0 ? stampSpacing(radiusOf(surface, options)) / unit : 0;
+};
 
 /** The mask's context, where an area is selected and the browser can draw it. */
 const maskFor = (
@@ -223,7 +234,7 @@ export const smudgeBehavior = (): ToolBehavior => {
 		};
 	};
 
-	return {
+	return withBrushOutline({
 		begin: (context, sample) => {
 			const surface = guardedSurface(context);
 			if (surface === undefined) return;
@@ -294,5 +305,5 @@ export const smudgeBehavior = (): ToolBehavior => {
 			if (stroke.changed) stroke.surface.discard();
 			clearScreen(context.screen);
 		},
-	};
+	});
 };

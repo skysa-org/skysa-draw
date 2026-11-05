@@ -1,6 +1,7 @@
 import { type BlendMode, cell } from '@skysa/draw-core';
 
-import { type MessageKey, t } from '../../../i18n/t.js';
+import type { Args, At } from '../../../i18n/catalog.js';
+import { type English, type MessageKey, t } from '../../../i18n/t.js';
 import { inpaint } from '../../inpaint/index.js';
 import type { ToolContext } from '../types.js';
 import { inkOf } from '../vector/svg.js';
@@ -27,6 +28,13 @@ import { type RasterSurface, surfaceFor, UnreadablePictureError } from './surfac
  * transparency keeps each pixel's alpha: the fill is laid over a copy of the
  * pixels and the copy drawn back `source-atop`, which keeps the destination's
  * alpha.
+ *
+ * Making pixels again is the engine's (`inpaint`), and the work around it is
+ * here once, for Fill…'s Content-Aware and for the Remove tool alike
+ * (`makeAgainUnder`): the engine given the layer and a hole of every pixel a
+ * coverage reaches, a status over the canvas with its Stop while it works,
+ * Escape aborting it, its result dropped where the layer changed meanwhile,
+ * and what it made laid over the layer by the coverage in one command.
  */
 
 export type FillContents = 'fill' | 'stroke' | 'color' | 'contentAware';
@@ -214,15 +222,29 @@ const pictureOf = (
 	return canvas;
 };
 
-/** Why a content-aware fill stopped before it was written. */
+/** Why making pixels again stopped before what was made was written. */
 type Stop = 'stopped' | 'changed' | 'failed';
 
-/** What the user is told of each; none takes a placeholder. */
-const STOP_WORDS = {
+/** A key of the catalog whose message takes no placeholder and does not count. */
+type PlainKey = {
+	[K in MessageKey]: Args<At<English, K>> extends [] ? K : never;
+}[MessageKey];
+
+/**
+ * What the user is told while the engine works and why it stopped, each a
+ * key of the catalog that takes no placeholder: the line over the canvas,
+ * its button, and one for each way it stops before it writes.
+ */
+export type MakeAgainWords = Readonly<Record<'working' | 'stop' | Stop, PlainKey>>;
+
+/** Fill…'s words for its Content-Aware. */
+const FILL_WORDS = {
+	working: 'selection.fill.working',
+	stop: 'selection.fill.stop',
 	stopped: 'selection.fill.stopped',
 	changed: 'selection.fill.changed',
 	failed: 'selection.fill.failed',
-} as const satisfies Readonly<Record<Stop, MessageKey>>;
+} as const satisfies MakeAgainWords;
 
 /** The events the progress stops, so a press on it starts no stroke and opens no menu. */
 const KEPT_FROM_CANVAS = ['pointerdown', 'pointerup', 'contextmenu'] as const;
@@ -233,28 +255,32 @@ const KEPT_FROM_CANVAS = ['pointerdown', 'pointerup', 'contextmenu'] as const;
  * engine does not, and Stop, for a screen with no Escape. A status, so a
  * screen reader says it once.
  */
-const showProgress = (host: HTMLElement, onStop: () => void): Readonly<{ remove: () => void }> => {
+const showProgress = (
+	host: HTMLElement,
+	words: MakeAgainWords,
+	onStop: () => void
+): Readonly<{ remove: () => void }> => {
 	const owner = host.ownerDocument;
 	const box = owner.createElement('div');
 	box.setAttribute('class', 'fill-progress');
 	box.setAttribute('role', 'status');
-	const words = owner.createElement('span');
-	words.append(t('selection.fill.working'));
+	const line = owner.createElement('span');
+	line.append(t(words.working));
 	const bar = owner.createElement('progress');
 	bar.setAttribute('aria-hidden', 'true');
 	const stop = owner.createElement('button');
 	stop.setAttribute('type', 'button');
-	stop.append(t('selection.fill.stop'));
+	stop.append(t(words.stop));
 	stop.addEventListener('click', onStop);
 	KEPT_FROM_CANVAS.forEach((name) =>
 		box.addEventListener(name, (event) => event.stopPropagation())
 	);
-	box.append(words, bar, stop);
+	box.append(line, bar, stop);
 	host.append(box);
 	return { remove: () => box.remove() };
 };
 
-/** A content-aware fill under way: why it stopped, if it did, whether its pixels went stale, and its end. */
+/** The engine at work: why it stopped, if it did, whether its pixels went stale, and its end. */
 type Watch = Readonly<{
 	stopped: () => Stop | undefined;
 	stale: () => boolean;
@@ -262,17 +288,18 @@ type Watch = Readonly<{
 }>;
 
 /**
- * Watching a content-aware fill while the engine works, which may be long:
- * Escape anywhere, or Stop, aborts it, and so does any change to the layer's
- * pixels meanwhile (an undo or a redo moved the file's picture, or another
- * write was asked of the surface), since what the engine made is of the
- * pixels as they were. Escape is taken in the capture phase and its default
- * prevented, so the viewport does not also drop the area.
+ * Watching the engine while it works, which may be long: Escape anywhere,
+ * or Stop, aborts it, and so does any change to the layer's pixels meanwhile
+ * (an undo or a redo moved the file's picture, or another write was asked of
+ * the surface), since what the engine made is of the pixels as they were.
+ * Escape is taken in the capture phase and its default prevented, so the
+ * viewport does not also drop the area.
  */
-const watchFill = (
+const watchEngine = (
 	context: ToolContext,
 	surface: RasterSurface,
-	controller: AbortController
+	controller: AbortController,
+	words: MakeAgainWords
 ): Watch => {
 	const why = cell<Stop | undefined>(undefined);
 	const asked = surface.writes();
@@ -292,7 +319,7 @@ const watchFill = (
 	const unsubscribe = context.document.subscribe(() => {
 		if (stale()) stop('changed');
 	});
-	const progress = showProgress(context.host, () => stop('stopped'));
+	const progress = showProgress(context.host, words, () => stop('stopped'));
 	const ended = cell(false);
 	return {
 		stopped: () => why.current,
@@ -307,32 +334,59 @@ const watchFill = (
 	};
 };
 
-/** What the engine is given: the layer's pixels, once decoded, the area's coverage and the hole it makes. */
+/** A box of a layer's pixels, in whole pixels. */
+type PixelBox = Readonly<{ x: number; y: number; width: number; height: number }>;
+
+/**
+ * What the engine makes again of a layer: how much of each of its pixels
+ * goes, as the alpha of a canvas the size of the layer's pixels, and the box
+ * of them outside which none does.
+ */
+type Coverage = Readonly<{ canvas: HTMLCanvasElement; box: PixelBox }>;
+
+/** One making again: the command it is, the user's words for it, and what it makes again. */
+export type MakeAgain = Readonly<{
+	/** The command's name, as the history says it. */
+	label: MessageKey;
+	words: MakeAgainWords;
+	/**
+	 * The coverage, asked for once the layer's pixels are decoded and can be
+	 * read; none where there is nothing to make again. Its canvas is the
+	 * work's from then on, let go of once it is done.
+	 */
+	coverage: () => Coverage | undefined;
+}>;
+
+/** What the engine is given: the layer's pixels, once decoded, the coverage and the hole it makes. */
 type Read = Readonly<{
 	image: ImageData;
 	cover: HTMLCanvasElement;
 	hole: Uint8Array;
-	box: Readonly<{ x: number; y: number; width: number; height: number }>;
+	box: PixelBox;
 }>;
 
 /**
- * The layer's pixels and the area's coverage of them, once they are
- * decoded; none for a surface with no 2D context, which is inert, or an area
- * that covers none of them. A picture that would not decode rejects, as a
- * stroke on it does.
+ * The layer's pixels and the coverage of them, once they are decoded; none
+ * for a surface with no 2D context, which is inert, or a coverage that
+ * reaches none of them, for which the engine is not asked. A picture that
+ * would not decode rejects, as a stroke on it does.
  */
-const readForEngine = async (surface: RasterSurface, area: Area): Promise<Read | undefined> => {
+const readForEngine = async (
+	surface: RasterSurface,
+	coverage: MakeAgain['coverage']
+): Promise<Read | undefined> => {
 	await surface.ready;
 	const ctx = surface.canvas.getContext('2d');
 	if (ctx === null) return undefined;
 	if (!surface.readable()) {
 		throw new UnreadablePictureError(`the picture on ${surface.layerId} could not be read`);
 	}
-	const box = areaPixelBox(surface, area);
-	const cover = box === undefined ? undefined : areaMask(surface, area);
-	const hole = cover === undefined ? undefined : holeOf(cover);
-	if (box === undefined || cover === undefined || hole === undefined) {
-		if (cover !== undefined) releaseCanvas(cover);
+	const covered = coverage();
+	if (covered === undefined) return undefined;
+	const { canvas: cover, box } = covered;
+	const hole = holeOf(cover);
+	if (hole === undefined || !hole.includes(1)) {
+		releaseCanvas(cover);
 		return undefined;
 	}
 	const image = ctx.getImageData(0, 0, surface.canvas.width, surface.canvas.height);
@@ -345,11 +399,11 @@ const readForEngine = async (surface: RasterSurface, area: Area): Promise<Read |
  * rather than laid over them. Whether a pixel changed.
  */
 const madePainter =
-	(context: ToolContext, read: Read, made: Uint8ClampedArray, way: Way) =>
+	(context: ToolContext, read: Read, made: Uint8ClampedArray, way: Way, words: MakeAgainWords) =>
 	(ctx: CanvasRenderingContext2D): boolean => {
 		const picture = pictureOf(made, ctx.canvas);
 		if (picture === undefined) {
-			context.notify(t(STOP_WORDS.failed));
+			context.notify(t(words.failed));
 			return false;
 		}
 		const { box, cover } = read;
@@ -363,13 +417,13 @@ const madePainter =
 /** What the engine made of what it was given; no pixels where it failed or was aborted. */
 type Made = Readonly<{ read: Read; pixels: Uint8ClampedArray | undefined }>;
 
-/** The layer read and the area's pixels made again from the rest; none where there was nothing to read. */
+/** The layer read and the covered pixels made again from the rest; none where there was nothing to read. */
 const makeAgain = async (
 	surface: RasterSurface,
-	area: Area,
+	coverage: MakeAgain['coverage'],
 	signal: AbortSignal
 ): Promise<Made | undefined> => {
-	const read = await readForEngine(surface, area);
+	const read = await readForEngine(surface, coverage);
 	if (read === undefined) return undefined;
 	const { width, height, data } = read.image;
 	const pixels = await inpaint({ width, height, data }, read.hole, signal).catch(() => undefined);
@@ -377,34 +431,78 @@ const makeAgain = async (
 };
 
 /**
- * The pixels the area covers made again from the rest of the layer
- * (`inpaint`), and laid over it by the coverage. An undo, a redo or another
- * write while the engine works stops it, as Escape and Stop do, and the user
- * is told why; what was made is written by `rewrite`, so an undo that lands
- * while it is encoded rejects it, as layer via copy's `derive` does, and the
- * caller says so.
+ * How many makings again are under way, on any layer: begun, and neither
+ * written nor stopped yet.
  */
-const contentAware = async (
+const underWay = cell(0);
+
+/** Whether the engine is making pixels again for any layer, for a tool that would begin another. */
+export const makingAgain = (): boolean => underWay.current > 0;
+
+/**
+ * The pixels the coverage reaches made again from the rest of the layer
+ * (`inpaint`), and laid over it by the coverage as `way` says. An undo, a
+ * redo or another write while the engine works stops it, as Escape and Stop
+ * do, and the user is told why; what was made is written by `rewrite`, so an
+ * undo that lands while it is encoded rejects it, as layer via copy's
+ * `derive` does, and the caller says so.
+ */
+const makeAgainWith = async (
 	context: ToolContext,
 	surface: RasterSurface,
-	area: Area,
+	job: MakeAgain,
 	way: Way
 ): Promise<void> => {
 	const controller = new AbortController();
-	const watch = watchFill(context, surface, controller);
-	const made = await makeAgain(surface, area, controller.signal).finally(watch.end);
+	const watch = watchEngine(context, surface, controller, job.words);
+	const made = await makeAgain(surface, job.coverage, controller.signal).finally(watch.end);
 	if (made === undefined) return;
 	const { read, pixels } = made;
 	const stopped = watch.stopped() ?? (watch.stale() ? 'changed' : undefined);
 	if (stopped !== undefined || pixels === undefined) {
 		releaseCanvas(read.cover);
-		context.notify(t(STOP_WORDS[stopped ?? 'failed']));
+		context.notify(t(job.words[stopped ?? 'failed']));
 		return;
 	}
 	await surface
-		.rewrite('regions.fill', madePainter(context, read, pixels, way))
+		.rewrite(job.label, madePainter(context, read, pixels, way, job.words))
 		.finally(() => releaseCanvas(read.cover));
 };
+
+/** One making again counted while it is under way (`makingAgain`). */
+const counted = (work: () => Promise<void>): Promise<void> => {
+	underWay.current += 1;
+	return work().finally(() => {
+		underWay.current -= 1;
+	});
+};
+
+/** What the engine made taking the pixels' place by the coverage, at full opacity: Remove's way. */
+const REPLACING: Way = { composite: 'source-over', opacity: 1, preserve: false };
+
+/**
+ * The pixels a coverage reaches on a raster layer made again from the rest of
+ * it, and put in their place by the coverage at full opacity, in one command
+ * (`job.label`), as Fill…'s Content-Aware does in normal mode at full
+ * opacity: the Remove tool's stroke. The status, Stop, Escape and the stale
+ * check are Content-Aware's, in `job.words`. Resolves once it is written or
+ * has stopped, the user told why it stopped; rejects as `surface.rewrite`
+ * does, for the caller to report and the document to wait for before a save.
+ */
+export const makeAgainUnder = (
+	context: ToolContext,
+	surface: RasterSurface,
+	job: MakeAgain
+): Promise<void> => counted(() => makeAgainWith(context, surface, job, REPLACING));
+
+/** The area's coverage of the layer's pixels, for the engine to make again. */
+const areaCoverage =
+	(surface: RasterSurface, area: Area): MakeAgain['coverage'] =>
+	() => {
+		const box = areaPixelBox(surface, area);
+		const canvas = box === undefined ? undefined : areaMask(surface, area);
+		return box === undefined || canvas === undefined ? undefined : { canvas, box };
+	};
 
 /**
  * Whether the area on the active layer may be filled, for Fill… to ask
@@ -439,7 +537,18 @@ export const fillAreaWith = (context: ToolContext, spec: FillSpec): boolean => {
 	if (way.opacity === 0) return true;
 	const work =
 		spec.contents === 'contentAware'
-			? contentAware(context, surface, area, way)
+			? counted(() =>
+					makeAgainWith(
+						context,
+						surface,
+						{
+							label: 'regions.fill',
+							words: FILL_WORDS,
+							coverage: areaCoverage(surface, area),
+						},
+						way
+					)
+				)
 			: surface.paint(
 					'regions.fill',
 					colorPainter(

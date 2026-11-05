@@ -159,9 +159,9 @@ const FillForm = ({
 
 	return (
 		<Panel title={t('selection.fill.title')} onClose={onClose} className="fill-panel">
-			<form ref={form} className="fill-form" onSubmit={onSubmit}>
-				<fieldset className="fill-group">
-					<legend className="fill-legend">{t('selection.fill.contents')}</legend>
+			<form ref={form} className="field-groups" onSubmit={onSubmit}>
+				<fieldset className="field-group">
+					<legend className="field-legend">{t('selection.fill.contents')}</legend>
 					{CONTENTS.map((contents) => (
 						<Fragment key={contents}>
 							<label className="fill-choice">
@@ -186,6 +186,7 @@ const FillForm = ({
 							{contents === 'color' && choices.contents === 'color' && (
 								<div className="fill-color">
 									<ColorField
+										layout="stacked"
 										label={t('selection.fill.colorValue')}
 										hideLabel
 										value={color}
@@ -197,8 +198,8 @@ const FillForm = ({
 						</Fragment>
 					))}
 				</fieldset>
-				<fieldset className="fill-group">
-					<legend className="fill-legend">{t('selection.fill.blending')}</legend>
+				<fieldset className="field-group">
+					<legend className="field-legend">{t('selection.fill.blending')}</legend>
 					<Select
 						label={t('selection.fill.mode')}
 						value={choices.mode}

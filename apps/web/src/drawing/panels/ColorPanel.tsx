@@ -1,5 +1,3 @@
-import { useEffect, useRef } from 'react';
-
 import { ColorField } from '../../components/ui/ColorField.js';
 import { ColorPairMark } from '../../components/ui/ColorPair.js';
 import { IconButton } from '../../components/ui/IconButton.js';
@@ -15,19 +13,17 @@ const MAC = isMac();
 
 /**
  * The two colors every tool draws with (docs/ARCHITECTURE.md §7, "The
- * interface"): the fill and the stroke, either of which may be none, the swap
- * X also does, the reset D does, and the colors picked lately as swatches
- * under each field. The reset is here and not in the tool bar's pair, which
- * keeps its targets for what is pressed often. Opened on one of the two from
- * the tool bar's pair, that one is marked and has the focus.
- * Where the tool's options are set (`data-tool-options`,
+ * interface"), opened and closed by the colors' button in the tool bar: the
+ * fill and the stroke, either of which may be none, each a group with its
+ * name over it and the colors picked lately under it; and in the header the
+ * swap X also does and the reset D does, which the tool bar has no control
+ * for. Where the tool's options are set (`data-tool-options`,
  * `tools/optionsRegion.ts`), as the options strip is: a color picked here
  * while the text tool's field is open is the text's.
  */
 export const ColorPanel = ({
 	options,
 	recent,
-	editing,
 	onColor,
 	onSwap,
 	onReset,
@@ -35,40 +31,21 @@ export const ColorPanel = ({
 }: Readonly<{
 	options: ToolOptions;
 	recent: readonly string[];
-	/** The color the panel was opened on: marked, and given the focus. */
-	editing?: ColorSlot;
 	onColor: (which: ColorSlot, value: string) => void;
 	onSwap: () => void;
-	/** The fill and the stroke put back, which the tool bar has no control for. */
+	/** The fill and the stroke put back. */
 	onReset: () => void;
 	onClose?: () => void;
 }>) => {
-	const fields = useRef<HTMLDivElement>(null);
-	// The picker of the color asked for takes the focus once the sheet or the
-	// drawer has taken it as it opens (`PanelHost`, whose effect runs after
-	// this one), so what opened the panel is still where the focus goes back.
-	useEffect(() => {
-		if (editing === undefined) return;
-		queueMicrotask(() => {
-			fields.current
-				?.querySelector<HTMLInputElement>(`[data-slot="${editing}"] input[type="color"]`)
-				?.focus();
-		});
-	}, [editing]);
 	const field = (which: ColorSlot, label: string) => (
-		<div
-			className="color-panel-slot"
-			data-slot={which}
-			data-editing={editing === which ? '' : undefined}
-		>
-			<ColorField
-				label={label}
-				value={options[which]}
-				onChange={(value) => onColor(which, value)}
-				allowNone
-				recent={recent}
-			/>
-		</div>
+		<ColorField
+			layout="stacked"
+			label={label}
+			value={options[which]}
+			onChange={(value) => onColor(which, value)}
+			allowNone
+			recent={recent}
+		/>
 	);
 	return (
 		<div className="tool-options" data-tool-options="">
@@ -98,7 +75,7 @@ export const ColorPanel = ({
 					</>
 				}
 			>
-				<div ref={fields}>
+				<div className="field-groups">
 					{field('fill', t('editor.color.fill'))}
 					{field('stroke', t('editor.color.stroke'))}
 				</div>

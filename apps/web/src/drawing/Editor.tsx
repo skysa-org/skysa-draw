@@ -50,7 +50,7 @@ import { ToolButtons } from './panels/ToolButtons.js';
 import { SELECTION_TOOLS, selectionModeOf, useSelectionActions } from './selectionActions.js';
 import { toolById } from './tools/index.js';
 import type { AreaModify } from './tools/raster/areaOps.js';
-import type { Region, Tool } from './tools/types.js';
+import type { Region, Tool, ToolId } from './tools/types.js';
 import { TopBar } from './TopBar.js';
 import type { ViewportHandle } from './types.js';
 import { useOpenDrawing } from './useOpenDrawing.js';
@@ -163,12 +163,14 @@ const step = (
 const useEditorKeys = (
 	document: EditorDocument | undefined,
 	viewport: RefObject<ViewportHandle | null>,
-	dispatch: Dispatch<EditorAction>
+	dispatch: Dispatch<EditorAction>,
+	/** The tool in hand, which a letter shared by a group keeps, and Shift with it moves on from. */
+	toolId: ToolId
 ) => {
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.defaultPrevented || isTyping(event.target)) return;
-			const nextTool = toolFor(event, MAC);
+			const nextTool = toolFor(event, MAC, toolId);
 			if (nextTool !== undefined) {
 				// A key for a tool not built yet does nothing, rather than leaving
 				// the frame holding a tool the viewport has no behavior for.
@@ -184,7 +186,7 @@ const useEditorKeys = (
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [document, viewport, dispatch]);
+	}, [document, viewport, dispatch, toolId]);
 };
 
 /** A notice stays `NOTICE_MS` from the last time it was said. */
@@ -338,10 +340,11 @@ const Frame = ({
 	const tools = (
 		<ToolButtons
 			tool={tool}
+			layerKind={facts.layer?.kind}
+			orientation={compact ? 'horizontal' : 'vertical'}
 			fill={state.options.fill}
 			stroke={state.options.stroke}
-			editing={state.panel === 'color' ? state.colorSlot : undefined}
-			compact={compact}
+			colorsOpen={state.panel === 'color'}
 			layersOpen={expanded ? dockShown : state.panel === 'layers'}
 			dispatch={dispatch}
 			onLayers={toggleLayers}
@@ -424,7 +427,6 @@ const Frame = ({
 						options={state.options}
 						recent={state.recentColors}
 						onColor={setColor}
-						editing={state.colorSlot}
 						onSwap={() => dispatch({ type: 'swapColors' })}
 						onReset={() => dispatch({ type: 'resetColors' })}
 						onClose={closePanel}
@@ -541,7 +543,7 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 		(message) => dispatch({ type: 'notify', message })
 	);
 
-	useEditorKeys(document, viewport, dispatch);
+	useEditorKeys(document, viewport, dispatch, state.toolId);
 	useNoticeTimeout(state.notice, dispatch);
 
 	// Another drawing opened from the library: the drawer has done its job.

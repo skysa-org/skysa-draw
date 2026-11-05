@@ -11,24 +11,26 @@ import type { EditorDocument, LayerInfo } from '../document/model.js';
 /** The tools, by the names the catalog knows them by (`tools.*`). */
 export const TOOL_IDS = [
 	'select',
-	'node',
-	'hand',
-	'zoom',
-	'pencil',
-	'brush',
-	'eraser',
-	'smudge',
-	'fill',
-	'eyedropper',
-	'rectangle',
-	'ellipse',
-	'line',
-	'pen',
-	'text',
 	'marquee',
 	'lasso',
 	'wand',
 	'crop',
+	'eyedropper',
+	'remove',
+	'redEye',
+	'smudge',
+	'brush',
+	'pencil',
+	'eraser',
+	'fill',
+	'pen',
+	'text',
+	'node',
+	'rectangle',
+	'ellipse',
+	'line',
+	'hand',
+	'zoom',
 ] as const;
 
 export type ToolId = (typeof TOOL_IDS)[number];
@@ -93,6 +95,14 @@ export interface ToolOptions {
 	 * intersect for that one.
 	 */
 	readonly areaMode: AreaMode;
+	/**
+	 * The red eye tool's Pupil Size, as Photoshop's: how much of the red it
+	 * finds around a click it darkens, 0 to 1, from the reddest core alone to
+	 * the whole of it out to its pink rim.
+	 */
+	readonly pupilSize: number;
+	/** The red eye tool's Darken Amount, as Photoshop's: how dark the pupil it corrects is made, 0 to 1. */
+	readonly darken: number;
 }
 
 /** How a selection tool's new outline meets what is selected (`ToolOptions.areaMode`). */
@@ -117,6 +127,8 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
 	contiguous: true,
 	autoSelect: false,
 	areaMode: 'new',
+	pupilSize: 0.5,
+	darken: 0.5,
 };
 
 /** The viewport, as a tool may move it. */
@@ -231,6 +243,11 @@ export interface ToolBehavior {
 	readonly cancel: (context: ToolContext) => void;
 	/** The pointer moved with nothing down: a hover preview. */
 	readonly hover?: (context: ToolContext, sample: PointerSample) => void;
+	/**
+	 * The pointer left the canvas with nothing down: what its hover showed
+	 * goes with it, as the brush's outline does (`tools/common/brushOutline.ts`).
+	 */
+	readonly leave?: (context: ToolContext) => void;
 	/**
 	 * The options changed while this tool is in hand, and `context` has the
 	 * new ones: what the tool has open after its stroke (the text tool's

@@ -17,6 +17,9 @@ export const TOOL_KEYS: Readonly<Record<ToolId, string>> = {
 	brush: 'B',
 	eraser: 'E',
 	smudge: 'S',
+	// Photoshop's healing group: J picks it, Shift J goes round it.
+	remove: 'J',
+	redEye: 'J',
 	fill: 'G',
 	eyedropper: 'I',
 	rectangle: 'R',
@@ -173,17 +176,26 @@ export const areaModeOf = (held: Held, option: AreaMode): AreaMode =>
 		([, keys]) => keys.shiftKey === held.shiftKey && keys.altKey === held.altKey
 	)?.[0] ?? option;
 
-const KEY_TOOLS: ReadonlyMap<string, ToolId> = new Map(TOOL_IDS.map((id) => [TOOL_KEYS[id], id]));
+/** The tools each letter picks, in the order the tool bar lists them: one, or a group, as Photoshop's are. */
+const toolsOfKey = (letter: string): readonly ToolId[] =>
+	TOOL_IDS.filter((id) => TOOL_KEYS[id] === letter);
 
 /**
- * The tool a bare letter picks, in either case, so Caps Lock changes nothing.
- * No tool key has a modifier, so the platform does not matter here; the
- * parameter is taken so the frame calls this and `editActionFor` alike.
+ * The tool a letter picks, in either case, so Caps Lock changes nothing.
+ * A letter shared by a group, as Photoshop's J is its healing tools', picks
+ * the first of them, or keeps the one in hand where that is of the group;
+ * Shift with it goes to the group's next, as Photoshop's Shift J does, and
+ * with a letter of one tool Shift picks nothing. No other modifier picks a
+ * tool, so the platform does not matter here; the parameter is taken so
+ * the frame calls this and `editActionFor` alike.
  */
-export const toolFor = (event: KeyLike, _isMac: boolean): ToolId | undefined => {
-	if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return undefined;
+export const toolFor = (event: KeyLike, _isMac: boolean, current?: ToolId): ToolId | undefined => {
+	if (event.ctrlKey || event.metaKey || event.altKey) return undefined;
 	if (event.key.length !== 1 || isTyping(event.target)) return undefined;
-	return KEY_TOOLS.get(event.key.toUpperCase());
+	const group = toolsOfKey(event.key.toUpperCase());
+	const at = current === undefined ? -1 : group.indexOf(current);
+	if (!event.shiftKey) return at === -1 ? group[0] : current;
+	return group.length > 1 ? group[(at + 1) % group.length] : undefined;
 };
 
 /** A single character lowered, so Shift and Caps Lock read the same; a named key as it is. */

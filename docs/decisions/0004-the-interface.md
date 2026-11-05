@@ -36,6 +36,8 @@ An option that is on or off, Auto-select, Contiguous, Pressure or Constrain, is 
 | Brush | B | A filled `<path>` whose width follows pressure | A soft stroke with size, opacity, hardness and pressure |
 | Eraser | E | Remove the element under the pointer | Erase pixels |
 | Smudge | S | — | Push pixels |
+| Remove | J | — | Paint over what goes; it is made again from what is around it |
+| Red eye | J | — | Darken a pupil a flash turned red, clicked or boxed, by Pupil size and Darken amount |
 | Fill | G | Set the fill of the element under the pointer | Flood fill |
 | Eyedropper | I | Read an element's fill or stroke | Read a pixel |
 | Rectangle | R | A `<rect>` | A filled rectangle of pixels |
@@ -81,14 +83,13 @@ Not built: a box that turns with the outline, as Photoshop's does; the select to
 **The two colors.**
 The fill and the stroke are at the foot of the tool bar, after the tools, as Photoshop shows its foreground and background: the fill's square in front at the top left, the stroke's behind it at the bottom right, none struck through.
 On a raster layer the brush paints with the fill and the pencil with the stroke, so they are the foreground and the background by other names.
-Photoshop's swap and reset are glyphs a mouse can hit at 12 px and a finger cannot, so here the pair runs along the bar a 44 px target per control, the fill, the stroke and the swap, 132 px down the rail on medium and expanded.
-The reset is not in the bar on any window: it is pressed seldom, and D does it, so it is in the color panel beside the panel's own swap, each with its key in its tooltip.
-A compact window's bottom bar is short of room, so there the pair is two targets, both colors in one control that opens the color sheet on the fill, and the swap.
-The pointer over a color rings its square in the hover color rather than lighting its target, since the squares are drawn across their targets and a lit target would sit beside the square it stands for.
-A press on a color opens the color panel on that color, marked and with the focus in its field, and a second press closes it, as a toggle does.
+The pair is one tool button, a 44 px target whose face is both squares, the same on the rail and on a compact window's bottom bar; a press opens the color panel and a second press closes it, as a toggle does.
+Its name is the pair's, and what each color is, none included, is said after it.
+Photoshop's swap and reset are glyphs a mouse can hit at 12 px and a finger cannot, so neither is in the bar on any window: both are in the color panel's header, each with its key in its tooltip, and X and D do them.
+The panel shows each color as Fill… shows its groups, the name over a row of the swatch, the hex and None, which never breaks, and the colors used lately under it.
 X swaps the colors and D puts back the defaults, as in Photoshop; Ctrl or ⌘ D stays deselect.
-The pair is where the tool's options are set (`tools/optionsRegion.ts`), so a color pressed, swapped or reset while the text tool's field is open is the text's.
-Rejected: Photoshop's pair as a 2×2 of 44 px corners, which needs 88 px across where the rail and the bottom bar have 52; one color button with a badge, which showed the fill and hid the stroke; and the reset as a fourth target in the bar, which took 44 px of the rail for good for a press D does.
+The pair is where the tool's options are set (`tools/optionsRegion.ts`), so a color picked, swapped or reset while the text tool's field is open is the text's.
+Rejected: Photoshop's pair as a 2×2 of 44 px corners, which needs 88 px across where the rail and the bottom bar have 52; one color button with a badge, which showed the fill and hid the stroke; the fill, the stroke and the swap as three targets along the bar, which took 132 px of the rail and put a second swap beside the panel's; and the reset as a target in the bar, which took 44 px of the rail for good for a press D does.
 
 **A double press.**
 A double press with the select tool edits what it is on in the tool that edits it, as a double-click does in Illustrator, Figma and Inkscape: a text in the text tool, its caret at the press, and a path or a shape in the node tool, its anchors shown.
@@ -144,5 +145,24 @@ Feather was a dialog and an item of its own until 2026-11-05; it joined Modify�
 A Modify that would leave nothing selected is not applied, and a notice says so, since an area is not a step of the history and could not be had back.
 Rejected: a submenu of five dialogs, which is five places for one radius.
 A tool that does nothing on the active layer's kind says so and is not available, rather than doing something else.
+The tool bar shows only the tools that act on the active layer's kind (`availableOn`, `tools/index.ts`): on a vector layer no Smudge, Remove or Red eye, on a raster layer no Node, Pen or Text, and on a group the move tool, which picks a layer inside it with Auto-select, and Hand, Zoom and Crop; with no layer, every tool.
+The tool in hand stays, faded and still pressed, where the layer made active has no use for it, so a change of layer never takes the tool from under the hand; it goes once another is chosen, and its key still picks it.
+Rejected: switching to another tool when the layer changes, which loses the tool the user meant to come back to, and Photoshop's every tool always shown, which on a phone's one row is a row of tools that do nothing there.
+
+**The brush's outline.**
+Every tool with a size shows it as its pointer over the canvas, as Photoshop's Normal Brush Tip does: a circle as big on the screen as what the tool will paint, which grows and shrinks with the zoom and follows `[`, `]` and the Size slider at once, with a small crosshair at its middle, and the crosshair alone where the circle would be too small to see.
+It is drawn as a light halo under a dark hairline, so it reads on any picture, and shows the whole size whatever the pressure, as Photoshop's does.
+The system's pointer is hidden while it shows, and the tool's crosshair is there before it first does; a finger has no hover and covers the brush, so it is never shown for one.
+The size is the drawing's, in its units, on any layer: what lands on a layer scaled by its transform is as big on the screen as the outline was.
+
+**The tool bar.**
+The tools are in Photoshop's groups and in its order (`drawing/tools/groups.ts`): the move tool; Marquee, Lasso and Magic wand; Crop and Eyedropper; Remove, Red eye and Smudge; Brush, Pencil, Eraser and Fill; Pen, Text and Node, which is Photoshop's Direct Selection beside its pen and type; Rectangle, Ellipse and Line; Hand and Zoom.
+A light rule parts each group from the next, the one rule every bar draws (`ToolBarRule`), and a group left with no tool on the active layer is not there, nor its rule.
+Where the bar has the room, every tool is a button.
+Where it has not, groups fold one at a time, the largest first and of two as large the later, until the bar holds them, each into one button that shows the tool last used in it and a mark in its corner, as a slot of Photoshop's tool bar does.
+A press on a folded group picks the tool it shows; a long press, a right-click or the menu key opens its menu, its tools by icon, name and key with the one in hand checked; and a tool's key picks it folded or not.
+The bar is measured, not the window: a `ResizeObserver` on the room the colors and the layers leave the tools (`panels/ToolGroups.tsx`), so a rail on a short window folds and a tall one shows every tool.
+Where even every group folded is too long, as a phone's one row is with 44 px targets, the row scrolls.
+Rejected: Photoshop's slots folded always, which hides tools behind a long press on a desktop with the room to show them; and a second column, which takes the canvas's room on a narrow window for tools seldom used together.
 
 Rejected: a component library, which brings tokens of its own to reconcile with the brand's and more than this app uses, when the set here is small and in the house style already; an icon font or icon package, when thirty line icons at 24 px are drawn by hand in `icons.tsx` and cost nothing to load; touch and mouse events beside pointer events, which is the same stroke handled twice; a "simplified" phone editor with fewer tools, since the tools are the product and the screen only decides where they sit.

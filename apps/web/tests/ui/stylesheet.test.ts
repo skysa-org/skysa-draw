@@ -86,15 +86,60 @@ describe('ui.css', () => {
 		expect(declarationsOf('.icon-button')).toMatch(/min-width: var\(--target\)/);
 	});
 
+	it('lets a panel’s title take the header’s room, so its close control sits at the end', () => {
+		const title = declarationsOf('.panel-title');
+		expect(title).toContain('flex: 1;');
+		expect(title).toContain('text-overflow: ellipsis;');
+		expect(title).not.toMatch(/flex: none/);
+	});
+
+	it('parts a bar’s groups with one hairline rule, across the bar either way', () => {
+		expect(declarationsOf('.toolbar-rule')).toContain('background: var(--border);');
+		expect(declarationsOf('.toolbar-horizontal .toolbar-rule')).toContain('width: 1px;');
+		expect(declarationsOf('.toolbar-vertical .toolbar-rule')).toContain('height: 1px;');
+	});
+
+	it('marks a tool with a menu in its corner, and draws a menu’s chosen item as a pressed tool', () => {
+		expect(declarationsOf(".tool-button[aria-haspopup='menu']::after")).toContain(
+			'position: absolute;'
+		);
+		expect(declarationsOf(".menu-item[aria-checked='true']")).toContain(
+			'background: var(--on-bg);'
+		);
+	});
+
 	it('docks a column the width of --dock', () => {
 		expect(declarationsOf('.panel-dock')).toContain('width: var(--dock);');
 	});
 
-	it('lights a color of the pair under the pointer by its square, not by the target it is drawn across', () => {
-		// Above `shell.css`'s `button:not(.primary):hover` (0,2,1), which would light the target.
-		expect(declarationsOf('.color-pair-slot:hover:enabled')).toContain('background: none;');
-		expect(declarationsOf('.color-pair-slot:hover > .color-pair-square')).toMatch(
-			/outline: [^;]+ solid /
+	it('sits the colors’ button in the bar as any tool’s, the mark its face, with the edge its squares are drawn in', () => {
+		expect(declarationsOf('.color-pair')).toContain('display: contents;');
+		expect(declarationsOf('.tool-button-icon > .color-pair-mark')).toMatch(
+			/height: [\d.]+rem;/
+		);
+		// Wherever the mark is drawn, the tool bar and the color panel's header alike.
+		expect(declarationsOf('.color-pair-mark')).toMatch(/--pair-edge: /);
+		expect(css).not.toMatch(/\.color-pair-(slot|fill|stroke|swap|both)\b/);
+	});
+
+	it('keeps a color’s row of swatch, hex and None whole, and stacks the name over it in a panel or a dialog', () => {
+		expect(declarationsOf('.color-field-row')).toContain('flex: none;');
+		expect(declarationsOf('.color-field-row')).not.toContain('flex-wrap: wrap;');
+		expect(declarationsOf('.color-none')).toContain('white-space: nowrap;');
+		expect(declarationsOf('.color-field-inline')).toContain('flex: none;');
+		expect(declarationsOf('.color-field-stacked')).toContain('flex-direction: column;');
+		expect(declarationsOf('.color-field-stacked .color-hex')).toContain('flex: 1 1 0;');
+	});
+
+	it('gives a stacked color and Fill…’s groups the one look: a step apart, a hair within, a quiet name over each', () => {
+		expect(declarationsOf('.field-groups')).toContain('gap: var(--space-m);');
+		const group = declarationsOf('.field-group');
+		expect(group).toBe(declarationsOf('.color-field-stacked'));
+		expect(group).toContain('gap: var(--space-2xs);');
+		expect(declarationsOf('.field-legend')).toContain('color: var(--muted);');
+		expect(declarationsOf('.field-legend')).toContain('font-size: var(--text-s);');
+		expect(declarationsOf('legend.field-legend')).toContain(
+			'margin-block-end: var(--space-2xs);'
 		);
 	});
 });

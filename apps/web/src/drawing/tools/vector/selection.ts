@@ -1,3 +1,4 @@
+import type { LayerInfo } from '../../document/model.js';
 import { type Box, type Mat, type Point, rotate, scale as scaleBy } from './geometry.js';
 import { CHROME_STYLE, createSvg } from './svg.js';
 
@@ -123,6 +124,18 @@ export const rotateMatrix = (
 	const now = Math.atan2(to.y - drag.center.y, to.x - drag.center.x);
 	const degrees = ((now - start) * 180) / Math.PI;
 	return rotate(snap ? Math.round(degrees / ROTATE_STEP) * ROTATE_STEP : degrees, drag.center);
+};
+
+/**
+ * Whether the layer is out of sight: hidden, or in a group that is. What is
+ * selected on it stays selected, and its box is not drawn until the layer is
+ * shown again, as Photoshop's transform controls go with a hidden layer: a
+ * handle there would move nothing the user sees, and a tool refuses a hidden
+ * layer anyway (`guardLayer`).
+ */
+export const hiddenAsSeen = (layers: readonly LayerInfo[], id: string | undefined): boolean => {
+	const layer = id === undefined ? undefined : layers.find((each) => each.id === id);
+	return layer !== undefined && (layer.hidden || hiddenAsSeen(layers, layer.parentId));
 };
 
 export const clearSelectionBox = (overlay: SVGSVGElement): void => {

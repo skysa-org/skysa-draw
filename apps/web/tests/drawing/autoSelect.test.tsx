@@ -3,6 +3,7 @@ import { act, render } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { setLayerHidden } from '../../src/drawing/document/commands.js';
 import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
 import { autoSelect } from '../../src/drawing/tools/common/autoSelect.js';
@@ -623,5 +624,217 @@ describe('Auto-Select in the viewport', () => {
 		expect(onActivate.mock.calls).toEqual([['layer-3']]);
 		const field = container.querySelector('textarea');
 		expect(field?.value).toBe('Hi');
+	});
+});
+
+/** The selection's boxes on the overlay, each as `x y width height`. */
+const boxesIn = (container: HTMLElement): readonly string[] =>
+	[
+		...container.querySelectorAll(
+			'.viewport-overlay [data-draw-selection] > rect:not([data-handle])'
+		),
+	].map((rect) => ['x', 'y', 'width', 'height'].map((name) => rect.getAttribute(name)).join(' '));
+
+/** A mouse moving over the canvas with no button down. */
+const hoverAt = (target: EventTarget, clientX: number, clientY: number): void => {
+	fire(
+		target,
+		new PointerEvent('pointermove', {
+			bubbles: true,
+			pointerId: 1,
+			pointerType: 'mouse',
+			isPrimary: true,
+			button: -1,
+			buttons: 0,
+			clientX,
+			clientY,
+		})
+	);
+};
+
+/** An area, which is the canvas's: a change of layer leaves it as it is. */
+const AREA: Region = { path: 'M 90 0 L 100 0 L 100 10 L 90 10 Z', inverted: false, feather: 0 };
+
+describe('A selection on a layer no longer active', () => {
+	it('moves to what an Auto-select press on another vector layer is on, which the same drag moves', () => {
+		const { selection, onActivate, region, element, container } = setup({ initial: 'layer-3' });
+		// The ground, through the raster layer's clear half.
+		fire(region, pointer('pointerdown', 90, 40, { at: 0 }));
+		fire(region, pointer('pointerup', 90, 40, { at: 50 }));
+		expect(selection.elements.get()).toEqual([element('ground')]);
+		expect(boxesIn(container)).toEqual(['0 0 100 90']);
+		drag(region, [70, 70], [75, 72], { at: 1000 });
+		expect(onActivate.mock.calls).toEqual([['layer-1'], ['layer-3']]);
+		expect(selection.elements.get()).toEqual([element('card')]);
+		expect(element('card').getAttribute('transform')).toBe('matrix(1 0 0 1 5 2)');
+		expect(element('ground').hasAttribute('transform')).toBe(false);
+		expect(boxesIn(container)).toEqual(['65 62 20 20']);
+	});
+
+	it('lets go of the element and its box when an Auto-select press picks a raster layer, and keeps the area', () => {
+		const { selection, onActivate, region, element, container } = setup({ initial: 'layer-3' });
+		fire(region, pointer('pointerdown', 70, 70, { at: 0 }));
+		fire(region, pointer('pointerup', 70, 70, { at: 50 }));
+		expect(selection.elements.get()).toEqual([element('card')]);
+		expect(boxesIn(container)).toEqual(['60 60 20 20']);
+		act(() => {
+			selection.region.set(AREA);
+		});
+		// The picture's opaque half.
+		fire(region, pointer('pointerdown', 20, 50, { at: 1000 }));
+		expect(onActivate.mock.calls).toEqual([['layer-2']]);
+		// Gone as the press begins, not only once it ends; the area is the canvas's, and stays.
+		expect(selection.elements.get()).toEqual([]);
+		expect(boxesIn(container)).toEqual([]);
+		expect(selection.region.get()).toBe(AREA);
+		fire(region, pointer('pointermove', 26, 47, { at: 1010 }));
+		fire(region, pointer('pointerup', 26, 47, { at: 1020 }));
+		hoverAt(region, 70, 70);
+		expect(boxesIn(container)).toEqual([]);
+		expect(element('card').hasAttribute('transform')).toBe(false);
+	});
+});
+
+/**
+ * The viewport with the move tool and Auto-select off, on the scene, for a
+ * frame that makes `layerId` active and may make another so (`activate`), as
+ * a press on a row of the layers panel does.
+ */
+const mount = (layerId: string, scene: string = SCENE(leftHalf())) => {
+	const editor = open(scene);
+	const selection = createViewportSelection();
+	const viewport = (id: string) => (
+		<Viewport
+			document={editor}
+			tool={toolById('select') as Tool}
+			options={DEFAULT_TOOL_OPTIONS}
+			layerId={id}
+			selection={selection}
+			onColor={noop}
+			onNotify={noop}
+			onActivateLayer={noop}
+		/>
+	);
+	const utils = render(viewport(layerId));
+	const region = utils.getByRole('region', { name: t('editor.panes.canvas') });
+	const element = (id: string): Element => {
+		const found = editor.root.querySelector(`[id="${id}"]`);
+		if (found === null) throw new Error(`the drawing has #${id}`);
+		return found;
+	};
+	return {
+		...utils,
+		editor,
+		selection,
+		region,
+		element,
+		activate: (id: string) => {
+			utils.rerender(viewport(id));
+		},
+	};
+};
+
+describe('A selection when the frame makes another layer active', () => {
+	it('lets go of the element and its box on a press on another layer’s row, and keeps the area', () => {
+		const { selection, region, element, container, activate } = mount('layer-3');
+		fire(region, pointer('pointerdown', 70, 70));
+		fire(region, pointer('pointerup', 70, 70));
+		expect(selection.elements.get()).toEqual([element('card')]);
+		expect(boxesIn(container)).toEqual(['60 60 20 20']);
+		act(() => {
+			selection.region.set(AREA);
+		});
+		activate('layer-1');
+		expect(selection.elements.get()).toEqual([]);
+		expect(boxesIn(container)).toEqual([]);
+		hoverAt(region, 70, 70);
+		expect(boxesIn(container)).toEqual([]);
+		expect(selection.region.get()).toBe(AREA);
+		// Its own layer made active again does not bring it back.
+		activate('layer-3');
+		hoverAt(region, 72, 72);
+		expect(selection.elements.get()).toEqual([]);
+		expect(boxesIn(container)).toEqual([]);
+	});
+});
+
+/** Ctrl and ⌘ A, read as select-all whichever the platform's primary key is. */
+const selectAllKey = (): KeyboardEvent =>
+	new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, metaKey: true, bubbles: true });
+
+describe('A selection on a hidden layer', () => {
+	const hide = (editor: EditorDocument, id: string, hidden: boolean): void => {
+		act(() => {
+			editor.execute(setLayerHidden(id, hidden));
+		});
+	};
+
+	it('stays selected with no box while its layer is hidden, and shows its box again with the layer', () => {
+		const { editor, selection, region, element, container } = mount('layer-3');
+		fire(region, pointer('pointerdown', 70, 70));
+		fire(region, pointer('pointerup', 70, 70));
+		expect(boxesIn(container)).toEqual(['60 60 20 20']);
+		hide(editor, 'layer-3', true);
+		expect(selection.elements.get()).toEqual([element('card')]);
+		expect(boxesIn(container)).toEqual([]);
+		hoverAt(region, 70, 70);
+		expect(boxesIn(container)).toEqual([]);
+		hide(editor, 'layer-3', false);
+		hoverAt(region, 72, 72);
+		expect(selection.elements.get()).toEqual([element('card')]);
+		expect(boxesIn(container)).toEqual(['60 60 20 20']);
+		// An undo hides it again, and a redo shows it.
+		act(() => {
+			editor.undo();
+		});
+		expect(boxesIn(container)).toEqual([]);
+		act(() => {
+			editor.redo();
+		});
+		hoverAt(region, 70, 70);
+		expect(boxesIn(container)).toEqual(['60 60 20 20']);
+	});
+
+	it('draws no box for everything selected on a hidden layer, or on a layer in a hidden group', () => {
+		const hidden = mount(
+			'layer-3',
+			SCENE(leftHalf()).replace('id="layer-3"', 'id="layer-3" display="none"')
+		);
+		fire(window, selectAllKey());
+		expect(hidden.selection.elements.get()).toEqual([
+			hidden.element('card'),
+			hidden.element('word'),
+		]);
+		hoverAt(hidden.region, 70, 70);
+		expect(boxesIn(hidden.container)).toEqual([]);
+		hidden.unmount();
+		const grouped = mount(
+			'layer-2',
+			[
+				'<g id="layer-1" draw:kind="group" display="none">',
+				'<g id="layer-2" draw:kind="vector"><rect id="inside" x="10" y="10" width="20" height="20"/></g>',
+				'</g>',
+			].join('\n')
+		);
+		fire(window, selectAllKey());
+		expect(grouped.selection.elements.get()).toEqual([grouped.element('inside')]);
+		hoverAt(grouped.region, 20, 20);
+		expect(boxesIn(grouped.container)).toEqual([]);
+		hide(grouped.editor, 'layer-1', false);
+		hoverAt(grouped.region, 22, 22);
+		expect(boxesIn(grouped.container)).toEqual(['10 10 20 20']);
+	});
+
+	it('keeps no handle out of sight from Auto-select, which picks the layer under it', () => {
+		const editor = open(
+			[
+				'<g id="layer-1" draw:kind="vector" display="none"><rect id="small" x="10" y="10" width="20" height="20"/></g>',
+				'<g id="layer-2" draw:kind="vector"><rect x="25" y="25" width="30" height="30"/></g>',
+			].join('\n')
+		);
+		const small = editor.root.querySelector('#small');
+		if (small === null) throw new Error('the drawing has its rect');
+		// The south-east corner of the box the hidden selection would have.
+		expect(pickedAt(editor, 30, 30, { selected: [small] })).toBe('layer-2');
 	});
 });

@@ -1,5 +1,6 @@
 import type { ScreenCanvas, ToolContext } from '../types.js';
-import { type Area, clipToArea, clipToInverse, takeOutline } from './area.js';
+import { lengthScale, type Mat, transformBox } from '../vector/geometry.js';
+import { affineOf, type Area, clipToArea, clipToInverse, takeOutline } from './area.js';
 import { parseColor, type Point, stampsAlong, stampSpacing } from './pixels.js';
 import type { RasterSurface } from './surface.js';
 
@@ -10,7 +11,14 @@ import type { RasterSurface } from './surface.js';
  * path. Every stamp goes to two places at once: the layer's stroke canvas in
  * pixels, which is what will be written, and the screen canvas over the
  * viewport in device pixels, which is what the user sees until the encoding
- * lands. Where an area is selected the screen shows the stamps kept to it,
+ * lands. Both are drawn from one disk in the drawing's user units, through
+ * the map from those units to the canvas's pixels, as the Remove tool's
+ * footprint is (`removeFootprint.ts`): so the brush is its size in the
+ * drawing's units on any layer, the size its outline shows
+ * (`tools/common/brushOutline.ts`), and a layer scaled, turned or skewed by
+ * its `transform` gets the ellipse the disk makes on its pixels, the same on
+ * the screen while the stroke lasts as in the file once it lands. Where an
+ * area is selected the screen shows the stamps kept to it,
  * as the commit will keep the stroke (`RasterSurface.commit`): clipped to the
  * outline for a plain area; for an inverted one, clipped to the canvas and
  * the outline's inside taken out of each stamp's square after it, which is
@@ -30,8 +38,15 @@ export interface Brush {
 	readonly mirror: string;
 }
 
-/** Below this a stamp would vanish between pixels; a hairline is still a line. */
+/** Below this, in a canvas's own pixels, a stamp would vanish between them; a hairline is still a line. */
 const MIN_RADIUS = 0.5;
+
+/**
+ * How many of a surface's pixels one of the drawing's user units is across,
+ * through the layer's `transform`, as one factor (`lengthScale`).
+ */
+export const pixelsPerUnit = (surface: Pick<RasterSurface, 'toPixel'>): number =>
+	lengthScale(affineOf(surface.toPixel));
 
 /** The same color with no alpha, for the outer stop of a soft edge. */
 const transparentOf = (color: string): string => {
@@ -56,30 +71,44 @@ const fillFor = (
 	return gradient;
 };
 
-/** One stamp of the brush: a disk of `radius` at `(x, y)`, in the context's own pixels. */
-const stamp = (
-	ctx: CanvasRenderingContext2D,
-	x: number,
-	y: number,
-	radius: number,
-	hardness: number,
-	color: string,
-	alpha: number
-): void => {
-	const r = Math.max(MIN_RADIUS, radius);
-	ctx.globalAlpha = alpha;
-	ctx.fillStyle = fillFor(ctx, x, y, r, hardness, color);
-	ctx.beginPath();
-	ctx.arc(x, y, r, 0, Math.PI * 2);
-	ctx.fill();
+/** A radius in user units, never under half of one of the pixels `matrix` takes them to. */
+const shownRadius = (matrix: Mat, radius: number): number => {
+	const scale = lengthScale(matrix);
+	return scale > 0 ? Math.max(MIN_RADIUS / scale, radius) : radius;
 };
 
-/** Where a stroke's stamps go. */
+/**
+ * One stamp of the brush: a disk of `radius` about `at`, in user units, drawn
+ * on `ctx` through `matrix`, which takes user units to its pixels, so a soft
+ * edge's gradient goes through it too. The transform is the identity after.
+ */
+const stamp = (
+	ctx: CanvasRenderingContext2D,
+	matrix: Mat,
+	at: Point,
+	radius: number,
+	hardness: number,
+	color: string
+): void => {
+	const r = shownRadius(matrix, radius);
+	const [a, b, c, d, e, f] = matrix;
+	ctx.globalAlpha = 1;
+	ctx.setTransform(a, b, c, d, e, f);
+	ctx.fillStyle = fillFor(ctx, at.x, at.y, r, hardness, color);
+	ctx.beginPath();
+	ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.setTransform(1, 0, 0, 1, 0, 0);
+};
+
+/** Where a stroke's stamps go, and the maps there from the drawing's user units, read once a sample. */
 export interface StrokeTargets {
 	readonly surface: RasterSurface;
 	readonly screen: ScreenCanvas;
-	/** Screen-canvas pixels per user unit: the viewport's scale times its pixel ratio. */
-	readonly screenScale: number;
+	/** User units to the layer's pixels, through its `transform`. */
+	readonly toPixels: Mat;
+	/** User units to the screen canvas's pixels, through the view. */
+	readonly toScreen: Mat;
 	/** The area the stroke paints inside, as it was when the stroke began; none for anywhere. */
 	readonly area: Area | undefined;
 }
@@ -91,7 +120,8 @@ export const targetsOf = (
 ): StrokeTargets => ({
 	surface,
 	screen: context.screen,
-	screenScale: context.viewport.scale * context.screen.pixelRatio,
+	toPixels: affineOf(surface.toPixel),
+	toScreen: affineOf(context.screen.toScreen),
 	area,
 });
 
@@ -102,34 +132,36 @@ export const targetsOf = (
  * same opacity as a style while the stroke is live.
  */
 export const paintStamp = (targets: StrokeTargets, x: number, y: number, brush: Brush): void => {
-	const { surface, screen, screenScale, area } = targets;
+	const { surface, screen, toPixels, toScreen, area } = targets;
+	const at = { x, y };
 	const pixelCtx = surface.stroke.getContext('2d');
-	if (pixelCtx !== null) {
-		const [px, py] = surface.toPixel(x, y);
-		stamp(pixelCtx, px, py, brush.radius * surface.ppu, brush.hardness, brush.color, 1);
-	}
+	if (pixelCtx !== null) stamp(pixelCtx, toPixels, at, brush.radius, brush.hardness, brush.color);
 	const screenCtx = screen.canvas.getContext('2d');
 	if (screenCtx === null) return;
-	const [sx, sy] = screen.toScreen(x, y);
-	const radius = brush.radius * screenScale;
-	// A pixel more than the disk on every side, for its anti-aliased edge.
-	const reach = Math.max(MIN_RADIUS, radius) + 1;
 	const inverse = area?.inverted === true && area.shape !== undefined;
 	screenCtx.save();
 	if (area !== undefined && !area.inverted) clipToArea(screenCtx, area, screen.toScreen);
 	if (inverse) {
-		const near = { x: sx - reach, y: sy - reach, width: 2 * reach, height: 2 * reach };
+		// A pixel more than the disk on every side, for its anti-aliased edge.
+		const r = shownRadius(toScreen, brush.radius);
+		const disk = transformBox(toScreen, { x: x - r, y: y - r, width: 2 * r, height: 2 * r });
+		const near = {
+			x: disk.x - 1,
+			y: disk.y - 1,
+			width: disk.width + 2,
+			height: disk.height + 2,
+		};
 		clipToInverse(screenCtx, area, screen.toScreen, near);
 	}
-	stamp(screenCtx, sx, sy, radius, brush.hardness, brush.mirror, 1);
+	stamp(screenCtx, toScreen, at, brush.radius, brush.hardness, brush.mirror);
 	if (inverse) takeOutline(screenCtx, area, screen.toScreen);
 	screenCtx.restore();
 };
 
 /**
  * The stamps from the last sample to this one, spaced by the brush's radius
- * in pixels; `carry` is what `stampsAlong` carries between segments, so the
- * spacing stays even across every sample.
+ * in the layer's pixels; `carry` is what `stampsAlong` carries between
+ * segments, so the spacing stays even across every sample.
  */
 export const paintSegment = (
 	targets: StrokeTargets,
@@ -138,8 +170,8 @@ export const paintSegment = (
 	brush: Brush,
 	carry: number
 ): number => {
-	const { ppu } = targets.surface;
-	const spacing = stampSpacing(brush.radius * ppu) / ppu;
+	const unit = lengthScale(targets.toPixels);
+	const spacing = unit > 0 ? stampSpacing(brush.radius * unit) / unit : 0;
 	const along = stampsAlong(from, to, spacing, carry);
 	along.stamps.forEach((point) => paintStamp(targets, point.x, point.y, brush));
 	return along.carry;

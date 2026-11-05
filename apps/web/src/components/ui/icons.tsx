@@ -100,6 +100,38 @@ const SmudgeIcon = (props: IconProps) => (
 	</Icon>
 );
 
+const RemoveIcon = (props: IconProps) => (
+	<Icon {...props}>
+		{/*
+		 * A dashed shape being painted away, a solid brush tip in it and one small
+		 * solid sparkle: the shape, not a stroke, is what the eye meets first, which
+		 * the brush, the eraser, the eyedropper and the wand have none of.
+		 */}
+		<circle cx="10" cy="14" r="6.5" strokeDasharray="1 3.54" />
+		<path d="M16 7l2.5 2.5-3 3Q13.9 13.6 11.75 13.75 11.9 11.6 13 10z" fill="currentColor" />
+		<path d="M17.25 8.25l3.5-3.5" />
+		<path
+			d="M20 17c.3 1.5 1 2.2 2.5 2.5-1.5.3-2.2 1-2.5 2.5-.3-1.5-1-2.2-2.5-2.5 1.5-.3 2.2-1 2.5-2.5z"
+			fill="currentColor"
+			stroke="none"
+		/>
+	</Icon>
+);
+
+const RedEyeIcon = (props: IconProps) => (
+	<Icon {...props}>
+		{/*
+		 * An almond eye, its lids meeting in points, with an iris and a solid pupil
+		 * in it and a flash's three rays off its corner: the layers' eye (`EyeIcon`)
+		 * is wide and round-lidded, with an open pupil and nothing beside it.
+		 */}
+		<path d="M2 15q8.5-9 17 0-8.5 9-17 0z" />
+		<circle cx="10.5" cy="15" r="3" />
+		<circle cx="10.5" cy="15" r="1.3" fill="currentColor" stroke="none" />
+		<path d="M17 6V3.5M19.1 6.9l1.8-1.8M20 9h2.5" />
+	</Icon>
+);
+
 const FillIcon = (props: IconProps) => (
 	<Icon {...props}>
 		<path d="M4.5 11.5l7-7 8 8-6.5 6.5a1.4 1.4 0 0 1-2 0L4.5 13.5a1.4 1.4 0 0 1 0-2z" />
@@ -469,6 +501,8 @@ export const ICONS = {
 	brush: BrushIcon,
 	eraser: EraserIcon,
 	smudge: SmudgeIcon,
+	remove: RemoveIcon,
+	redEye: RedEyeIcon,
 	fill: FillIcon,
 	eyedropper: EyedropperIcon,
 	rectangle: RectangleIcon,
