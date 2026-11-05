@@ -158,7 +158,7 @@ export const brushBehavior = (kind: BrushKind): ToolBehavior => {
 			begin: (context, sample) => {
 				const surface = guardedSurface(context);
 				if (surface === undefined) return;
-				const serial = claimScreen();
+				const serial = claimScreen(context.screen, context.layer?.id);
 				const area = areaOf(context);
 				const brush = brushOf(kind, context.options, sample);
 				// The live stroke's opacity, applied to the whole stroke at once as

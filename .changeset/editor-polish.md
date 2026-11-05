@@ -30,3 +30,4 @@ Painting on a raster layer that was moved, or that covers only part of the canva
 What is painted live on a raster layer shows only on the canvas, as it will once it lands.
 The brush's circle matches the paint: a mouse or a finger now paints the whole size, since pressure changes the width only from a pen, as in Photoshop, and a soft brush's circle is drawn where its paint is half opaque, as Photoshop's Normal Brush Tip is.
 The brush's circle and the marching ants now show over a stroke being painted on a raster layer instead of under it.
+What is being painted, smudged or moved on a raster layer now shows under the layers over it, as it will once it lands, instead of over every layer.

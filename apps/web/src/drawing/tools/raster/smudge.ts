@@ -272,7 +272,7 @@ export const smudgeBehavior = (): ToolBehavior => {
 			begin: (context, sample) => {
 				const surface = guardedSurface(context);
 				if (surface === undefined) return;
-				const serial = claimScreen();
+				const serial = claimScreen(context.screen, context.layer?.id);
 				const area = areaOf(context);
 				const start = pointOf(sample);
 				context.screen.canvas.style.removeProperty('opacity');

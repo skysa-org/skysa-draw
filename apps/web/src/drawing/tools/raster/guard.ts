@@ -49,10 +49,14 @@ export const guardedLayer = (
 export const guardedSurface = (context: ToolContext): RasterSurface | undefined =>
 	guardedLayer(context) === undefined ? undefined : surfaceFor(context);
 
-/** The live stroke gone from the screen canvas, and the opacity the stroke gave it. */
+/**
+ * The live stroke gone from the screen canvas, the opacity the stroke gave
+ * it, and the layers it lifted over it put back.
+ */
 export const clearScreen = (target: ScreenCanvas): void => {
 	clearCanvas(target.canvas);
 	target.canvas.style.removeProperty('opacity');
+	target.paintsOn?.(undefined);
 };
 
 /**
@@ -62,9 +66,15 @@ export const clearScreen = (target: ScreenCanvas): void => {
  */
 const begun = cell(0);
 
-/** A stroke's turn on the screen canvas: which it is among all begun. */
-export const claimScreen = (): number => {
+/**
+ * A stroke's turn on the screen canvas: which it is among all begun. What it
+ * paints is `layerId`'s, so the layers over that one are lifted over it
+ * (`viewport/cover.ts`), as they are over its paint once it lands; a stroke
+ * whose marks are no layer's, Remove's highlight, says none, and is over all.
+ */
+export const claimScreen = (target: ScreenCanvas, layerId: string | undefined): number => {
 	begun.current += 1;
+	target.paintsOn?.(layerId);
 	return begun.current;
 };
 

@@ -64,8 +64,9 @@ import { type RasterSurface, surfaceFor } from './surface.js';
  * While the drag lasts, the screen canvas shows the pixels where they are
  * going, and, for a float, what lay beneath where they were; the layer shows
  * the hole they leave through a mask beside the drawing (`hole.ts`), never in
- * it. The screen canvas is over every layer, as a brush stroke's is, so a
- * layer above the one moved is covered where the pixels pass, until they land.
+ * it. The layers over the one moved are lifted over the screen canvas while
+ * it shows the pixels (`viewport/cover.ts`), as over a brush stroke, so the
+ * pixels pass under them, as they will be once they land.
  */
 
 /** A move in the layer's whole pixels. */
@@ -552,7 +553,7 @@ const begin: AreaMove['begin'] = (context, sample) => {
 	const copy = sample.altKey;
 	const target = targetOf(context, copy);
 	if (target === undefined) return false;
-	const serial = claimScreen();
+	const serial = claimScreen(context.screen, context.layer?.id);
 	fadeScreen(context);
 	const shown = trail.current;
 	trail.current = undefined;

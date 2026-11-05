@@ -1,9 +1,10 @@
 /* The viewport (docs/ARCHITECTURE.md §7, "The interface"): the stage the
    drawing is mounted on, with the paper behind it; the screen canvas for a
-   live raster stroke over that; and over both the marks' stage
-   (`viewport/StageMarks.tsx`), with the area's ants (`regions.css`), the
-   tools' overlay and the transform's box, so the brush's outline is over the
-   stroke it paints. */
+   live raster stroke over that; the layers over the one the stroke paints,
+   lifted over it while it shows (`viewport/cover.ts`); and over all the
+   marks' stage (`viewport/StageMarks.tsx`), with the area's ants
+   (`regions.css`), the tools' overlay and the transform's box, so the
+   brush's outline is over the stroke it paints. */
 
 /* `touch-action: none` so every finger reaches the pointer events and none
    scrolls the page; no text selection, since a drag over a `<text>` would
@@ -38,8 +39,10 @@
 	transform-origin: 0 0;
 }
 
-/* The marks' stage covers the drawing's and takes no press: the viewport's
-   own handlers read every one. */
+/* The cover's stage (`viewport/cover.ts`), with the layers over the one a
+   live stroke paints, and the marks' stage, are over the drawing's and take
+   no press: the viewport's own handlers read every one. */
+.viewport-cover,
 .viewport-marks {
 	pointer-events: none;
 }

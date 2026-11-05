@@ -383,8 +383,9 @@ describe('the viewport', () => {
 			'polygon(0px 0px, 1600px 0px, 1600px 1000px, 0px 1000px)'
 		);
 		// The overlay, the ants and the transform's box are on a stage of their
-		// own after the live canvas, so a stroke being painted is under the
-		// brush's outline, and that stage goes where the drawing's does.
+		// own after the live canvas and the layers lifted over it, so a stroke
+		// being painted is under the brush's outline, and that stage goes where
+		// the drawing's does.
 		const live = container.querySelector('.viewport-screen') as HTMLCanvasElement;
 		const marks = overlay.parentElement as HTMLElement;
 		expect(marks.classList.contains('viewport-marks')).toBe(true);
@@ -392,7 +393,8 @@ describe('the viewport', () => {
 		expect(marks.querySelector('.viewport-area')).not.toBeNull();
 		expect(marks.querySelector('.viewport-transform')).not.toBeNull();
 		expect(stage.nextElementSibling).toBe(live);
-		expect(live.nextElementSibling).toBe(marks);
+		expect(live.nextElementSibling?.classList.contains('viewport-cover')).toBe(true);
+		expect(live.nextElementSibling?.nextElementSibling).toBe(marks);
 		expect(marks.style.transform).toBe(stage.style.transform);
 		expect(marks.style.width).toBe(stage.style.width);
 		expect(marks.style.height).toBe(stage.style.height);
@@ -458,6 +460,54 @@ describe('the viewport', () => {
 		rerender(<Viewport {...props} document={next.document} />);
 		expect(first.document.root.parentNode).toBeNull();
 		expect(next.document.root.parentNode).toBe(shadow);
+	});
+
+	it('lifts the layers over the one a live stroke paints over the live canvas, and puts them back', () => {
+		const fake = fakeDocument();
+		const over = fake.document.root.ownerDocument.createElementNS(SVG_NS, 'g');
+		over.setAttribute('id', 'layer-2');
+		fake.document.root.append(over);
+		const before = new XMLSerializer().serializeToString(fake.document.root);
+		const { behavior, calls } = recorder((context) => {
+			context.screen.paintsOn?.('layer-1');
+		});
+		const { container, region, stage, unmount } = setup(
+			fakeTool('pencil', { vector: behavior }),
+			{
+				document: fake.document,
+			}
+		);
+		// Over the live canvas, under the marks, and where the drawing is.
+		const cover = container.querySelector('.viewport-cover') as HTMLElement;
+		expect(container.querySelector('.viewport-screen')?.nextElementSibling).toBe(cover);
+		expect(cover.nextElementSibling?.classList.contains('viewport-marks')).toBe(true);
+		expect(cover.style.transform).toBe(stage.style.transform);
+		const drawing = stage.querySelector('.viewport-mount')?.shadowRoot;
+		const rules = () =>
+			[...(drawing?.children ?? [])]
+				.filter((each) => each.localName === 'style')
+				.map((each) => each.textContent)
+				.filter((text) => !text.includes(':host'));
+		const copy = () => cover.querySelector('.viewport-mount')?.shadowRoot?.querySelector('svg');
+
+		fire(region, pointer('pointerdown', { clientX: 10, clientY: 20 }));
+		expect(copy()?.querySelector('[id="layer-2"]')).not.toBeNull();
+		expect(rules()).toEqual(['[id="layer-2"] { opacity: 0 !important; }']);
+		expect(new XMLSerializer().serializeToString(fake.document.root)).toBe(before);
+		act(() => {
+			calls[0]?.context?.screen.paintsOn?.(undefined);
+		});
+		expect(copy() ?? null).toBeNull();
+		expect(rules()).toEqual([]);
+
+		// What is lifted when the viewport goes is put back with it.
+		act(() => {
+			calls[0]?.context?.screen.paintsOn?.('layer-1');
+		});
+		expect(rules()).toHaveLength(1);
+		unmount();
+		expect(rules()).toEqual([]);
+		expect(new XMLSerializer().serializeToString(fake.document.root)).toBe(before);
 	});
 
 	it("keeps the viewBox's origin: the overlay shares it, and a sample is read through it", () => {

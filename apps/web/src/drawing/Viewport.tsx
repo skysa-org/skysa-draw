@@ -44,6 +44,7 @@ import { useSelectionCommands } from './viewport/selectionCommands.js';
 import { useSelectionFollows } from './viewport/selectionFollows.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 import { shadowOf } from './viewport/shadow.js';
+import { StageCover, useCover } from './viewport/StageCover.js';
 import { StageMarks } from './viewport/StageMarks.js';
 import { useToolHandover } from './viewport/toolHandover.js';
 import {
@@ -188,6 +189,8 @@ export const Viewport = ({
 	const overlay = useRef<SVGSVGElement>(null);
 	const transformed = useRef<SVGSVGElement>(null);
 	const screen = useRef<HTMLCanvasElement>(null);
+	// The layers over the one a live stroke paints, lifted over it (`viewport/cover.ts`).
+	const { host: covered, lift } = useCover(document.root, mount, screen);
 	const stroke = useRef<Stroke | undefined>(undefined);
 	// The last stroke begun, ended or not, or the tool last given a context
 	// outside one (`viewport/toolHandover.ts`): its tool is told when it is
@@ -395,6 +398,7 @@ export const Viewport = ({
 			overlay: overlay.current,
 			canvas: screen.current,
 			pixelRatio: () => window.devicePixelRatio,
+			paintsOn: lift,
 			view: views,
 			selection: selections,
 			region: regions,
@@ -720,6 +724,7 @@ export const Viewport = ({
 					<div className="viewport-mount" ref={mount} />
 				</div>
 				<LiveCanvas ref={screen} view={view} box={box} />
+				<StageCover view={view} box={box} host={covered} />
 				<StageMarks
 					view={view}
 					box={box}

@@ -185,6 +185,12 @@ export interface ScreenCanvas {
 	/** User units to this canvas's pixels. */
 	readonly toScreen: (x: number, y: number) => readonly [number, number];
 	readonly pixelRatio: number;
+	/**
+	 * Which layer's paint the canvas shows, so the layers over that one are
+	 * shown over it (`viewport/cover.ts`); `undefined` for none, which is
+	 * over every layer. Absent where nothing is over the canvas.
+	 */
+	readonly paintsOn?: (layerId: string | undefined) => void;
 }
 
 /** What the viewport gives a tool. The same object for a stroke, begin to end. */

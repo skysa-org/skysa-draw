@@ -25,6 +25,8 @@ type ContextDeps = Readonly<{
 	canvas: HTMLCanvasElement;
 	/** Read when asked: a window moved to another screen changes it. */
 	pixelRatio: () => number;
+	/** The cover's lift (`cover.ts`), for the screen's `paintsOn`. */
+	paintsOn?: (layerId: string | undefined) => void;
 	view: Observable<View>;
 	selection: Observable<readonly Element[]>;
 	region: Observable<Region | undefined>;
@@ -63,9 +65,11 @@ const viewportControl = (
 const screenCanvas = (
 	canvas: HTMLCanvasElement,
 	view: Observable<View>,
-	pixelRatio: () => number
+	pixelRatio: () => number,
+	paintsOn: ((layerId: string | undefined) => void) | undefined
 ): ScreenCanvas => ({
 	canvas,
+	...(paintsOn === undefined ? {} : { paintsOn }),
 	toScreen: (x, y) => {
 		const ratio = pixelRatio();
 		const [sx, sy] = toScreen(view.get(), x, y);
@@ -110,7 +114,7 @@ export const createToolContext = (deps: ContextDeps): ToolContext => ({
 	layer: deps.layer,
 	options: deps.options,
 	overlay: deps.overlay,
-	screen: screenCanvas(deps.canvas, deps.view, deps.pixelRatio),
+	screen: screenCanvas(deps.canvas, deps.view, deps.pixelRatio, deps.paintsOn),
 	viewport: viewportControl(deps.view, deps.fit, deps.actualSize),
 	selection: selectionControl(deps.selection),
 	region: regionControl(deps.region),

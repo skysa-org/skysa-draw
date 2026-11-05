@@ -197,7 +197,7 @@ export const removeBehavior = (): ToolBehavior => {
 				context.notify(t('remove.busy'));
 				return;
 			}
-			const serial = claimScreen();
+			const serial = claimScreen(context.screen, undefined);
 			context.screen.canvas.style.setProperty('opacity', String(HIGHLIGHT_OPACITY));
 			const room = surface.paintRoom();
 			const [ox, oy] = surface.origin();

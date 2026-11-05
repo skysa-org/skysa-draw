@@ -35,7 +35,7 @@ type Place = Pick<RasterSurface, 'bounds' | 'ppu'>;
 const made = cell(0);
 
 /** A value as a CSS string, for an attribute selector. */
-const quoted = (value: string): string =>
+export const quoted = (value: string): string =>
 	`"${value.replace(/["\\]/g, '\\$&').replace(/\n/g, '\\a ')}"`;
 
 /**
