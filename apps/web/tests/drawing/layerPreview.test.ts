@@ -321,3 +321,69 @@ describe('the text', () => {
 		expect(byId(picture, 'layer-1').getAttributeNS(DRAWING_NAMESPACE, 'name')).toBe(name);
 	});
 });
+
+describe('a picture in the file’s own bytes', () => {
+	const SMALL = 'data:image/png;base64,c21hbGw=';
+	const withStandIns = (
+		document: EditorDocument,
+		target: PreviewTarget,
+		standIn: (href: string) => string | undefined
+	): BuiltPreview | undefined =>
+		buildPreview(previewContext(document.root, document.size, undefined, standIn), target);
+
+	it('is drawn by its stand-in, its megabytes nowhere in the text, and named as drawn', () => {
+		const document = open(
+			`<g id="layer-1" draw:kind="raster"><image href="${PIXELS}" width="200" height="100" preserveAspectRatio="none"/></g>`
+		);
+		const preview = withStandIns(document, { layerId: 'layer-1' }, () => SMALL);
+		const text = preview?.parts.join('') ?? '';
+		expect(text).toContain(`href="${SMALL}"`);
+		expect(text).not.toContain(PIXELS);
+		expect(text).toContain('preserveAspectRatio="none"');
+		expect(preview?.pictures).toEqual([PIXELS]);
+		expect(preview?.wanted).toEqual([]);
+		expect(document.root.querySelector('image')?.getAttribute('href')).toBe(PIXELS);
+	});
+
+	it('says which stand-ins are wanted while they are not made, and writes nothing out', () => {
+		const document = open(
+			`<g id="layer-1" draw:kind="raster"><image href="${PIXELS}" width="200" height="100"/></g>`
+		);
+		const preview = withStandIns(document, { layerId: 'layer-1' }, () => undefined);
+		expect(preview?.wanted).toEqual([PIXELS]);
+		expect(preview?.parts).toEqual([]);
+	});
+
+	it('is found by an older file’s xlink:href, and in a definition the picture uses', () => {
+		const document = open(
+			`<defs><pattern id="paper" width="10" height="10"><image xlink:href="${PIXELS}" width="10" height="10"/></pattern></defs>` +
+				`<g id="layer-1"><image xlink:href="${PIXELS}" width="20" height="20"/><rect width="50" height="50" fill="url(#paper)"/></g>`
+		);
+		const preview = withStandIns(document, { layerId: 'layer-1' }, () => SMALL);
+		const text = preview?.parts.join('') ?? '';
+		expect(text).not.toContain(PIXELS);
+		expect(text.split(`xlink:href="${SMALL}"`)).toHaveLength(3);
+		expect(preview?.pictures).toEqual([PIXELS, PIXELS]);
+	});
+
+	it('leaves a short data: URL and a link elsewhere as they are, and asks no stand-in for them', () => {
+		const asked: string[] = [];
+		const document = open(
+			`<g id="layer-1"><image href="${SMALL}" width="5" height="5"/><image href="https://example.com/a.png" width="5" height="5"/></g>`
+		);
+		const preview = withStandIns(document, { layerId: 'layer-1' }, (href) => {
+			asked.push(href);
+			return 'data:changed';
+		});
+		expect(asked).toEqual([]);
+		expect(preview?.pictures).toEqual([]);
+		expect(preview?.parts.join('')).toContain(`href="${SMALL}"`);
+	});
+
+	it('is drawn by itself where no stand-ins are given', () => {
+		const document = open(
+			`<g id="layer-1" draw:kind="raster"><image href="${PIXELS}" width="200" height="100"/></g>`
+		);
+		expect(built(document, { layerId: 'layer-1' })?.parts).toContain(PIXELS);
+	});
+});

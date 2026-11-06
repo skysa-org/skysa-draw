@@ -10,6 +10,7 @@ import {
 	type PreviewTarget,
 	topLevelOf,
 } from './layerPreviews.js';
+import { browserShrink, canShrink, createStandIns, type StandIns } from './previewPictures.js';
 
 /**
  * The layers panel's pictures of one document, kept up to date by one watch
@@ -30,6 +31,15 @@ import {
  * layer, and a picture whose text came out the same keeps its URL, so
  * showing or hiding a layer, or changing its opacity, does nothing to its
  * picture.
+ *
+ * A picture in the file's own bytes is drawn by its stand-in
+ * (`previewPictures.ts`), made once for each picture the first time a
+ * picture needs it. While one is being made, the picture shown stays as it
+ * was, or the box empty for a picture not shown yet, and the picture is built
+ * again as soon as it is made; after each round, the stand-ins of pictures no
+ * preview draws any more are let go of. They are the document's, not the
+ * watch's, so a panel put away and shown again, as a phone's layers sheet
+ * is all the time, finds them made.
  */
 
 /** How long the pictures wait for the changes to stop: past a drag's end and a stroke's landing, and too short to be seen waiting. */
@@ -42,6 +52,8 @@ type Shown = Readonly<{
 	picture: PreviewPicture;
 	parts: readonly string[];
 	sources: ReadonlySet<string>;
+	/** The pictures in the file's own bytes it draws by their stand-ins. */
+	pictures: readonly string[];
 }>;
 
 type Entry = Readonly<{
@@ -59,9 +71,21 @@ type Watch = Readonly<{
 	everything: Cell<boolean>;
 	timer: Cell<ReturnType<typeof setTimeout> | undefined>;
 	observer: MutationObserver;
+	standIns: StandIns;
+	/** The entries, by key, whose stand-ins were made since they were built. */
+	again: Set<string>;
 }>;
 
 const watches = new WeakMap<EditorDocument, Watch>();
+
+const standIns = new WeakMap<EditorDocument, StandIns>();
+
+/** The document's stand-ins, made with its first watch and kept through every watch after. */
+const standInsOf = (document: EditorDocument): StandIns => {
+	const known = standIns.get(document) ?? createStandIns(canShrink() ? browserShrink : undefined);
+	standIns.set(document, known);
+	return known;
+};
 
 /** jsdom has no object URLs, and a browser without them shows the box empty. */
 const canPreview = (): boolean =>
@@ -79,11 +103,16 @@ const release = (shown: Shown | undefined): void => {
 	if (shown !== undefined) URL.revokeObjectURL(shown.picture.url);
 };
 
+/** The context of a round of builds, with the watch's stand-ins. */
+const contextOf = (watch: Watch): PreviewContext =>
+	previewContext(watch.document.root, watch.document.size, undefined, watch.standIns.get);
+
 /**
  * The entry's picture built again; whether what it shows changed. A text the
- * same as the last keeps its URL, and nothing is made for it.
+ * same as the last keeps its URL, and nothing is made for it. One waiting on
+ * stand-ins keeps what it shows until they are made, and is built again then.
  */
-const rebuild = (context: PreviewContext, entry: Entry): boolean => {
+const rebuild = (watch: Watch, context: PreviewContext, key: string, entry: Entry): boolean => {
 	const built = buildPreview(context, entry.target);
 	const was = entry.shown.current;
 	if (built === undefined) {
@@ -91,16 +120,20 @@ const rebuild = (context: PreviewContext, entry: Entry): boolean => {
 		release(was);
 		return was !== undefined;
 	}
+	if (built.wanted.length > 0) {
+		void watch.standIns.make(built.wanted).then(() => {
+			watch.again.add(key);
+			schedule(watch, 0);
+		});
+		return false;
+	}
+	const shown = { parts: built.parts, sources: built.sources, pictures: built.pictures };
 	if (was !== undefined && sameParts(was.parts, built.parts)) {
-		entry.shown.current = { picture: was.picture, parts: built.parts, sources: built.sources };
+		entry.shown.current = { ...shown, picture: was.picture };
 		return false;
 	}
 	const url = URL.createObjectURL(new Blob([...built.parts], { type: 'image/svg+xml' }));
-	entry.shown.current = {
-		picture: { url, fit: built.fit },
-		parts: built.parts,
-		sources: built.sources,
-	};
+	entry.shown.current = { ...shown, picture: { url, fit: built.fit } };
 	release(was);
 	return true;
 };
@@ -120,17 +153,29 @@ const notify = (entry: Entry): void => {
 	});
 };
 
+/** The stand-ins of the pictures no preview draws any more let go of. */
+const keepShown = (watch: Watch): void => {
+	watch.standIns.keep(
+		new Set([...watch.entries.values()].flatMap((entry) => entry.shown.current?.pictures ?? []))
+	);
+};
+
 const flush = (watch: Watch): void => {
 	watch.timer.current = undefined;
 	const everything = watch.everything.current;
 	const dirty: ReadonlySet<string> = new Set(watch.dirty);
+	const again: ReadonlySet<string> = new Set(watch.again);
 	watch.everything.current = false;
 	watch.dirty.clear();
-	const context = previewContext(watch.document.root, watch.document.size);
-	[...watch.entries.values()]
-		.filter((entry) => everything || touches(context, entry, dirty))
-		.filter((entry) => rebuild(context, entry))
-		.forEach(notify);
+	watch.again.clear();
+	const context = contextOf(watch);
+	[...watch.entries]
+		.filter(([key, entry]) => everything || again.has(key) || touches(context, entry, dirty))
+		.filter(([key, entry]) => rebuild(watch, context, key, entry))
+		.forEach(([, entry]) => {
+			notify(entry);
+		});
+	keepShown(watch);
 };
 
 /**
@@ -160,11 +205,12 @@ const mark = (watch: Watch, record: MutationRecord): boolean => {
 	return elements.length > 0;
 };
 
-const schedule = (watch: Watch): void => {
+/** A round of builds `delay` from now, in place of one already waiting; at once for stand-ins just made. */
+const schedule = (watch: Watch, delay = PREVIEW_DELAY_MS): void => {
 	if (watch.timer.current !== undefined) clearTimeout(watch.timer.current);
 	watch.timer.current = setTimeout(() => {
 		flush(watch);
-	}, PREVIEW_DELAY_MS);
+	}, delay);
 };
 
 const startWatch = (document: EditorDocument): Watch => {
@@ -174,6 +220,8 @@ const startWatch = (document: EditorDocument): Watch => {
 		dirty: new Set(),
 		everything: cell(false),
 		timer: cell(undefined),
+		standIns: standInsOf(document),
+		again: new Set(),
 		observer: new MutationObserver((records) => {
 			const marked = records.map((record) => mark(watch, record)).some(Boolean);
 			if (marked) schedule(watch);
@@ -199,7 +247,7 @@ const stopWatch = (watch: Watch): void => {
 const addEntry = (watch: Watch, key: string, target: PreviewTarget): Entry => {
 	const entry: Entry = { target, listeners: new Set(), shown: cell(undefined) };
 	watch.entries.set(key, entry);
-	rebuild(previewContext(watch.document.root, watch.document.size), entry);
+	rebuild(watch, contextOf(watch), key, entry);
 	return entry;
 };
 

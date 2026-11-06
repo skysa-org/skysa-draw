@@ -10,6 +10,7 @@ import {
 	writeLayerHidden,
 	writeLayerOpacity,
 } from '../document/layers.js';
+import { XLINK_NAMESPACE } from '../document/namespaces.js';
 import { serializeDrawing } from '../document/serialize.js';
 import { layerSpace } from '../tools/vector/guard.js';
 import { elementsOf, placedBox } from '../tools/vector/hit.js';
@@ -42,6 +43,12 @@ import { type Measure, measureOf } from '../tools/vector/measure.js';
  * the rest is left out. A definition the picture does not use cannot change
  * it, so an adjustment changed on one layer gives that layer a new picture
  * and leaves every other one as it was.
+ *
+ * A picture in the file's own bytes, a raster layer's every pixel, is drawn
+ * by its stand-in (`previewPictures.ts`), a few hundred pixels across, so the
+ * SVG a preview holds is kilobytes where the layer is megabytes; where the
+ * stand-in is not made yet the build says so (`BuiltPreview.wanted`), and the
+ * picture shown stays as it was until it is.
  */
 
 /** Which picture: a layer, or one item of a vector layer, by where it is among the layer's elements (`elementsOf`). */
@@ -71,7 +78,14 @@ export type BuiltPreview = Readonly<{
 	fit: PreviewFit;
 	/** The layers at the root, other than the picture's own, that a definition or a `<style>` in it was copied from. */
 	sources: ReadonlySet<string>;
+	/** The `href` of every picture in the file's own bytes it draws, by its stand-in or, where that is not made, by itself. */
+	pictures: readonly string[];
+	/** Those of `pictures` whose stand-in is not made yet: the picture is not to be shown until they are. */
+	wanted: readonly string[];
 }>;
+
+/** A picture's stand-in, by its `href`: a small one, or the `href` itself; nothing while it is not made (`previewPictures.ts`). */
+export type StandIn = (href: string) => string | undefined;
 
 /** What one round of builds reads of the document, read once for all of them. */
 export type PreviewContext = Readonly<{
@@ -82,6 +96,7 @@ export type PreviewContext = Readonly<{
 	layer: (id: string) => SVGGraphicsElement | undefined;
 	/** The first element with this id, as a reference resolves. */
 	byId: (id: string) => Element | undefined;
+	standIn: StandIn;
 }>;
 
 const idOf = (element: Element): string => element.getAttribute('id') ?? '';
@@ -100,10 +115,14 @@ const once = <T>(make: () => T): (() => T) => {
 	};
 };
 
+/** Every picture drawn by itself, as a test of the rest wants it. */
+const asItself: StandIn = (href) => href;
+
 export const previewContext = (
 	root: SVGSVGElement,
 	opened: DrawingSize,
-	measure: Measure = measureOf
+	measure: Measure = measureOf,
+	standIn: StandIn = asItself
 ): PreviewContext => {
 	const layers = once(() => firstById(layerElementsOf(root)));
 	const ids = once(() => firstById([...root.querySelectorAll('[id]')]));
@@ -113,6 +132,7 @@ export const previewContext = (
 		measure,
 		layer: (id) => layers().get(id),
 		byId: (id) => ids().get(id),
+		standIn,
 	};
 };
 
@@ -361,6 +381,55 @@ const partsOf = (svg: Element): readonly string[] => {
 	);
 };
 
+/** Where an `<image>` names its picture: SVG 2's `href`, or the `xlink:href` an older file writes. */
+const PICTURE_ATTRIBUTES = [
+	[null, 'href'],
+	[XLINK_NAMESPACE, 'href'],
+] as const;
+
+type Picture = Readonly<{ image: Element; attribute: Attr }>;
+
+/** A picture in the file's own bytes: a `data:` URL long enough to be a part of its own. */
+const isOwnPicture = (href: string): boolean =>
+	href.length >= LONG_VALUE && href.startsWith('data:');
+
+/** The pictures in the file's own bytes that `copy`, or what it holds, draws. */
+const picturesIn = (copy: Element): readonly Picture[] =>
+	[copy, ...copy.getElementsByTagNameNS(SVG_NAMESPACE, 'image')]
+		.filter(
+			(element) => element.namespaceURI === SVG_NAMESPACE && element.localName === 'image'
+		)
+		.flatMap((image) =>
+			PICTURE_ATTRIBUTES.flatMap(([namespace, name]) => {
+				const attribute = image.getAttributeNodeNS(namespace, name);
+				return attribute !== null && isOwnPicture(attribute.value)
+					? [{ image, attribute }]
+					: [];
+			})
+		);
+
+type StoodIn = Readonly<{ pictures: readonly string[]; wanted: readonly string[] }>;
+
+/**
+ * Each picture in the file's own bytes in the copy drawn by its stand-in,
+ * where it is made: before anything else reads the copy's attributes, so no
+ * pass over them reads a picture's megabytes.
+ */
+const standInFor = (copy: Element, standIn: StandIn): StoodIn => {
+	const found = picturesIn(copy).map(({ image, attribute }) => {
+		const href = attribute.value;
+		const small = standIn(href);
+		if (small !== undefined && small !== href) {
+			image.setAttributeNS(attribute.namespaceURI, attribute.name, small);
+		}
+		return { href, made: small !== undefined };
+	});
+	return {
+		pictures: found.map((each) => each.href),
+		wanted: found.filter((each) => !each.made).map((each) => each.href),
+	};
+};
+
 /** The layers at the root, but `own`, that `copied` came from. */
 const sourcesOf = (root: Element, own: Element, copied: readonly Element[]): ReadonlySet<string> =>
 	new Set(
@@ -391,9 +460,20 @@ export const buildPreview = (
 	const content = placedPath(root, inert, path, item);
 	const own = path[0];
 	if (content === undefined || own === undefined) return undefined;
+	const drawn = standInFor(content.copy, context.standIn);
 
 	const frame = item === undefined ? canvas : itemFrame(layer, item, canvas, context.measure);
 	const fit = fitOf(frame);
+	// Not to be shown until its stand-ins are made, so nothing is spent writing it out.
+	if (drawn.wanted.length > 0) {
+		return {
+			parts: [],
+			fit,
+			sources: new Set(),
+			pictures: drawn.pictures,
+			wanted: drawn.wanted,
+		};
+	}
 	const svg = inert.importNode(root, false);
 	svg.setAttribute('viewBox', `${frame.x} ${frame.y} ${frame.width} ${frame.height}`);
 	svg.setAttribute('width', String(fit.width));
@@ -402,16 +482,17 @@ export const buildPreview = (
 	const styles = [...root.getElementsByTagNameNS(SVG_NAMESPACE, 'style')].filter(
 		(style) => !within(content.whole, style)
 	);
-	const wanted = [
+	const named = [
 		...idsReferencedIn(svg),
 		...idsReferencedIn(content.copy),
 		...idsInStyles(styles),
 	];
 	const skip = (element: Element): boolean =>
 		within(content.whole, element) || element.contains(layer);
-	const definitions = outermost(definitionsFor(context, wanted, skip, new Set(), []));
+	const definitions = outermost(definitionsFor(context, named, skip, new Set(), []));
 	const defs = inert.createElementNS(SVG_NAMESPACE, 'defs');
 	defs.append(...definitions.map((element) => inert.importNode(element, true)));
+	const defined = standInFor(defs, context.standIn);
 
 	svg.append(
 		...styles.map((style) => inert.importNode(style, true)),
@@ -422,5 +503,7 @@ export const buildPreview = (
 		parts: partsOf(svg),
 		fit,
 		sources: sourcesOf(root, own, [...styles, ...definitions]),
+		pictures: [...drawn.pictures, ...defined.pictures],
+		wanted: [...drawn.wanted, ...defined.wanted],
 	};
 };
