@@ -11,6 +11,12 @@ export const layers = {
 	/** A group's control that shows the rows of its layers, or hides them; Alt with it does every group inside too. */
 	expand: 'Expand group',
 	collapse: 'Collapse group',
+	/** The panel's menu of what can be made above the active layer, as Photoshop's Layer › New. */
+	new: 'New',
+	newVector: 'Vector layer',
+	newRaster: 'Raster layer',
+	newGroup: 'Group',
+	/** What undo calls a layer or a group made. */
 	add: 'New layer',
 	addRaster: 'New raster layer',
 	addGroup: 'New group',

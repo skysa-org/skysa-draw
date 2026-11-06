@@ -348,12 +348,21 @@
 	position: absolute;
 }
 
+/* An empty group's folder, with no caret, since it has nothing to show or
+   hide, and no button: where a group's folder is. */
+.layer-row .layer-folder {
+	display: inline-grid;
+	flex: none;
+	margin-inline-start: var(--space-2xs);
+}
+
 /* A clipped group's arrow, before its folder, where a layer's is before its kind. */
 .layer-row > .layer-clip-mark {
 	margin-inline-start: var(--space-2xs);
 }
 
-.layer-row > .layer-clip-mark + .layer-disclosure {
+.layer-row > .layer-clip-mark + .layer-disclosure,
+.layer-row > .layer-clip-mark + .layer-folder {
 	margin-inline-start: 0;
 }
 

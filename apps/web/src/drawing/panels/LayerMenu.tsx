@@ -1,7 +1,7 @@
 import { MoreIcon } from '../../components/ui/icons.js';
 import { Menu, type MenuItem } from '../../components/ui/Menu.js';
 import { t } from '../../i18n/t.js';
-import { groupLayers, outermostLayers } from '../document/arrange.js';
+import { canStepLayers, groupLayers, outermostLayers, stepLayers } from '../document/arrange.js';
 import { clipStateOf, clipToBelow, layerBelow, releaseClip } from '../document/clip.js';
 import { compound } from '../document/commands.js';
 import { ungroupLayer, ungroupProblem } from '../document/groups.js';
@@ -19,9 +19,11 @@ import type { LayerSelection } from '../layerSelection.js';
 /**
  * What else can be done to the layers chosen (docs/ARCHITECTURE.md §3,
  * "Layers"; docs/decisions/0003-layers.md), in a menu at the layers panel's
- * head: put them in a group together, undo every group among them; and, to
- * the active layer alone, merge it with the layer below, make it pixels, clip
- * it to the layer below, which are disabled while more than one layer is
+ * head: put them in a group together, undo every group among them; move
+ * them a step up or down among their siblings, the way to reorder them
+ * without a drag; and, to the active layer alone, merge it with the layer
+ * below, make it pixels, clip it to the layer below, which are disabled while
+ * more than one layer is
  * chosen, since each acts on one layer and the one below it. An item that
  * cannot apply at all is there and disabled; one that could but will not, a
  * merge of a hidden layer, says why when it is chosen.
@@ -151,6 +153,18 @@ export const LayerMenu = ({
 			label: t('layers.ungroup'),
 			disabled: groups.length === 0,
 			onSelect: ungroup,
+		},
+		{
+			id: 'up',
+			label: t('layers.moveUp'),
+			disabled: !canStepLayers(root, chosen, 'up'),
+			onSelect: () => document.execute(stepLayers(root, chosen, 'up')),
+		},
+		{
+			id: 'down',
+			label: t('layers.moveDown'),
+			disabled: !canStepLayers(root, chosen, 'down'),
+			onSelect: () => document.execute(stepLayers(root, chosen, 'down')),
 		},
 		{
 			id: 'merge',

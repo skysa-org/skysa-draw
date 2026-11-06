@@ -520,7 +520,9 @@ A click in the layers panel chooses one layer, Ctrl or ⌘ adds or takes one out
 The active layer is always among the chosen, tinted with them and marked in the accent, and each chosen row says "Selected" to a screen reader while more than one is.
 Layers are dragged by a mouse or a pen on the layer, and by a finger on a grip shown where a pointer is coarse, since a finger on the layer scrolls the list (`panels/useLayerDrag.ts`); a line shows the gap and how deep, chosen by the pointer's x at a group's foot, a group's row lights for into it, and the list scrolls near its edges.
 Alt with an arrow moves the chosen a step, into and out of groups, as a drag to the next gap would.
+The panel's head is New, a menu of a vector layer, a raster layer and an empty group, each made above the active layer as Photoshop's Layer › New makes them, then Duplicate, Delete and the layer actions menu; dragging a row is how a layer moves, and the actions menu keeps Move up and Move down, so a layer can be moved without a drag.
 A group's folder is its disclosure: a button of its own where a layer's row shows its kind, with a caret in the folder that points down while the group is open and across while it is shut, so a group's name lines up with a layer's and no row moves over for it.
+An empty group's folder has no caret and is no button, since there is nothing in it to show or hide.
 A group collapses by its folder, with Alt every group inside it too, or by the arrows across, as a tree view does; which are collapsed is the editor's state for as long as the drawing is open, never the file's, and changes nothing that is chosen.
 
 **Input.**

@@ -310,6 +310,7 @@ export const LayersPanel = ({
 
 	const disclosureOf = ({ layer }: Row): Disclosure => {
 		if (layer.kind !== 'group') return 'none';
+		if (!holding.has(layer.id)) return 'empty';
 		const expanded = !collapsed.has(layer.id);
 		return {
 			expanded,

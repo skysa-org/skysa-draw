@@ -4,6 +4,7 @@ import { IconButton } from '../../components/ui/IconButton.js';
 import {
 	EyeIcon,
 	EyeOffIcon,
+	FolderIcon,
 	GripIcon,
 	GroupToggleIcon,
 	LockIcon,
@@ -24,7 +25,8 @@ import type { Row } from './LayerTree.js';
  * grip to drag it by (docs/ARCHITECTURE.md §7, "The interface"). A group's
  * folder is its disclosure: a button of its own where a layer's kind is, the
  * folder with a caret that turns, so a group's name lines up with a layer's
- * and no row moves over for it. A button cannot be inside the layer's own,
+ * and no row moves over for it; an empty group's folder has no caret and is
+ * no button. A button cannot be inside the layer's own,
  * so it sits before it, as wide as the kind's icon, its target the 44 px
  * every control has, reaching over the gaps beside it.
  *
@@ -49,9 +51,10 @@ export const focusPick = (layerId: string | undefined) => {
 	if (layerId !== undefined) window.document.getElementById(pickId(layerId))?.focus();
 };
 
-/** A row's disclosure: none, for a layer; a group's, open or shut. */
+/** A row's disclosure: none, for a layer; a folder with nothing to show or hide, for an empty group; a group's, open or shut. */
 export type Disclosure =
 	| 'none'
+	| 'empty'
 	| Readonly<{
 			expanded: boolean;
 			/** With Alt, every group inside it too, as Photoshop's does. */
@@ -75,9 +78,20 @@ type PointerHandlers = Readonly<{
 /** A data attribute that is there or not, as the row's CSS reads it. */
 const flag = (on: boolean): '' | undefined => (on ? '' : undefined);
 
-/** A group's folder, which opens and shuts it; nothing for a layer, whose kind is in its button. */
+/**
+ * A group's folder, which opens and shuts it; an empty group's, which has
+ * nothing to open, without its caret and not a button; nothing for a layer,
+ * whose kind is in its button.
+ */
 const DisclosureSlot = ({ disclosure }: Readonly<{ disclosure: Disclosure }>) => {
 	if (disclosure === 'none') return null;
+	if (disclosure === 'empty') {
+		return (
+			<span className="layer-folder">
+				<FolderIcon className="layer-kind-icon" />
+			</span>
+		);
+	}
 	return (
 		<IconButton
 			icon={<GroupToggleIcon open={disclosure.expanded} className="layer-kind-icon" />}

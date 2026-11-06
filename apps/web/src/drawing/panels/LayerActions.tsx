@@ -3,20 +3,15 @@ import type { LayerKind } from '@skysa/draw-core';
 import { IconButton } from '../../components/ui/IconButton.js';
 import {
 	AddIcon,
-	ChevronDownIcon,
-	ChevronUpIcon,
 	DeleteIcon,
 	DuplicateIcon,
+	FolderIcon,
 	RasterIcon,
+	VectorIcon,
 } from '../../components/ui/icons.js';
+import { Menu } from '../../components/ui/Menu.js';
 import { t } from '../../i18n/t.js';
-import {
-	canStepLayers,
-	duplicateLayers,
-	outermostLayers,
-	removeLayers,
-	stepLayers,
-} from '../document/arrange.js';
+import { duplicateLayers, outermostLayers, removeLayers } from '../document/arrange.js';
 import { addLayer } from '../document/commands.js';
 import type { DocumentSnapshot, EditorDocument, LayerInfo } from '../document/model.js';
 import type { LayerSelection } from '../layerSelection.js';
@@ -24,9 +19,11 @@ import { LayerMenu } from './LayerMenu.js';
 
 /**
  * The layers panel's head (`LayersPanel`; docs/ARCHITECTURE.md §7, "The
- * interface"): a new layer above the active one, and the actions on the
- * layers chosen, together, each one command: duplicate, move up and down
- * among their siblings, delete, and the rarer ones in `LayerMenu`.
+ * interface"): New, a menu of a vector layer, a raster layer and a group,
+ * each made above the active layer, as Photoshop's Layer › New is; and the
+ * actions on the layers chosen, together, each one command: duplicate,
+ * delete, and the rarer ones in `LayerMenu`. Dragging a row is how a layer
+ * moves, and Move up and Move down are in `LayerMenu` for whoever does not drag.
  */
 export const LayerActions = ({
 	document,
@@ -75,29 +72,35 @@ export const LayerActions = ({
 	};
 	return (
 		<>
-			<IconButton icon={<AddIcon />} label={t('layers.add')} onClick={() => add('vector')} />
-			<IconButton
-				icon={<RasterIcon />}
-				label={t('layers.addRaster')}
-				onClick={() => add('raster')}
+			<Menu
+				label={t('layers.new')}
+				icon={<AddIcon />}
+				items={[
+					{
+						id: 'vector',
+						label: t('layers.newVector'),
+						icon: <VectorIcon />,
+						onSelect: () => add('vector'),
+					},
+					{
+						id: 'raster',
+						label: t('layers.newRaster'),
+						icon: <RasterIcon />,
+						onSelect: () => add('raster'),
+					},
+					{
+						id: 'group',
+						label: t('layers.newGroup'),
+						icon: <FolderIcon />,
+						onSelect: () => add('group'),
+					},
+				]}
 			/>
 			<IconButton
 				icon={<DuplicateIcon />}
 				label={t('layers.duplicateChosen', { count })}
 				disabled={chosen.length === 0}
 				onClick={duplicate}
-			/>
-			<IconButton
-				icon={<ChevronUpIcon />}
-				label={t('layers.moveUp')}
-				disabled={!canStepLayers(root, chosen, 'up')}
-				onClick={() => document.execute(stepLayers(root, chosen, 'up'))}
-			/>
-			<IconButton
-				icon={<ChevronDownIcon />}
-				label={t('layers.moveDown')}
-				disabled={!canStepLayers(root, chosen, 'down')}
-				onClick={() => document.execute(stepLayers(root, chosen, 'down'))}
 			/>
 			<IconButton
 				icon={<DeleteIcon />}

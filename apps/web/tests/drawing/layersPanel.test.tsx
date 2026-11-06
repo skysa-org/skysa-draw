@@ -86,8 +86,23 @@ const rows = () =>
 /** The button that is the layer itself, in its row. */
 const pick = (name: string | RegExp) => within(list()).getByRole('button', { name });
 
-const add = async (user: ReturnType<typeof userEvent.setup>, name = 'New layer') => {
-	await user.click(screen.getByRole('button', { name }));
+/** An item of one of the panel's menus, chosen. */
+const chooseIn = async (user: ReturnType<typeof userEvent.setup>, menu: string, name: string) => {
+	await user.click(screen.getByRole('button', { name: menu }));
+	await user.click(await screen.findByRole('menuitem', { name }));
+};
+
+/** An item of one of the panel's menus, seen and left, as for whether it is disabled. */
+const itemIn = async (user: ReturnType<typeof userEvent.setup>, menu: string, name: string) => {
+	await user.click(screen.getByRole('button', { name: menu }));
+	const found = await screen.findByRole('menuitem', { name });
+	await user.keyboard('{Escape}');
+	return found;
+};
+
+/** Something new from the panel's New menu, a vector layer unless it says. */
+const add = async (user: ReturnType<typeof userEvent.setup>, name = 'Vector layer') => {
+	await chooseIn(user, 'New', name);
 };
 
 describe('the layers panel', () => {
@@ -117,10 +132,33 @@ describe('the layers panel', () => {
 		const document = open();
 		render(<Harness document={document} />);
 
-		await add(user, 'New raster layer');
+		await add(user, 'Raster layer');
 
 		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
 		expect(document.text()).toContain('draw:kind="raster"');
+	});
+
+	it('adds an empty group above the active one, its folder with no caret, and activates it', async () => {
+		const user = userEvent.setup();
+		const document = open();
+		const onActivate = vi.fn();
+		render(<Harness document={document} onActivate={onActivate} />);
+
+		await add(user, 'Group');
+
+		await waitFor(() => expect(rows()).toEqual(['Group 2', 'Layer 1']));
+		expect(onActivate).toHaveBeenCalledWith('layer-2');
+		expect(document.text()).toMatch(/<g id="layer-2" draw:kind="group"\/>/);
+		expect(list().querySelector('.layer-disclosure')).toBeNull();
+		expect(list().querySelectorAll('.layer-row[data-group] .layer-folder')).toHaveLength(1);
+	});
+
+	it('has no buttons to move a layer up or down: a drag does, or the actions menu', () => {
+		render(<Harness document={open()} />);
+		expect(screen.queryByRole('button', { name: 'Move up' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Move down' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'New layer' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'New raster layer' })).toBeNull();
 	});
 
 	it('duplicates the active layer above it, and activates the copy', async () => {
@@ -239,15 +277,19 @@ describe('the layers panel', () => {
 		await add(user);
 		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
 		// The top layer is active: it can only go down.
-		expect(screen.getByRole('button', { name: 'Move up' })).toHaveProperty('disabled', true);
+		expect((await itemIn(user, 'Layer actions', 'Move up')).getAttribute('aria-disabled')).toBe(
+			'true'
+		);
 
-		await user.click(screen.getByRole('button', { name: 'Move down' }));
+		await chooseIn(user, 'Layer actions', 'Move down');
 		await waitFor(() => expect(rows()).toEqual(['Layer 1', 'Layer 2']));
 		const text = document.text();
 		expect(text.indexOf('id="layer-2"')).toBeLessThan(text.indexOf('id="layer-1"'));
-		expect(screen.getByRole('button', { name: 'Move down' })).toHaveProperty('disabled', true);
+		expect(
+			(await itemIn(user, 'Layer actions', 'Move down')).getAttribute('aria-disabled')
+		).toBe('true');
 
-		await user.click(screen.getByRole('button', { name: 'Move up' }));
+		await chooseIn(user, 'Layer actions', 'Move up');
 		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
 	});
 
@@ -542,11 +584,13 @@ describe('the actions on the layers chosen', () => {
 		click('Layer 3');
 		click('Layer 2', { shiftKey: true });
 
-		await user.click(screen.getByRole('button', { name: 'Move down' }));
+		await chooseIn(user, 'Layer actions', 'Move down');
 
 		await waitFor(() => expect(names()).toEqual(['Layer 1', 'Layer 3', 'Layer 2']));
 		expect(chosen()).toEqual(['Layer 3', 'Layer 2']);
-		expect(screen.getByRole('button', { name: 'Move down' })).toHaveProperty('disabled', true);
+		expect(
+			(await itemIn(user, 'Layer actions', 'Move down')).getAttribute('aria-disabled')
+		).toBe('true');
 		act(() => document.undo());
 		await waitFor(() => expect(names()).toEqual(['Layer 3', 'Layer 2', 'Layer 1']));
 	});
@@ -1019,9 +1063,12 @@ describe('collapsing groups', () => {
 		expect(caret()).not.toBe(opened);
 	});
 
-	it('gives an empty group its folder too, though there is nothing in it to show or hide', () => {
+	it('gives an empty group its folder with no caret and no button, as there is nothing to show or hide', () => {
 		render(<Harness document={stacked('')} />);
-		expect(list().querySelectorAll('.layer-disclosure')).toHaveLength(1);
+		expect(list().querySelector('.layer-disclosure')).toBeNull();
+		const folder = list().querySelector('.layer-row[data-group] > .layer-folder');
+		expect(folder?.querySelectorAll('path')).toHaveLength(1);
+		expect(folder?.closest('button')).toBeNull();
 	});
 
 	it('opens and shuts a group with the arrows across, as a tree view, and walks the rows shown', () => {
