@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode, Ref } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react';
 
 import { t } from '../../i18n/t.js';
 import { classes } from './classes.js';
@@ -27,7 +27,8 @@ export const IconButton = ({
 	icon: ReactNode;
 	label: string;
 	shortcut?: string;
-	onClick: () => void;
+	/** With the click, for a control that reads a key held with it, as a disclosure's Alt. */
+	onClick: (event: MouseEvent<HTMLButtonElement>) => void;
 	disabled?: boolean;
 	pressed?: boolean;
 	className?: string;

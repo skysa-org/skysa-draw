@@ -429,11 +429,35 @@ const FolderIcon = (props: IconProps) => (
 	</Icon>
 );
 
-export const GroupIcon = (props: IconProps) => (
+const GroupIcon = (props: IconProps) => (
 	<Icon {...props}>
 		<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z" />
 		<path d="M8.5 12.5l3.5 1.7 3.5-1.7" />
 		<path d="M8.5 15.2l3.5 1.7 3.5-1.7" />
+	</Icon>
+);
+
+/**
+ * A group's own row: the folder of `GroupIcon` with a caret in it in place of
+ * the layers, pointing down while the group shows its layers and to the side
+ * while it is collapsed, as a tree's disclosure turns.
+ */
+export const GroupToggleIcon = ({ open, ...props }: IconProps & Readonly<{ open: boolean }>) => (
+	<Icon {...props}>
+		<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z" />
+		<path d={open ? 'M8.75 12l3.25 3.25 3.25-3.25' : 'M10.5 10.25l3.25 3.25-3.25 3.25'} />
+	</Icon>
+);
+
+/** A row's grip, by which a finger drags it to another place in its list: two columns of dots, as a reorder handle is drawn. */
+export const GripIcon = (props: IconProps) => (
+	<Icon {...props}>
+		<Dot cx={9} cy={6} />
+		<Dot cx={15} cy={6} />
+		<Dot cx={9} cy={12} />
+		<Dot cx={15} cy={12} />
+		<Dot cx={9} cy={18} />
+		<Dot cx={15} cy={18} />
 	</Icon>
 );
 
@@ -543,6 +567,7 @@ export const ICONS = {
 	fit: FitIcon,
 	folder: FolderIcon,
 	group: GroupIcon,
+	grip: GripIcon,
 	merge: MergeIcon,
 	raster: RasterIcon,
 	vector: VectorIcon,

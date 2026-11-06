@@ -198,6 +198,15 @@ export interface ToolContext {
 	readonly document: EditorDocument;
 	/** The active layer, or none. */
 	readonly layer: LayerInfo | undefined;
+	/**
+	 * The chosen layers' ids (docs/ARCHITECTURE.md §7, "The interface"): the
+	 * outermost of them, none inside another, in paint order, bottom first
+	 * (`outermostLayers`), the active one or the group it is in among them.
+	 * Absent, or the one id, for a single layer: the move tool moves several
+	 * as one where there are more (`tools/common/layersMove.ts`), and every
+	 * other tool acts on `layer` alone.
+	 */
+	readonly layers?: readonly string[];
 	readonly options: ToolOptions;
 	/**
 	 * An SVG over the drawing in the same user units, for previews and handles;

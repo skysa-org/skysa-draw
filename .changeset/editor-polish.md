@@ -31,3 +31,6 @@ What is painted live on a raster layer shows only on the canvas, as it will once
 The brush's circle matches the paint: a mouse or a finger now paints the whole size, since pressure changes the width only from a pen, as in Photoshop, and a soft brush's circle is drawn where its paint is half opaque, as Photoshop's Normal Brush Tip is.
 The brush's circle and the marching ants now show over a stroke being painted on a raster layer instead of under it.
 What is being painted, smudged or moved on a raster layer now shows under the layers over it, as it will once it lands, instead of over every layer.
+Several layers can be chosen in the layers panel with Ctrl or ⌘ and Shift, as in Photoshop, and grouped, moved up or down, deleted, duplicated and moved on the canvas with the move tool together.
+Layers can be dragged to another place in the layers panel, into and out of groups, keeping where they are drawn, and moved a step with Alt and an arrow.
+Groups in the layers panel collapse by their folder icon, whose caret turns, and an unnamed group is called "Group n".

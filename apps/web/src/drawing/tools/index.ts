@@ -4,6 +4,7 @@ import { t } from '../../i18n/t.js';
 import { autoSelect } from './common/autoSelect.js';
 import { cropBehavior } from './common/crop.js';
 import { handBehavior } from './common/hand.js';
+import { layersMove } from './common/layersMove.js';
 import { zoomBehavior } from './common/zoom.js';
 import { rasterBehaviors } from './raster/index.js';
 import type { Tool, ToolBehavior, ToolId, ToolOptionKey } from './types.js';
@@ -16,7 +17,8 @@ import { measureOf } from './vector/measure.js';
  * and its options are the same on every kind of layer, and here its vector and
  * raster behaviors are put under one id. The hand and the zoom need no layer
  * and so have one behavior for any. The select tool, which is the move tool,
- * picks the layer a press acts on where Auto-Select is on (`Tool.pick`).
+ * picks the layer a press acts on where Auto-Select is on (`Tool.pick`), and
+ * moves a group whole (`common/layersMove.ts`), as Photoshop's moves one.
  */
 
 /**
@@ -44,7 +46,11 @@ const tool = (
 const CROSSHAIR = 'crosshair';
 
 export const TOOLS: readonly Tool[] = [
-	{ ...tool('select', ['autoSelect'], 'default'), pick: autoSelect(measureOf) },
+	{
+		...tool('select', ['autoSelect'], 'default'),
+		behaviors: { ...behaviorsOf('select'), group: layersMove },
+		pick: autoSelect(measureOf),
+	},
 	// The selection tools' mode first, as Photoshop's options bar has it.
 	tool('marquee', ['areaMode', 'constrain'], CROSSHAIR),
 	tool('lasso', ['areaMode'], CROSSHAIR),
@@ -79,9 +85,10 @@ export const behaviorFor = (tool: Tool, kind: LayerKind | undefined): ToolBehavi
 /**
  * Whether the tool does anything on a layer of this kind, for the tool bar to
  * show only the tools that do (docs/decisions/0004-the-interface.md): one
- * with a behavior for it or for any kind, or one that picks the layer a press
- * acts on (`Tool.pick`, the move tool's Auto-select), which may act inside a
- * group. With no layer, every tool, since there is nothing to fit them to.
+ * with a behavior for it or for any kind, as the move tool has for a group,
+ * which it moves whole, or one that picks the layer a press acts on
+ * (`Tool.pick`, the move tool's Auto-select), which may act inside a group.
+ * With no layer, every tool, since there is nothing to fit them to.
  */
 export const availableOn = (tool: Tool, kind: LayerKind | undefined): boolean =>
 	kind === undefined || behaviorFor(tool, kind) !== undefined || tool.pick !== undefined;

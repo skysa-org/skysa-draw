@@ -15,8 +15,8 @@ import { elementAt, onSelectionHandle } from '../vector/select.js';
  * layer, as Photoshop's Ctrl and ⌘ do.
  *
  * The walk is the paint order from the top down, into every group, a group
- * itself never picked, since Layer mode picks the layer and the move tool
- * does nothing on a group. A hidden layer is passed over, and so is every
+ * itself never picked, since Layer mode picks the layer; a group is moved
+ * whole by choosing it in the panel (`layersMove.ts`). A hidden layer is passed over, and so is every
  * layer of a hidden group. A layer has something under the pointer where it
  * is more than half opaque there, as seen: Photoshop's line, under which its
  * move tool sees through a pixel to the layer below. A vector layer has it
@@ -33,7 +33,10 @@ import { elementAt, onSelectionHandle } from '../vector/select.js';
  * and then refuses the move, so a locked layer took every press meant for
  * what lay on it or under it. A press over nothing keeps the active layer,
  * and the tool does with it what it does; so does a press on a handle of the
- * box around what is selected, which resizes or rotates that.
+ * box around what is selected, which resizes or rotates that, but for one
+ * with several layers chosen, where no box is shown and the press moves the
+ * layers (`layersMove.ts`). The viewport keeps the choice where the layer
+ * picked is one of them or inside one (`viewport/chosenLayers.ts`).
  */
 
 /** How opaque a layer must be under the pointer, above which it is picked: half, as in Photoshop. */
@@ -48,7 +51,8 @@ export const autoSelect =
 	(context: ToolContext, sample: PointerSample): LayerInfo | undefined => {
 		const point = { x: sample.x, y: sample.y };
 		if (context.options.autoSelect === sample.primaryKey) return undefined;
-		if (onSelectionHandle(measure, context, point)) return undefined;
+		const several = (context.layers?.length ?? 0) > 1;
+		if (!several && onSelectionHandle(measure, context, point)) return undefined;
 		const { document } = context;
 		const { layers } = document.snapshot();
 		const byId = new Map(layers.map((layer) => [layer.id, layer]));

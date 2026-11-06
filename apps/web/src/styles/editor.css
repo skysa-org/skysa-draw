@@ -230,13 +230,16 @@
 	margin-block-start: auto;
 }
 
-/* The layers: top first, each row an eye, the kind, the name and a lock. */
+/* The layers: top first, each row an eye, the kind, the name and a lock.
+   No text is selected by a Shift-click or a drag across the rows. */
 .layer-list {
 	display: flex;
 	flex-direction: column;
 	list-style: none;
 	margin: 0;
 	padding: 0;
+	user-select: none;
+	-webkit-user-select: none;
 }
 
 .layer-row {
@@ -246,15 +249,126 @@
 	display: flex;
 	gap: var(--space-2xs);
 	min-height: var(--target);
+	position: relative;
 }
 
 .layer-row:hover {
 	background: var(--hover-bg);
 }
 
+/* Every layer chosen is tinted; the active one, the one the tools act on, has
+   the accent's text too, so among several it is the one marked twice. */
+.layer-row[data-selected],
 .layer-row[data-active] {
 	background: var(--on-bg);
+}
+
+.layer-row[data-active] {
 	color: var(--on-fg);
+}
+
+/* A drag: what is dragged dimmed where it was, as a dragged note is, and the
+   hand closed over the whole list while it lasts. */
+.layer-list[data-dragging],
+.layer-list[data-dragging] * {
+	cursor: grabbing;
+}
+
+.layer-row[data-dragged] {
+	opacity: 0.5;
+}
+
+/* Into a group: the row outlined, inside its box so it does not cover the
+   rows beside it, and washed, as a notebook a note is dropped on is. */
+.layer-row[data-drop='into'] {
+	background: color-mix(in srgb, var(--drop) 12%, transparent);
+	outline: 2px solid var(--drop);
+	outline-offset: -2px;
+}
+
+/* Between two rows: a line on the gap, drawn in from the left as deep as the
+   place it stands for, on the row under it, or under the last row. */
+.layer-drop-line {
+	background: var(--drop);
+	block-size: 2px;
+	border-radius: var(--radius-pill);
+	inset-inline-end: 0;
+	pointer-events: none;
+	position: absolute;
+}
+
+.layer-drop-line[data-at='before'] {
+	inset-block-start: -1px;
+}
+
+.layer-drop-line[data-at='after'] {
+	inset-block-end: -1px;
+}
+
+/* The grip a finger drags a row by, where the list scrolls under a finger
+   everywhere else. Only where some pointer is coarse: a mouse and a pen drag
+   by the layer itself, and the keyboard by Alt and an arrow. */
+.layer-grip {
+	align-items: center;
+	color: var(--muted);
+	cursor: grab;
+	display: none;
+	flex: none;
+	justify-content: center;
+	min-height: var(--target);
+	min-width: var(--target);
+	touch-action: none;
+	-webkit-touch-callout: none;
+}
+
+@media (any-pointer: coarse) {
+	.layer-grip {
+		display: flex;
+	}
+}
+
+/* A group's folder, its disclosure (`LayerRow.tsx`): in the row as wide as a
+   layer's kind icon and where the layer's button puts that, so a group's name
+   lines up with a layer's and no row moves over for it. Its target is the
+   44 px every control has: from the eye's edge, over the gaps, to a little
+   into the name. Under the pointer the folder darkens, since a tint as narrow
+   as the icon would read as a mark, not a target. */
+.layer-row .layer-disclosure {
+	color: var(--muted);
+	inline-size: 24px;
+	margin-inline-start: var(--space-2xs);
+	min-width: 0;
+}
+
+.layer-row .layer-disclosure::before {
+	content: '';
+	inset-block: 0;
+	inset-inline-end: calc(24px + 2 * var(--space-2xs) - var(--target));
+	inset-inline-start: calc(-2 * var(--space-2xs));
+	position: absolute;
+}
+
+/* A clipped group's arrow, before its folder, where a layer's is before its kind. */
+.layer-row > .layer-clip-mark {
+	margin-inline-start: var(--space-2xs);
+}
+
+.layer-row > .layer-clip-mark + .layer-disclosure {
+	margin-inline-start: 0;
+}
+
+.layer-row .layer-disclosure:hover {
+	background: none;
+	color: var(--fg);
+}
+
+.layer-row .layer-disclosure .layer-kind-icon {
+	color: inherit;
+}
+
+/* A group's button starts at its name, its folder being before it. */
+.layer-row[data-group] .layer-pick {
+	padding-inline-start: 0;
 }
 
 /* The layer itself, between its eye and its lock: the whole of the middle. */

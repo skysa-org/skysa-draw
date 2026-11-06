@@ -1,6 +1,7 @@
 import type { Ref } from 'react';
 
 import type { EditorDocument } from './document/model.js';
+import type { LayerSelection } from './layerSelection.js';
 import type { SelectionActionId } from './selectionActions.js';
 import type { FillSpec } from './tools/raster/areaFill.js';
 import type { AreaModify } from './tools/raster/areaOps.js';
@@ -45,6 +46,13 @@ export interface ViewportProps {
 	/** The active layer. */
 	readonly layerId: string | undefined;
 	/**
+	 * The layers chosen in the layers panel, top first, the active one among
+	 * them: the move tool moves the outermost of them together where there
+	 * are more than one (`tools/common/layersMove.ts`). None is the active
+	 * layer alone.
+	 */
+	readonly selectedLayerIds?: readonly string[];
+	/**
 	 * The area and the element selection, held by the frame so that its
 	 * selection bar can show them; a viewport given none keeps its own.
 	 */
@@ -59,9 +67,15 @@ export interface ViewportProps {
 	 * A layer the user now works on: one made by layer via copy or cut, or the
 	 * context menu's new or duplicated layer; or one the move tool's
 	 * Auto-Select picked under a press (`Tool.pick`), or gave back when that
-	 * press was canceled.
+	 * press was canceled, where there is no `onSelectLayers`.
 	 */
 	readonly onActivateLayer?: (id: string) => void;
+	/**
+	 * The layers chosen as they were before an Auto-Select press that picked
+	 * another, given back when that press was canceled, the active one active
+	 * again among them.
+	 */
+	readonly onSelectLayers?: (selection: LayerSelection) => void;
 	/**
 	 * Fill… was asked for, by the context menu, the selection bar, Shift+F5 or
 	 * Shift+Backspace, on a layer it may fill: the frame opens its dialog. A

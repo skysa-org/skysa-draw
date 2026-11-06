@@ -22,12 +22,13 @@ import {
 	selectionModeOf,
 } from './selectionActions.js';
 import { handBehavior } from './tools/common/hand.js';
+import { layersMove } from './tools/common/layersMove.js';
 import { behaviorFor, notAvailableMessage } from './tools/index.js';
-import { nudgeArea } from './tools/raster/index.js';
 import type { PointerSample, ToolBehavior, ToolContext } from './tools/types.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
 import { useAreaTransform } from './viewport/areaTransform.js';
 import { isLongPress, keyboardPoint, useCanvasMenu } from './viewport/canvasMenu.js';
+import { chosenLayersIn, keepsChoice, nudgeWith } from './viewport/chosenLayers.js';
 import { createToolContext, NO_SELECTION } from './viewport/context.js';
 import {
 	type GestureEffect,
@@ -91,6 +92,9 @@ import { useWheel } from './viewport/wheel.js';
  * that layer and the behavior for its kind, so the whole press, begin to
  * end, is that layer's, while the frame is still to show it. A press that is
  * canceled gives the layer back, as it leaves nothing else.
+ *
+ * With several layers chosen in the panel, the move tool moves them whole,
+ * together, whatever the active layer's kind (`viewport/chosenLayers.ts`).
  *
  * Transform selection is a mode of the viewport's (`viewport/areaTransform.ts`):
  * while it is on, its behavior takes the canvas's presses and hover in place
@@ -173,11 +177,13 @@ export const Viewport = ({
 	tool,
 	options,
 	layerId,
+	selectedLayerIds,
 	selection,
 	onColor,
 	onNotify,
 	onScale,
 	onActivateLayer,
+	onSelectLayers,
 	onFill,
 	onModify,
 	onTool,
@@ -255,6 +261,9 @@ export const Viewport = ({
 	}, []);
 
 	const toolId = tool.id;
+	// The chosen layers, outermost, which the move tool moves together where there are several.
+	const chosen = chosenLayersIn(document.root, selectedLayerIds);
+	const together = toolId === 'select' && chosen.length > 1;
 	const transform = useAreaTransform({
 		selection: held,
 		view: views,
@@ -263,9 +272,14 @@ export const Viewport = ({
 		toolId,
 		layerId,
 	});
-	/** The behavior for a press on a layer of `kind`: the transform's while it is on. */
-	const canvasBehavior = (kind: LayerInfo['kind'] | undefined): ToolBehavior | undefined =>
-		transform.active() ? transform.behavior : behaviorFor(tool, kind);
+	/**
+	 * The behavior for a press on a layer of `kind`: the transform's while it
+	 * is on, and the layers move's where the chosen move together (`chosenToo`).
+	 */
+	const canvasBehavior = (kind: LayerInfo['kind'] | undefined, chosenToo = together) => {
+		if (transform.active()) return transform.behavior;
+		return chosenToo ? layersMove : behaviorFor(tool, kind);
+	};
 
 	/** The overlay emptied of a tool's handles, unless a stroke is drawing its preview there. */
 	const clearOverlay = useCallback(() => {
@@ -347,6 +361,7 @@ export const Viewport = ({
 		document,
 		snapshot,
 		layerId,
+		together,
 		selection: selections,
 		overlay,
 		clearOverlay,
@@ -386,14 +401,15 @@ export const Viewport = ({
 
 	const activeLayer = () => snapshot.layers.find((layer) => layer.id === layerId);
 
-	/** What a tool is given, for the active layer or, for a press that picked one, that layer. */
-	const toolContext = (layer: LayerInfo | undefined = activeLayer()): ToolContext | undefined => {
+	/** What a tool is given: the active layer and the chosen, or, for a press that picked one, that layer alone. */
+	const toolContext = (layer = activeLayer(), layers = chosen): ToolContext | undefined => {
 		if (overlay.current === null || screen.current === null || region.current === null) {
 			return undefined;
 		}
 		return createToolContext({
 			document,
 			layer,
+			layers,
 			options,
 			overlay: overlay.current,
 			canvas: screen.current,
@@ -419,6 +435,7 @@ export const Viewport = ({
 		layer: activeLayer(),
 		canvas: box,
 		toolId,
+		together,
 		selection: held,
 		busy: () => stroke.current !== undefined,
 		context: toolContext,
@@ -466,14 +483,10 @@ export const Viewport = ({
 	// next stroke the hand's.
 	const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
 		if (transform.key(event, pointerPressed())) return;
-		// The arrows nudge the selected pixels with the move tool, before anything else reads them.
+		// The arrows nudge the selected pixels, or the layers whole, with the move tool, before anything else reads them.
 		const nudge = event.defaultPrevented || toolId !== 'select' ? undefined : nudgeFor(event);
 		const nudging = nudge === undefined ? undefined : toolContext();
-		if (
-			nudge !== undefined &&
-			nudging !== undefined &&
-			nudgeArea(nudging, nudge[0], nudge[1])
-		) {
+		if (nudge !== undefined && nudging !== undefined && nudgeWith(nudging, nudge)) {
 			event.preventDefault();
 			return;
 		}
@@ -576,15 +589,23 @@ export const Viewport = ({
 
 	/**
 	 * The layer the tool picks for this press, other than the active one
-	 * (`Tool.pick`); none where it picks none, or there is no frame to make it
-	 * the active one.
+	 * (`Tool.pick`); none where it picks none, one that moves with the layers
+	 * chosen, or there is no frame to make it the active one.
 	 */
 	const pickFor = (pressed: PointerSample): LayerInfo | undefined => {
 		if (spaceHeld || transform.active() || onActivateLayer === undefined) return undefined;
 		if (tool.pick === undefined) return undefined;
 		const context = toolContext();
 		const picked = context === undefined ? undefined : tool.pick(context, pressed);
-		return picked?.id === layerId ? undefined : picked;
+		return picked?.id === layerId || keepsChoice(snapshot.layers, chosen, picked)
+			? undefined
+			: picked;
+	};
+
+	/** The choice as it was before a press that picked another layer, given back. */
+	const giveBack = (active: string, selected: readonly string[]): void => {
+		if (onSelectLayers === undefined) onActivateLayer?.(active);
+		else onSelectLayers({ active, selected, anchor: active });
 	};
 
 	const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -600,12 +621,14 @@ export const Viewport = ({
 		const pressed = sample(native);
 		const picked = pickFor(pressed);
 		const layer = picked ?? activeLayer();
-		const behavior = spaceHeld ? handBehavior : canvasBehavior(layer?.kind);
+		const behavior = spaceHeld
+			? handBehavior
+			: canvasBehavior(layer?.kind, together && picked === undefined);
 		if (behavior === undefined) {
 			onNotify(notAvailableMessage(tool, layer?.kind) ?? t('layers.noneActive'));
 			return;
 		}
-		const context = toolContext(layer);
+		const context = toolContext(layer, picked === undefined ? chosen : [picked.id]);
 		if (context === undefined) return;
 		// Made active before the press begins, and the frame shows it once the
 		// press has; the press has the layer's context already.
@@ -619,7 +642,7 @@ export const Viewport = ({
 			context,
 			...(picked === undefined || before === undefined
 				? {}
-				: { giveBack: () => onActivateLayer?.(before) }),
+				: { giveBack: () => giveBack(before, selectedLayerIds ?? [before]) }),
 		};
 		lastStroke.current = stroke.current;
 	};
@@ -680,8 +703,9 @@ export const Viewport = ({
 	// Auto-Select on, may act on a group's layers while the group is active.
 	const picks = tool.pick !== undefined && onActivateLayer !== undefined && options.autoSelect;
 	const available = picks || behaviorFor(tool, activeLayer()?.kind) !== undefined;
-	// The move tool over an area moves its pixels, and says so.
-	const movesArea = toolId === 'select' && facts.layer?.kind === 'raster' && area !== undefined;
+	// The move tool over an area moves its pixels, and says so; with several layers chosen, it moves them.
+	const movesArea =
+		!together && toolId === 'select' && facts.layer?.kind === 'raster' && area !== undefined;
 	const toolCursor = available
 		? movesArea
 			? 'move'

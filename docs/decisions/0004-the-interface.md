@@ -94,7 +94,7 @@ Rejected: Photoshop's pair as a 2×2 of 44 px corners, which needs 88 px across 
 **A double press.**
 A double press with the select tool edits what it is on in the tool that edits it, as a double-click does in Illustrator, Figma and Inkscape: a text in the text tool, its caret at the press, and a path or a shape in the node tool, its anchors shown.
 A shape goes to the node tool too, since the node tool is the one editor of a shape's geometry here and makes it a path only on its first edit.
-A group inside a layer is gone into, to the path or the shape under the press; the select tool does nothing on a group layer, and says so, so neither does a double press there.
+A group inside a layer is gone into, to the path or the shape under the press; on a group layer the select tool moves the group whole, and a double press there does nothing more.
 The canvas hears Pointer Events alone, so the select tool tells a double press itself: two presses within 500 ms, the platform's double-click time, on the same element, by the same kind of pointer, within 4 CSS px for a mouse or a pen and 22 for a finger, the first of which did not drag.
 The second press starts no drag, and the other tool is put in hand as the pointer lifts, through the frame, so the tool bar shows it and a pinch that cancels the second tap changes nothing.
 While the text tool's field is open, the focus may go to the options strip, the color panel or the color button and come back without finishing it, and a size or a color chosen there is the text's at once, the whole text's, since a `<text>` here has one size.

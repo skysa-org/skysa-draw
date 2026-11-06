@@ -6,11 +6,27 @@ export const layers = {
 	title: 'Layers',
 	/** An unnamed layer, by its number. */
 	unnamed: 'Layer {n}',
+	/** An unnamed group, by its number, which it shares with the layers. */
+	unnamedGroup: 'Group {n}',
+	/** A group's control that shows the rows of its layers, or hides them; Alt with it does every group inside too. */
+	expand: 'Expand group',
+	collapse: 'Collapse group',
 	add: 'New layer',
 	addRaster: 'New raster layer',
 	addGroup: 'New group',
+	/** What undo calls layers deleted, one or several. */
 	delete: 'Delete layer',
+	/** What undo calls layers duplicated, one or several. */
 	duplicate: 'Duplicate layer',
+	/** The panel's button that deletes the layers chosen. */
+	deleteChosen: { one: 'Delete layer', other: 'Delete {count} layers' },
+	/** The panel's button that duplicates the layers chosen, each copy above its original. */
+	duplicateChosen: { one: 'Duplicate layer', other: 'Duplicate {count} layers' },
+	/**
+	 * Said after a layer's name, to a screen reader, while more than one layer
+	 * is chosen; the row is tinted. The active one is also said to be current.
+	 */
+	selected: 'Selected',
 	rename: 'Rename layer',
 	/** The rename field's label. */
 	name: 'Name',
@@ -24,10 +40,12 @@ export const layers = {
 	blend: 'Blend mode',
 	moveUp: 'Move up',
 	moveDown: 'Move down',
-	/** The menu of the rarer actions on the active layer. */
+	/** What undo calls layers dragged to another place in the stack, or into or out of a group. */
+	move: 'Move layers',
+	/** The menu of the rarer actions on the layers chosen. */
 	actions: 'Layer actions',
-	/** Puts the active layer in a new group of its own. */
-	group: 'Group layer',
+	/** Puts the layers chosen, one or several, in a new group of their own, as Photoshop's Group Layers does; and what undo calls that. */
+	group: 'Group layers',
 	/** Puts a group's layers back where the group was, and takes the group away. */
 	ungroup: 'Ungroup',
 	/** The active layer and the one below it become one. */
@@ -44,6 +62,11 @@ export const layers = {
 	/** Ungroup asked of a group whose opacity, blend mode, filter, mask or style its layers would lose. */
 	ungroupStyled:
 		'This group has an opacity, a blend mode, an effect or a style of its own, which its layers would lose. Take it off the group first.',
+	/** Ungroup asked of several groups, of which `{count}` were left as they were, for the reason above. */
+	ungroupStyledSome: {
+		one: '{count} group was left as it is: it has an opacity, a blend mode, an effect or a style of its own, which its layers would lose.',
+		other: '{count} groups were left as they are: each has an opacity, a blend mode, an effect or a style of its own, which its layers would lose.',
+	},
 	mergeHidden: 'Hidden layers cannot be merged. Show both layers first.',
 	mergeLocked: 'Locked layers cannot be merged. Unlock both layers first.',
 	rasterizeLocked: 'A locked layer cannot be rasterized. Unlock it first.',

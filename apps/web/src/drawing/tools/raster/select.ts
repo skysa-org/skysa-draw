@@ -1,11 +1,11 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
+import { movedTransform, setTransform, translated } from '../common/layersMove.js';
 import type { ToolBehavior, ToolContext } from '../types.js';
 import { guardedLayer } from './guard.js';
 import { createAreaMove } from './move.js';
 import type { Point } from './pixels.js';
-import { moveInParent } from './space.js';
 
 /**
  * Select on a raster layer (docs/decisions/0004-the-interface.md): with an
@@ -25,42 +25,24 @@ interface Move {
 	readonly original: string | null;
 }
 
-/** Enough places that a move survives a round trip through the file, and no float noise. */
-const round = (value: number): number => Number(value.toFixed(3));
-
 /**
- * The original transform with a translation after it, in SVG's own words:
- * `translate(dx dy) <original>` applies the original first and the move
- * second, in the parent's units: a drag in the root's units, through any
- * group the layer is in (`moveInParent`).
+ * The transform the drag gives the layer, from the pointer's move in the
+ * root's units: a translation in front of the original, in the units of the
+ * layer's parent, as the move of layers whole writes it (`movedTransform`).
  */
-const composed = (original: string | null, dx: number, dy: number): string | undefined => {
-	const kept = original?.trim() ?? '';
-	if (dx === 0 && dy === 0) return kept === '' ? undefined : kept;
-	const translate = `translate(${round(dx)} ${round(dy)})`;
-	return kept === '' ? translate : `${translate} ${kept}`;
-};
-
-const setTransform = (element: Element, value: string | null | undefined): void => {
-	if (value === undefined || value === null) element.removeAttribute('transform');
-	else element.setAttribute('transform', value);
-};
-
-/** The transform the drag gives the layer, from the pointer's move in the root's units. */
 const movedTo = (
 	context: ToolContext,
 	element: SVGGraphicsElement,
 	move: Move,
 	sample: Point
-): string | undefined => {
-	const [dx, dy] = moveInParent(
+): string | undefined =>
+	movedTransform(
 		element,
 		context.document.root,
+		move.original,
 		sample.x - move.start.x,
 		sample.y - move.start.y
 	);
-	return composed(move.original, round(dx), round(dy));
-};
 
 const createSelect = (): ToolBehavior => {
 	const active = cell<Move | undefined>(undefined);
@@ -103,7 +85,7 @@ const createSelect = (): ToolBehavior => {
 			if (element === undefined) return;
 			const final = movedTo(context, element, move, sample);
 			// A click, or a drag back to where it began, moved nothing.
-			if (final === composed(move.original, 0, 0)) return;
+			if (final === translated(move.original, 0, 0)) return;
 			context.document.execute(
 				editLayer(move.layerId, 'tools.select', (layer: SVGGraphicsElement) =>
 					setTransform(layer, final)

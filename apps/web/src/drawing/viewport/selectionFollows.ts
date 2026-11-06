@@ -11,6 +11,8 @@ type SelectionFollows = Readonly<{
 	document: EditorDocument;
 	snapshot: DocumentSnapshot;
 	layerId: string | undefined;
+	/** Whether the move tool is in hand with several layers chosen, which it moves whole (`layersMove.ts`). */
+	together: boolean;
 	selection: Observable<readonly Element[]>;
 	overlay: RefObject<SVGSVGElement | null>;
 	/** The overlay emptied of the tools' marks, unless a stroke is drawing its preview there. */
@@ -52,11 +54,18 @@ const keepOnly = (
  * sight: its box and outlines go, and the select tool draws the box again
  * once the layer is shown (`hiddenAsSeen`), as Photoshop's transform
  * controls go with a hidden layer and come back with it.
+ *
+ * The move tool in hand with several layers chosen moves them whole, so
+ * what is selected among the active layer's elements is let go of, with its
+ * box, as the choice grows past one layer or the tool is taken up: a box
+ * whose handles a press would not use, or a selection Delete would take
+ * unseen once the layers moved from under its box, would be worse.
  */
 export const useSelectionFollows = ({
 	document,
 	snapshot,
 	layerId,
+	together,
 	selection,
 	overlay,
 	clearOverlay,
@@ -69,6 +78,10 @@ export const useSelectionFollows = ({
 		if (kept.length > 0 && kept.length === selected.length) return;
 		keepOnly(selection, kept, overlay.current, clearOverlay);
 	}, [document, layerId, selection, overlay, clearOverlay]);
+
+	useEffect(() => {
+		if (together) keepOnly(selection, NO_SELECTION, overlay.current, clearOverlay);
+	}, [together, selection, overlay, clearOverlay]);
 
 	useEffect(() => {
 		const selected = selection.get();

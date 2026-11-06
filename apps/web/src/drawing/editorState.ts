@@ -1,5 +1,6 @@
 import { isNone, toHex } from '../components/ui/color.js';
 import type { LayerInfo } from './document/model.js';
+import type { LayerSelection } from './layerSelection.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type ToolId,
@@ -28,6 +29,19 @@ export type EditorState = Readonly<{
 	options: ToolOptions;
 	/** The layer the tools act on; resolved against the document by `activeLayerIn`. */
 	activeLayerId: string | undefined;
+	/**
+	 * Every layer chosen in the layers panel, the active one among them, top
+	 * first; resolved against the document by `selectedLayersIn`.
+	 */
+	selectedLayerIds: readonly string[];
+	/** Where a Shift-click's range in the layers panel starts. */
+	layerAnchor: string | undefined;
+	/**
+	 * The groups the layers panel shows collapsed: the editor's, for as long as
+	 * the drawing is open, never the file's, so collapsing one changes nothing
+	 * in the drawing.
+	 */
+	collapsedGroupIds: readonly string[];
 	panel: PanelId | undefined;
 	/** The expanded window's dock, as the layers button left it; until then it follows the window. */
 	dockOpen: boolean | undefined;
@@ -65,7 +79,12 @@ export type EditorAction =
 	| Readonly<{ type: 'swapColors' }>
 	/** The fill and the stroke a new drawing starts with, put back: D, and the color panel's reset. */
 	| Readonly<{ type: 'resetColors' }>
+	/** One layer active and chosen alone, as a plain click on it in the panel does. */
 	| Readonly<{ type: 'setActiveLayer'; id: string | undefined }>
+	/** The layers chosen with the keys users know, Ctrl or ⌘ and Shift (`layerSelection.ts`). */
+	| Readonly<{ type: 'selectLayers'; selection: LayerSelection }>
+	/** The groups to show collapsed from now on, the whole set. */
+	| Readonly<{ type: 'setCollapsedGroups'; ids: readonly string[] }>
 	| Readonly<{ type: 'togglePanel'; panel: PanelId }>
 	| Readonly<{ type: 'closePanel' }>
 	| Readonly<{ type: 'setDockOpen'; open: boolean }>
@@ -78,6 +97,9 @@ export const initialEditorState: EditorState = {
 	toolId: 'select',
 	options: DEFAULT_TOOL_OPTIONS,
 	activeLayerId: undefined,
+	selectedLayerIds: [],
+	layerAnchor: undefined,
+	collapsedGroupIds: [],
 	panel: undefined,
 	dockOpen: undefined,
 	libraryOpen: false,
@@ -137,7 +159,61 @@ export const activeLayerIn = (
 	return (fromTop.find((layer) => layer.kind !== 'group') ?? fromTop[0])?.id;
 };
 
+/**
+ * The layers chosen, as far as the document still has them, top first, the
+ * active one always among them: a layer deleted under the choice drops out,
+ * and where the active one fell back (`activeLayerIn`) to one not chosen, the
+ * choice is that one alone.
+ */
+export const selectedLayersIn = (
+	layers: readonly LayerInfo[],
+	wanted: readonly string[],
+	active: string | undefined
+): readonly string[] => {
+	if (active === undefined) return [];
+	const there = new Set(layers.map((layer) => layer.id));
+	const kept = wanted.filter((id) => there.has(id));
+	return kept.includes(active) ? kept : [active];
+};
+
+/** What the layers panel changes of the state: the active layer, the choice, the groups collapsed. */
+type LayerAction = Extract<
+	EditorAction,
+	Readonly<{ type: 'setActiveLayer' | 'selectLayers' | 'setCollapsedGroups' }>
+>;
+
+const LAYER_ACTIONS: ReadonlySet<EditorAction['type']> = new Set([
+	'setActiveLayer',
+	'selectLayers',
+	'setCollapsedGroups',
+]);
+
+const isLayerAction = (action: EditorAction): action is LayerAction =>
+	LAYER_ACTIONS.has(action.type);
+
+const withLayers = (state: EditorState, action: LayerAction): EditorState => {
+	switch (action.type) {
+		case 'setActiveLayer':
+			return {
+				...state,
+				activeLayerId: action.id,
+				selectedLayerIds: action.id === undefined ? [] : [action.id],
+				layerAnchor: action.id,
+			};
+		case 'selectLayers':
+			return {
+				...state,
+				activeLayerId: action.selection.active,
+				selectedLayerIds: action.selection.selected,
+				layerAnchor: action.selection.anchor,
+			};
+		case 'setCollapsedGroups':
+			return { ...state, collapsedGroupIds: action.ids };
+	}
+};
+
 export const editorReducer = (state: EditorState, action: EditorAction): EditorState => {
+	if (isLayerAction(action)) return withLayers(state, action);
 	switch (action.type) {
 		case 'setTool':
 			return { ...state, toolId: action.toolId };
@@ -178,8 +254,6 @@ export const editorReducer = (state: EditorState, action: EditorAction): EditorS
 					stroke: DEFAULT_TOOL_OPTIONS.stroke,
 				},
 			};
-		case 'setActiveLayer':
-			return { ...state, activeLayerId: action.id };
 		case 'togglePanel':
 			return { ...state, panel: state.panel === action.panel ? undefined : action.panel };
 		case 'closePanel':

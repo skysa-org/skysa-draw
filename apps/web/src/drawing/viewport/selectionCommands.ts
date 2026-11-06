@@ -42,6 +42,12 @@ export type SelectionCommandDeps = Readonly<{
 	/** The canvas in the drawing's user units: what select all selects. */
 	canvas: CanvasBox;
 	toolId: ToolId;
+	/**
+	 * Whether the move tool is in hand with several layers chosen, which a
+	 * press moves whole: select all and select inverse then outline the
+	 * elements, with no box whose handles a press would not use.
+	 */
+	together?: boolean;
 	selection: ViewportSelection;
 	/** Whether a stroke is under way: nothing that changes the drawing is done during one. */
 	busy: () => boolean;
@@ -136,6 +142,8 @@ const ACTION_NAMES: Readonly<Record<LayerVia, 'layerViaCopy' | 'layerViaCut'>> =
  */
 export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionCommands => {
 	const { document, layer, selection, notify } = deps;
+	// The select tool's own box and handles, where a press would use them.
+	const handles = deps.toolId === 'select' && deps.together !== true;
 	const mode = () =>
 		selectionModeOf({
 			region: selection.region.get(),
@@ -167,7 +175,7 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 	const selectAll = (): boolean => {
 		const context = deps.context();
 		if (layer?.kind === 'vector' && context !== undefined) {
-			selectEveryElement(context, deps.toolId === 'select');
+			selectEveryElement(context, handles);
 			return true;
 		}
 		const whole = rectPath(deps.canvas);
@@ -181,7 +189,7 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 	const selectInverse = (): boolean => {
 		if (mode() === 'elements') {
 			const context = deps.context();
-			return context !== undefined && selectOtherElements(context, deps.toolId === 'select');
+			return context !== undefined && selectOtherElements(context, handles);
 		}
 		const region = selection.region.get();
 		if (region === undefined) return false;

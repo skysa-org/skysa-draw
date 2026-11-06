@@ -20,6 +20,8 @@ import { panBy, toScreen, type View, zoomAbout } from './transform.js';
 type ContextDeps = Readonly<{
 	document: EditorDocument;
 	layer: LayerInfo | undefined;
+	/** The chosen layers, outermost, in paint order (`ToolContext.layers`); none for the active one alone. */
+	layers?: readonly string[];
 	options: ToolOptions;
 	overlay: SVGSVGElement;
 	canvas: HTMLCanvasElement;
@@ -112,6 +114,7 @@ export const regionControl = (region: Observable<Region | undefined>): RegionCon
 export const createToolContext = (deps: ContextDeps): ToolContext => ({
 	document: deps.document,
 	layer: deps.layer,
+	...(deps.layers === undefined || deps.layers.length === 0 ? {} : { layers: deps.layers }),
 	options: deps.options,
 	overlay: deps.overlay,
 	screen: screenCanvas(deps.canvas, deps.view, deps.pixelRatio, deps.paintsOn),

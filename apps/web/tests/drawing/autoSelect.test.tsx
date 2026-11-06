@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLayerHidden } from '../../src/drawing/document/commands.js';
 import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
+import type { LayerSelection } from '../../src/drawing/layerSelection.js';
 import { autoSelect } from '../../src/drawing/tools/common/autoSelect.js';
 import { toolById } from '../../src/drawing/tools/index.js';
 import { cachedSurface, surfaceFor } from '../../src/drawing/tools/raster/surface.js';
@@ -343,23 +344,33 @@ describe('Auto-Select’s pick', () => {
 	});
 });
 
-/** The viewport in a frame of its own, which makes active the layer it is asked to and puts in hand the tool. */
+/**
+ * The viewport in a frame of its own, which makes active the layer it is
+ * asked to and puts in hand the tool. The layers chosen are `chosen`, top
+ * first, or the active one alone, until the viewport makes a layer active,
+ * which chooses it alone, as the frame's reducer does.
+ */
 const Frame = ({
 	editor,
 	options,
 	initial,
+	chosen,
 	selection,
 	onActivate,
+	onSelect,
 	onNotify,
 }: Readonly<{
 	editor: EditorDocument;
 	options: ToolOptions;
 	initial: string;
+	chosen?: readonly string[];
 	selection: ViewportSelection;
 	onActivate: (id: string) => void;
+	onSelect?: (choice: LayerSelection) => void;
 	onNotify: (message: string) => void;
 }>) => {
 	const [layerId, setLayerId] = useState(initial);
+	const [alone, setAlone] = useState<string | undefined>(undefined);
 	const [toolId, setToolId] = useState<ToolId>('select');
 	return (
 		<Viewport
@@ -367,13 +378,16 @@ const Frame = ({
 			tool={toolById(toolId) as Tool}
 			options={options}
 			layerId={layerId}
+			selectedLayerIds={alone === undefined ? (chosen ?? [layerId]) : [alone]}
 			selection={selection}
 			onColor={noop}
 			onNotify={onNotify}
 			onActivateLayer={(id) => {
 				onActivate(id);
 				setLayerId(id);
+				setAlone(id);
 			}}
+			{...(onSelect === undefined ? {} : { onSelectLayers: onSelect })}
 			onTool={setToolId}
 		/>
 	);
@@ -574,7 +588,7 @@ describe('Auto-Select in the viewport', () => {
 		expect(element('ground').getAttribute('transform')).toBe('matrix(1 0 0 1 4 0)');
 	});
 
-	it('acts on a group’s layers while the group is active, and says so over nothing', () => {
+	it('acts on a group’s layers while the group is active, and moves the group whole over nothing', () => {
 		const editor = open(
 			[
 				'<g id="layer-1" draw:kind="group">',
@@ -597,8 +611,13 @@ describe('Auto-Select in the viewport', () => {
 		const region = utils.getByRole('region', { name: t('editor.panes.canvas') });
 		expect(region.style.cursor).toBe('default');
 		drag(region, [90, 90], [92, 90]);
-		expect(onNotify).toHaveBeenCalledWith(t('tools.notOnGroup', { tool: t('tools.select') }));
-		drag(region, [20, 20], [23, 20], { at: 1000 });
+		expect(onNotify).not.toHaveBeenCalled();
+		expect(onActivate).not.toHaveBeenCalled();
+		expect(editor.root.querySelector('#layer-1')?.getAttribute('transform')).toBe(
+			'translate(2 0)'
+		);
+		// The rectangle, two units over with its group.
+		drag(region, [21, 20], [24, 20], { at: 1000 });
 		expect(onActivate.mock.calls).toEqual([['layer-2']]);
 		expect(editor.root.querySelector('#inside')?.getAttribute('transform')).toBe(
 			'matrix(1 0 0 1 3 0)'
@@ -613,6 +632,32 @@ describe('Auto-Select in the viewport', () => {
 		fire(window, new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 		expect(onActivate.mock.calls).toEqual([['layer-3'], ['layer-1']]);
 		expect(element('card').hasAttribute('transform')).toBe(false);
+	});
+
+	it('gives back the whole choice when a press that picked another layer is canceled', () => {
+		const editor = open(SCENE(leftHalf()));
+		const onActivate = vi.fn<(id: string) => void>();
+		const onSelect = vi.fn<(choice: LayerSelection) => void>();
+		const utils = render(
+			<Frame
+				editor={editor}
+				options={ON}
+				initial="layer-1"
+				chosen={['layer-2', 'layer-1']}
+				selection={createViewportSelection()}
+				onActivate={onActivate}
+				onSelect={onSelect}
+				onNotify={vi.fn()}
+			/>
+		);
+		const region = utils.getByRole('region', { name: t('editor.panes.canvas') });
+		fire(region, pointer('pointerdown', 70, 70));
+		expect(onActivate.mock.calls).toEqual([['layer-3']]);
+		fire(window, new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		expect(onActivate.mock.calls).toEqual([['layer-3']]);
+		expect(onSelect.mock.calls).toEqual([
+			[{ active: 'layer-1', selected: ['layer-2', 'layer-1'], anchor: 'layer-1' }],
+		]);
 	});
 
 	it('opens a text in the text tool on a double press, the first of which picked its layer', () => {
@@ -836,5 +881,203 @@ describe('A selection on a hidden layer', () => {
 		if (small === null) throw new Error('the drawing has its rect');
 		// The south-east corner of the box the hidden selection would have.
 		expect(pickedAt(editor, 30, 30, { selected: [small] })).toBe('layer-2');
+	});
+});
+
+/** The selected elements' outlines on the overlay, which mark them with no handles. */
+const outlinesIn = (container: HTMLElement): number =>
+	container.querySelectorAll('.viewport-overlay [data-draw-region-outline] > *').length;
+
+const arrow = (key: string, shiftKey = false): KeyboardEvent =>
+	new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+
+describe('The move tool with several layers chosen', () => {
+	type Chosen = Readonly<{
+		initial: string;
+		chosen: readonly string[];
+		options?: ToolOptions;
+		scene?: string;
+	}>;
+
+	/** The scene in the viewport, `chosen` chosen, `initial` active among them. */
+	const choose = ({ initial, chosen, options, scene }: Chosen) => {
+		const editor = open(scene ?? SCENE(leftHalf()));
+		const original = editor.text();
+		const selection = createViewportSelection();
+		const onActivate = vi.fn<(id: string) => void>();
+		const onNotify = vi.fn<(message: string) => void>();
+		const frame = (now: readonly string[]) => (
+			<Frame
+				editor={editor}
+				options={options ?? DEFAULT_TOOL_OPTIONS}
+				initial={initial}
+				chosen={now}
+				selection={selection}
+				onActivate={onActivate}
+				onNotify={onNotify}
+			/>
+		);
+		const utils = render(frame(chosen));
+		const region = utils.getByRole('region', { name: t('editor.panes.canvas') });
+		const transformOf = (id: string): string | null =>
+			editor.root.querySelector(`[id="${id}"]`)?.getAttribute('transform') ?? null;
+		const rechoose = (now: readonly string[]): void => {
+			utils.rerender(frame(now));
+		};
+		return {
+			...utils,
+			editor,
+			original,
+			selection,
+			onActivate,
+			onNotify,
+			region,
+			transformOf,
+			rechoose,
+		};
+	};
+
+	it('moves every one whole by one command, whatever the active layer’s kind, and leaves the area be', () => {
+		const { editor, original, selection, onActivate, region, transformOf } = choose({
+			initial: 'layer-2',
+			chosen: ['layer-3', 'layer-2'],
+		});
+		act(() => {
+			selection.region.set(AREA);
+		});
+		expect(region.style.cursor).toBe('default');
+		// On the raster layer's picture, where its area does not reach.
+		drag(region, [20, 50], [26, 47]);
+		expect(onActivate).not.toHaveBeenCalled();
+		expect(transformOf('layer-2')).toBe('translate(6 -3)');
+		expect(transformOf('layer-3')).toBe('translate(6 -3)');
+		expect(transformOf('layer-1')).toBeNull();
+		expect(selection.region.get()).toBe(AREA);
+		act(() => {
+			editor.undo();
+		});
+		expect(editor.snapshot().canUndo).toBe(false);
+		expect(editor.text()).toBe(original);
+	});
+
+	it('keeps the choice where Auto-select picks one of them, and chooses another layer alone', () => {
+		const { onActivate, region, transformOf } = choose({
+			initial: 'layer-1',
+			chosen: ['layer-3', 'layer-1'],
+			options: ON,
+		});
+		// The card, on the chosen layer that is not the active one.
+		drag(region, [70, 70], [75, 72]);
+		expect(onActivate).not.toHaveBeenCalled();
+		expect(transformOf('layer-1')).toBe('translate(5 2)');
+		expect(transformOf('layer-3')).toBe('translate(5 2)');
+		expect(transformOf('card')).toBeNull();
+		// The picture, on a layer not chosen: it is made active, chosen alone, and moved alone.
+		drag(region, [20, 50], [26, 47], { at: 1000 });
+		expect(onActivate.mock.calls).toEqual([['layer-2']]);
+		expect(transformOf('layer-2')).toBe('translate(6 -3)');
+		expect(transformOf('layer-1')).toBe('translate(5 2)');
+	});
+
+	it('keeps the choice where Auto-select picks a layer inside a chosen group, and moves the group', () => {
+		const { onActivate, region, transformOf } = choose({
+			initial: 'layer-3',
+			chosen: ['layer-3', 'layer-1'],
+			options: ON,
+			scene: [
+				'<g id="layer-1" draw:kind="group">',
+				'<g id="layer-2" draw:kind="vector"><rect id="inside" x="10" y="10" width="20" height="20"/></g>',
+				'</g>',
+				'<g id="layer-3" draw:kind="vector"><rect x="60" y="60" width="20" height="20"/></g>',
+			].join('\n'),
+		});
+		drag(region, [20, 20], [24, 20]);
+		expect(onActivate).not.toHaveBeenCalled();
+		expect(transformOf('layer-1')).toBe('translate(4 0)');
+		expect(transformOf('layer-2')).toBeNull();
+		expect(transformOf('layer-3')).toBe('translate(4 0)');
+	});
+
+	it('refuses the move for a locked one, and says so', () => {
+		const { editor, onNotify, region, transformOf } = choose({
+			initial: 'layer-3',
+			chosen: ['layer-3', 'layer-2'],
+			scene: SCENE(leftHalf(), ' draw:locked="true"'),
+		});
+		drag(region, [70, 70], [75, 72]);
+		expect(onNotify).toHaveBeenCalledWith(t('layers.locked', { name: 'Photo' }));
+		expect(transformOf('layer-3')).toBeNull();
+		expect(editor.snapshot().canUndo).toBe(false);
+	});
+
+	it('nudges every one with the arrows, a unit or ten with Shift, each by one command', () => {
+		const { editor, region, transformOf } = choose({
+			initial: 'layer-3',
+			chosen: ['layer-3', 'layer-1'],
+		});
+		const right = arrow('ArrowRight');
+		fire(window, right);
+		expect(right.defaultPrevented).toBe(true);
+		fire(window, arrow('ArrowDown', true));
+		expect(transformOf('layer-1')).toBe('translate(0 10) translate(1 0)');
+		expect(transformOf('layer-3')).toBe('translate(0 10) translate(1 0)');
+		expect(transformOf('layer-2')).toBeNull();
+		act(() => {
+			editor.undo();
+		});
+		expect(transformOf('layer-3')).toBe('translate(1 0)');
+		expect(region.style.cursor).toBe('default');
+	});
+
+	it('nudges a group active alone whole, and leaves the arrows alone on a vector layer alone', () => {
+		const grouped = choose({
+			initial: 'layer-1',
+			chosen: ['layer-1'],
+			scene: [
+				'<g id="layer-1" draw:kind="group">',
+				'<g id="layer-2" draw:kind="vector"><rect x="10" y="10" width="20" height="20"/></g>',
+				'</g>',
+			].join('\n'),
+		});
+		fire(window, arrow('ArrowLeft'));
+		expect(grouped.transformOf('layer-1')).toBe('translate(-1 0)');
+		grouped.unmount();
+		const single = choose({ initial: 'layer-3', chosen: ['layer-3'] });
+		const left = arrow('ArrowLeft');
+		fire(window, left);
+		expect(left.defaultPrevented).toBe(false);
+		expect(single.transformOf('layer-3')).toBeNull();
+	});
+
+	it('lets go of the elements selected, and their box, as the choice grows past one layer', () => {
+		const { selection, region, container, rechoose } = choose({
+			initial: 'layer-3',
+			chosen: ['layer-3'],
+		});
+		fire(region, pointer('pointerdown', 70, 70));
+		fire(region, pointer('pointerup', 70, 70));
+		expect(selection.elements.get()).toHaveLength(1);
+		expect(boxesIn(container)).toEqual(['60 60 20 20']);
+		rechoose(['layer-3', 'layer-1']);
+		expect(selection.elements.get()).toEqual([]);
+		expect(boxesIn(container)).toEqual([]);
+		hoverAt(region, 70, 70);
+		expect(boxesIn(container)).toEqual([]);
+	});
+
+	it('outlines what select all selects, with no handles, and lets go of it as the layers move', () => {
+		const { selection, region, container, transformOf } = choose({
+			initial: 'layer-3',
+			chosen: ['layer-3', 'layer-1'],
+		});
+		fire(window, selectAllKey());
+		expect(selection.elements.get()).toHaveLength(2);
+		expect(boxesIn(container)).toEqual([]);
+		expect(outlinesIn(container)).toBe(2);
+		// Where the box's corner handle would be.
+		drag(region, [80, 80], [83, 80]);
+		expect(transformOf('layer-3')).toBe('translate(3 0)');
+		expect(selection.elements.get()).toEqual([]);
+		expect(outlinesIn(container)).toBe(0);
 	});
 });

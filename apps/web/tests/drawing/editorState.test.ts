@@ -7,6 +7,7 @@ import {
 	editorReducer,
 	initialEditorState,
 	RECENT_COLORS_MAX,
+	selectedLayersIn,
 	setOption,
 	SIZE_MAX,
 	SIZE_MIN,
@@ -220,5 +221,41 @@ describe('activeLayerIn', () => {
 	it('takes the topmost layer of all when every layer is a group, and nothing when there are none', () => {
 		expect(activeLayerIn([layer('layer-1', 'group')], undefined)).toBe('layer-1');
 		expect(activeLayerIn([], 'layer-1')).toBeUndefined();
+	});
+});
+
+describe('the layers chosen', () => {
+	it('is the active layer alone after it is set, and what the panel chose after a choice', () => {
+		const chosen = after({
+			type: 'selectLayers',
+			selection: { active: 'b', selected: ['c', 'b', 'a'], anchor: 'a' },
+		});
+		expect(chosen.activeLayerId).toBe('b');
+		expect(chosen.selectedLayerIds).toEqual(['c', 'b', 'a']);
+		expect(chosen.layerAnchor).toBe('a');
+		const one = editorReducer(chosen, { type: 'setActiveLayer', id: 'c' });
+		expect(one.selectedLayerIds).toEqual(['c']);
+		expect(one.layerAnchor).toBe('c');
+		expect(
+			editorReducer(chosen, { type: 'setActiveLayer', id: undefined }).selectedLayerIds
+		).toEqual([]);
+	});
+
+	it('holds the groups shown collapsed, the whole set at a time', () => {
+		const collapsed = after({ type: 'setCollapsedGroups', ids: ['layer-4', 'layer-7'] });
+		expect(collapsed.collapsedGroupIds).toEqual(['layer-4', 'layer-7']);
+		expect(
+			editorReducer(collapsed, { type: 'setCollapsedGroups', ids: [] }).collapsedGroupIds
+		).toEqual([]);
+		expect(initialEditorState.collapsedGroupIds).toEqual([]);
+	});
+
+	it('keeps only layers the document has, and always the active one', () => {
+		const layers = [layer('a'), layer('b'), layer('c')];
+		expect(selectedLayersIn(layers, ['c', 'gone', 'a'], 'a')).toEqual(['c', 'a']);
+		// The active layer fell back to one not chosen: that one alone.
+		expect(selectedLayersIn(layers, ['gone'], 'c')).toEqual(['c']);
+		expect(selectedLayersIn(layers, ['a', 'b'], 'c')).toEqual(['c']);
+		expect(selectedLayersIn([], ['a'], undefined)).toEqual([]);
 	});
 });

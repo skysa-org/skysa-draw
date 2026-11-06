@@ -256,7 +256,7 @@ export const previousLayerSibling = (element: Element | null): Element | undefin
 };
 
 /** Two siblings trade places, each where the other was, the whitespace staying put. */
-const swap = (one: Element, other: Element): void => {
+export const swap = (one: Element, other: Element): void => {
 	const mark = one.ownerDocument.createTextNode('');
 	one.replaceWith(mark);
 	other.replaceWith(one);
@@ -383,16 +383,19 @@ const rewriteReferences = (attribute: Attr, renamed: ReadonlyMap<string, string>
  * something copied with it, a gradient's `url(#…)` or a `<use>`'s `#…`, is
  * pointed at the copy; references to things outside stay as they were. An
  * element `kept` says of keeps its id, and what refers to it still does: for
- * what is moved rather than copied, which leaves the original behind.
+ * what is moved rather than copied, which leaves the original behind. The
+ * ids `reserved` are taken as well, for copies made in the same step that are
+ * not in the document yet.
  */
 export const copyOf = (
 	root: Element,
 	original: Element,
 	id: string,
-	kept: (element: Element, copy: Element) => boolean = () => false
+	kept: (element: Element, copy: Element) => boolean = () => false,
+	reserved: ReadonlySet<string> = new Set()
 ): Element => {
 	const copy = original.cloneNode(true) as Element;
-	const taken = new Set([...idsIn(root), id]);
+	const taken = new Set([...idsIn(root), id, ...reserved]);
 	const renamed = new Map<string, string>();
 	const originalId = original.getAttribute('id');
 	if (originalId !== null && originalId !== '') renamed.set(originalId, id);

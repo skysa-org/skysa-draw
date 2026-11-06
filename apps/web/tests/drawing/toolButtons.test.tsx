@@ -120,7 +120,7 @@ describe('the tools shown, by the active layer’s kind', () => {
 		expect(toolNames()).toContain('Red eye');
 	});
 
-	it('shows on a group only what acts there: the move tool, which picks inside it, and the view’s', () => {
+	it('shows on a group only what acts there: the move tool, which moves it or picks inside it, and the view’s', () => {
 		renderButtons({ tool: toolById('select'), layerKind: 'group' });
 		expect(toolNames()).toEqual(['Select', 'Crop', 'Hand', 'Zoom']);
 	});

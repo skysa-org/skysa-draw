@@ -25,8 +25,8 @@ import type { Command } from './model.js';
  * Groups (docs/decisions/0003-layers.md: "a `group` is a `<g>` of layers …
  * for the folders every layers panel has"): a layer put in a new group of its
  * own where it was, and a group's layers put back in its parent where it was.
- * A layer is moved into or out of a group only by these two; moving a layer
- * up or down keeps it among its siblings (`moveLayer`).
+ * Moving a layer up or down keeps it among its siblings (`moveLayer`); a
+ * drag in the layers panel moves it into or out of a group (`arrange.ts`).
  */
 
 /**

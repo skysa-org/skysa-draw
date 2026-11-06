@@ -28,6 +28,7 @@ import { canvasBoxOf } from './document/crop.js';
 import type { DocumentSnapshot, EditorDocument } from './document/model.js';
 import { useDocumentSnapshot } from './document/useDocument.js';
 import { type Placing, usePlacePicture } from './document/usePlacePicture.js';
+import { useEditorKeys } from './editorKeys.js';
 import {
 	activeLayerIn,
 	type ColorSlot,
@@ -36,10 +37,11 @@ import {
 	type EditorState,
 	initialEditorState,
 	type PanelId,
+	selectedLayersIn,
 	setOption,
 } from './editorState.js';
 import { ExportDialog } from './export/ExportDialog.js';
-import { type EditAction, editActionFor, isTyping, shortcutFor, toolFor } from './keys.js';
+import { shortcutFor } from './keys.js';
 import { ColorPanel } from './panels/ColorPanel.js';
 import { FillDialog } from './panels/FillDialog.js';
 import { LayersPanel } from './panels/LayersPanel.js';
@@ -50,7 +52,7 @@ import { ToolButtons } from './panels/ToolButtons.js';
 import { SELECTION_TOOLS, selectionModeOf, useSelectionActions } from './selectionActions.js';
 import { toolById } from './tools/index.js';
 import type { AreaModify } from './tools/raster/areaOps.js';
-import type { Region, Tool, ToolId } from './tools/types.js';
+import type { Region, Tool } from './tools/types.js';
 import { TopBar } from './TopBar.js';
 import type { ViewportHandle } from './types.js';
 import { useOpenDrawing } from './useOpenDrawing.js';
@@ -75,79 +77,6 @@ const NOTICE_MS = 3_000;
 
 const MAC = isMac();
 
-/** What a key reaches of the frame: the document, the viewport and the state. */
-type KeyContext = Readonly<{
-	document: EditorDocument | undefined;
-	viewport: ViewportHandle | null;
-	dispatch: Dispatch<EditorAction>;
-}>;
-
-const withDocument = (
-	document: EditorDocument | undefined,
-	act: (document: EditorDocument) => void
-): boolean => {
-	if (document === undefined) return false;
-	act(document);
-	return true;
-};
-
-const withViewport = (
-	viewport: ViewportHandle | null,
-	act: (viewport: ViewportHandle) => void
-): boolean => {
-	if (viewport === null) return false;
-	act(viewport);
-	return true;
-};
-
-const always = (act: () => void): boolean => {
-	act();
-	return true;
-};
-
-/**
- * The editing keys (`keys.ts`), each saying whether it did anything, so only a
- * handled key is kept from the browser. Escape is not the frame's: what a tool
- * has begun is the viewport's to cancel, and a sheet or a drawer closes itself
- * (`PanelHost`). Delete and the selection's keys are the viewport's, as the
- * selection and the area are, and J with them, which is layer via copy while
- * something is selected; a new layer is asked of it too, as its context menu
- * asks, so the two are one.
- */
-const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean>> = {
-	undo: ({ document }) => withDocument(document, (open) => open.undo()),
-	redo: ({ document }) => withDocument(document, (open) => open.redo()),
-	fit: ({ viewport }) => withViewport(viewport, (view) => view.fit()),
-	actualSize: ({ viewport }) => withViewport(viewport, (view) => view.actualSize()),
-	zoomIn: ({ viewport }) => withViewport(viewport, (view) => view.zoomIn()),
-	zoomOut: ({ viewport }) => withViewport(viewport, (view) => view.zoomOut()),
-	delete: () => false,
-	escape: () => false,
-	// The viewport's, which applies a transform of the area under way.
-	commit: () => false,
-	// The selection's, which the viewport works.
-	selectAll: () => false,
-	deselect: () => false,
-	selectInverse: () => false,
-	feather: () => false,
-	layerViaCut: () => false,
-	fillArea: () => false,
-	fillAreaStroke: () => false,
-	fillDialog: () => false,
-	duplicate: () => false,
-	sizeUp: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: 1 })),
-	sizeDown: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: -1 })),
-	swapColors: ({ dispatch }) => always(() => dispatch({ type: 'swapColors' })),
-	resetColors: ({ dispatch }) => always(() => dispatch({ type: 'resetColors' })),
-	newLayer: ({ viewport }) => viewport?.perform('newLayer') ?? false,
-};
-
-/**
- * Keys on every size (docs/decisions/0004-the-interface.md): a letter per
- * tool, and the editing keys, from the one map in `keys.ts`. A key something
- * else has handled already — a sheet's Escape, a layer row's Delete — is left
- * alone, and so is one typed into a field.
- */
 /**
  * The top bar's Undo or Redo: a step of Transform selection's own while one
  * is on, as Ctrl or ⌘ Z is then, and of the drawing's history otherwise.
@@ -158,35 +87,6 @@ const step = (
 	way: 'undo' | 'redo'
 ): void => {
 	if (viewport?.[way]() !== true) document?.[way]();
-};
-
-const useEditorKeys = (
-	document: EditorDocument | undefined,
-	viewport: RefObject<ViewportHandle | null>,
-	dispatch: Dispatch<EditorAction>,
-	/** The tool in hand, which a letter shared by a group keeps, and Shift with it moves on from. */
-	toolId: ToolId
-) => {
-	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.defaultPrevented || isTyping(event.target)) return;
-			const nextTool = toolFor(event, MAC, toolId);
-			if (nextTool !== undefined) {
-				// A key for a tool not built yet does nothing, rather than leaving
-				// the frame holding a tool the viewport has no behavior for.
-				if (toolById(nextTool) === undefined) return;
-				event.preventDefault();
-				dispatch({ type: 'setTool', toolId: nextTool });
-				return;
-			}
-			const action = editActionFor(event, MAC);
-			if (action === undefined) return;
-			const context = { document, viewport: viewport.current, dispatch };
-			if (EDIT_ACTIONS[action](context)) event.preventDefault();
-		};
-		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [document, viewport, dispatch, toolId]);
 };
 
 /** A notice stays `NOTICE_MS` from the last time it was said. */
@@ -318,6 +218,8 @@ const Frame = ({
 	const closeDock = () => dispatch({ type: 'setDockOpen', open: false });
 	const [selection] = useState(createViewportSelection);
 	const facts = useSelectionFacts(selection, snapshot, activeLayerId);
+	// The layers chosen in the panel, as far as the document still has them.
+	const chosen = selectedLayersIn(snapshot.layers, state.selectedLayerIds, activeLayerId);
 	// The area Modify… was opened on, and the way it was asked at: Shift F6's Feather.
 	const [modifying, setModifying] = useState<
 		Readonly<{ region: Region | undefined; way?: AreaModify }> | undefined
@@ -364,7 +266,12 @@ const Frame = ({
 			document={document}
 			snapshot={snapshot}
 			activeLayerId={activeLayerId}
+			selectedLayerIds={chosen}
+			layerAnchor={state.layerAnchor}
 			onActivate={(id) => dispatch({ type: 'setActiveLayer', id })}
+			onSelectLayers={(choice) => dispatch({ type: 'selectLayers', selection: choice })}
+			collapsedGroupIds={state.collapsedGroupIds}
+			onCollapseGroups={(ids) => dispatch({ type: 'setCollapsedGroups', ids })}
 			withProperties={!expanded}
 			onClose={onClose}
 			onNotify={notify}
@@ -393,11 +300,15 @@ const Frame = ({
 					tool={tool}
 					options={state.options}
 					layerId={activeLayerId}
+					selectedLayerIds={chosen}
 					selection={selection}
 					onColor={setColor}
 					onNotify={notify}
 					onScale={onScale}
 					onActivateLayer={(id) => dispatch({ type: 'setActiveLayer', id })}
+					onSelectLayers={(choice) =>
+						dispatch({ type: 'selectLayers', selection: choice })
+					}
 					onModify={(way) => setModifying({ region: selection.region.get(), way })}
 					onFill={() => setFilling(selection.region.get())}
 					onTool={(toolId) => dispatch({ type: 'setTool', toolId })}
@@ -546,9 +457,11 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 	useEditorKeys(document, viewport, dispatch, state.toolId);
 	useNoticeTimeout(state.notice, dispatch);
 
-	// Another drawing opened from the library: the drawer has done its job.
+	// Another drawing opened from the library: the drawer has done its job,
+	// and the groups collapsed were the last drawing's.
 	useEffect(() => {
 		dispatch({ type: 'setLibraryOpen', open: false });
+		dispatch({ type: 'setCollapsedGroups', ids: [] });
 	}, [id]);
 
 	// The drawing changed elsewhere under unsaved edits, which were kept as a

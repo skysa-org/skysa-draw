@@ -101,7 +101,10 @@ Each layer is of one kind, and the app writes the kind on the layers it makes, `
 
 What SVG can say about a layer is said SVG's way, where any renderer and any other tool reads it: hidden is `display="none"`, opacity is `opacity`, the blend mode is `mix-blend-mode` in `style` (it has no presentation attribute), a mask, a clip and an adjustment are `mask`, `clip-path` and `filter` referring into the root's `<defs>`, and position is `transform`.
 What SVG cannot say is the app's: `draw:name`, the name the user gave it, and `draw:locked`.
-A layer's `id` is `layer-<n>`, the smallest `n` free in the document; the history, the masks and the clips refer to a layer by it, and an unnamed layer is shown as "Layer n" by its number, so a layer keeps its number when it is moved.
+A layer's `id` is `layer-<n>`, the smallest `n` free in the document; the history, the masks and the clips refer to a layer by it, and an unnamed layer is shown as "Layer n" and an unnamed group as "Group n" by its number, so each keeps its number when it is moved.
+Layers chosen together move as one (`document/arrange.ts`): a layer inside a chosen group goes where its group goes, and the rest keep their paint order among themselves.
+A layer moved into or out of a group is drawn where it was: where its new groups place it differently from its old ones, its own `transform` takes the difference as one `matrix(…)`, and where they do not, it is not touched.
+Move up and Move down never take a layer out of its group; dragging it in the panel does.
 
 A file from elsewhere has layers by the same rules without a byte written to it: a `<g>` with no `draw:kind` is vector unless its only graphics child is one `<image>`, which makes it raster; a graphics element loose at the root is a vector layer of one element, wrapped in a `<g>` the first time it is edited; a layer with no `id` is given one the first time the file is written; `inkscape:label` is read as a name where `draw:name` is absent, and never written.
 A `<g>` is a group only where it says so.
@@ -338,8 +341,9 @@ Undo and redo are per open drawing, in memory, as long as the session, capped by
 
 **Layers**, as §3 defines them: add, delete, duplicate, reorder, hide, lock, rename, opacity, blend mode, group and ungroup, clip to the layer below, merge down and rasterize, with the file's shape for each in `decisions/0003-layers.md`.
 Merge down of two vector layers stays vector; a merge that involves pixels, and rasterize, render the layers to pixels (`document/layerPixels.ts`, through the export's render) as a job the document waits for, dropped if the drawing changed while it rendered.
-Moving a layer into or out of a group is to come.
-One layer is active; tools act on it, a tool that does nothing on its kind says so and is not available, and the tool bar shows only the tools that act on it, with the tool in hand kept, faded, where it does not (`availableOn`).
+Layers are chosen in the panel with the keys users know, several at once (`layerSelection.ts`), and the chosen are moved, grouped, deleted and duplicated together, each as one command; merge down, rasterize and clip stay the active layer's, and are not offered while more than one is chosen.
+The panel drags the chosen to another place in the stack, into and out of groups (`panels/layerDrop.ts`).
+One layer is active, always among the chosen; tools act on it, a tool that does nothing on its kind says so and is not available, and the tool bar shows only the tools that act on it, with the tool in hand kept, faded, where it does not (`availableOn`).
 The tool bar holds the tools in Photoshop's groups and order, a light rule between each two (`tools/groups.ts`), and folds the largest groups into one button each, with the rest in its menu, only where the bar it is measured in is too short to show them all (`panels/ToolGroups.tsx`; `decisions/0004-the-interface.md`, "The tool bar").
 
 **Tools.**
@@ -436,7 +440,13 @@ The move tool's Auto-select (`tools/common/autoSelect.ts`) picks the layer a pre
 A vector layer is read by the select tool's own hit (`elementAt`), a raster layer by one pixel (`tools/raster/probe.ts`): from its surface where one is decoded, otherwise from its `<image>` drawn onto a canvas of one pixel, so no surface is made of a layer only looked at.
 On a 4096 × 3072 PNG the first read took 66 to 120 ms in Chromium, Firefox and WebKit, the browser's own decode, and every read after it under a tenth of a millisecond, against 89 to 183 ms and 48 MB for a surface.
 The viewport asks the tool before the press begins, has the frame make the layer active (`onActivateLayer`), and begins the press with a context of that layer and the behavior for its kind, so the whole press is that layer's before the frame shows it.
-Activating a layer is not a command, and a canceled press gives the layer back.
+Activating a layer is not a command, and a canceled press gives the layer back, and the layers chosen with it (`onSelectLayers`).
+With more than one layer chosen, the move tool moves the outermost of them together, whatever the active layer's kind, each by its own `transform`, in one command (`tools/common/layersMove.ts`); a group active alone moves whole the same way.
+Each move is `translate(dx dy)` in front of the layer's transform, in its parent's units, so every layer goes the same distance on the screen.
+A chosen layer that is hidden or locked, or a locked layer inside a group that moves, refuses the whole move, and the first such is named.
+Auto-select's press on a chosen layer, or on one inside a chosen group, keeps the choice; on another layer it makes that one active, which chooses it alone (`viewport/chosenLayers.ts`).
+The arrows nudge the chosen layers, or a group alone, a user unit at a time, or ten with Shift, since each layer's pixels are its own size.
+While several are chosen, nothing is selected among the active layer's elements: the selection goes as the choice grows, select all outlines with no handles, and a move lets go of it; the area stays.
 A selection is dropped when another layer is made active unless it is that layer's own, so the element the press selected stays selected; its box goes with it at once, under a press too, since a press that picks a raster layer draws no box over the old one (`viewport/selectionFollows.ts`), and the area stays.
 A selection on a layer that is hidden, or in a hidden group, stays selected with no box and no handles, and Auto-select keeps no handle there; the box comes back with the first movement over the canvas once the layer is shown, as Photoshop's transform controls do (`hiddenAsSeen`, `tools/vector/selection.ts`).
 Ctrl or ⌘ A selects all, the elements on a vector layer and the canvas elsewhere, and D drops both.
@@ -506,6 +516,12 @@ The color panel is a drawer on medium and expanded alike; the dock holds layers 
 The two colors are one tool button at the foot of the tool bar, on the rail and on compact alike (`ColorPair`; `decisions/0004-the-interface.md`, "The two colors"): its face shows both, and a press opens the color panel and the next closes it (`togglePanel` in `editorState.ts`).
 The swap and the reset are the color panel's, in its header, and X's and D's.
 The panel lays out each color as Fill… lays out its groups (`.field-groups` in `ui.css`): `ColorField` stacked, its name over its row and the recent colors under it, where a bar has it inline, its name beside its row.
+A click in the layers panel chooses one layer, Ctrl or ⌘ adds or takes one out, Shift takes the range from the last layer clicked, Shift with an arrow grows or shrinks it, and Ctrl or ⌘ A chooses every row shown, as in Photoshop and every file manager (`layerSelection.ts`).
+The active layer is always among the chosen, tinted with them and marked in the accent, and each chosen row says "Selected" to a screen reader while more than one is.
+Layers are dragged by a mouse or a pen on the layer, and by a finger on a grip shown where a pointer is coarse, since a finger on the layer scrolls the list (`panels/useLayerDrag.ts`); a line shows the gap and how deep, chosen by the pointer's x at a group's foot, a group's row lights for into it, and the list scrolls near its edges.
+Alt with an arrow moves the chosen a step, into and out of groups, as a drag to the next gap would.
+A group's folder is its disclosure: a button of its own where a layer's row shows its kind, with a caret in the folder that points down while the group is open and across while it is shut, so a group's name lines up with a layer's and no row moves over for it.
+A group collapses by its folder, with Alt every group inside it too, or by the arrows across, as a tree view does; which are collapsed is the editor's state for as long as the drawing is open, never the file's, and changes nothing that is chosen.
 
 **Input.**
 Pointer Events only, `touch-action: none` on the canvas; a pen draws, a finger draws unless a pen is down (palm rejection), two fingers pan and pinch to zoom, a two-finger tap undoes and a three-finger tap redoes; a wheel scrolls, with Ctrl or ⌘ zooms, and Space held pans, except on a control the keyboard brought the focus to, which Space presses (`isHandKey`, `viewport/pointerPressed.ts`).
