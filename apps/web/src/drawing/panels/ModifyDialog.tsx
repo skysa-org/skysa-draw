@@ -1,6 +1,7 @@
 import { cell } from '@skysa/draw-core';
 import { useId, useState } from 'react';
 
+import { useApply } from '../../components/ui/Applying.js';
 import { DialogForm } from '../../components/ui/DialogForm.js';
 import { PanelHost } from '../../components/ui/PanelHost.js';
 import { SliderField } from '../../components/ui/SliderField.js';
@@ -35,6 +36,13 @@ import type { Box } from '../tools/vector/geometry.js';
  * was. Feather's is the area's own feather, which it sets rather than changes
  * by, as the area holds one: 0 is a hard edge. In a sheet on compact and a
  * drawer elsewhere, as the frame places it.
+ *
+ * The four ways that change the outline work through every corner of it,
+ * which on a large area of many corners, a magic wand's, holds the page a
+ * while: the dialog closes at once, and the area is made and set under the
+ * frame's indicator (`components/ui/Applying.tsx`), which shows once that
+ * takes a while. Feather only sets the area's own feather, and is done
+ * plainly.
  */
 
 /**
@@ -113,6 +121,7 @@ const ModifyForm = ({
 	onClose: () => void;
 }>) => {
 	const group = useId();
+	const apply = useApply();
 	const [choices, setChoices] = useState<FormChoices>(() => ({
 		...lastApplied.current,
 		how: way ?? lastApplied.current.how,
@@ -131,7 +140,10 @@ const ModifyForm = ({
 			applyLabel={t('selection.modify.apply')}
 			onApply={() => {
 				lastApplied.current = { how, radius: feathering ? choices.radius : radius };
-				if (region !== undefined) onApply(modifyArea(region, how, radius, canvas));
+				if (region === undefined) return;
+				const made = () => onApply(modifyArea(region, how, radius, canvas));
+				if (feathering) made();
+				else void apply(made, t('selection.modify.working'));
 			}}
 			onClose={onClose}
 		>

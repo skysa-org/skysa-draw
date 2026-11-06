@@ -1,6 +1,5 @@
 import {
 	basename,
-	contentHash,
 	emptyDrawing,
 	isDrawingText,
 	joinPath,
@@ -11,7 +10,6 @@ import {
 	ROOT,
 	titleFromFilename,
 	uniqueFilename,
-	withDrawingId,
 	withDrawingTitle,
 } from '@skysa/draw-core';
 import Dexie from 'dexie';
@@ -24,6 +22,7 @@ import {
 	type DrawingRecord,
 } from './db.js';
 import { deletedHere } from './deletedHere.js';
+import { digestText } from './digest.js';
 import { ensureFolder } from './folders.js';
 import { foldPath } from './naming.js';
 import { queueDelete, queueMove, queueWrite } from './queue.js';
@@ -147,9 +146,10 @@ export const createDrawing = async (
 	const given = text === undefined ? undefined : readDrawingId(text);
 	const ownId = given ?? id;
 	const named = title ?? (text === undefined ? undefined : readDrawingTitle(text)) ?? 'Untitled';
-	const content =
-		text === undefined ? emptyDrawing({ id: ownId, title }) : withDrawingId(text, ownId);
-	const hash = await contentHash(content);
+	const { hash, text: content } =
+		text === undefined
+			? await digestText(emptyDrawing({ id: ownId, title }))
+			: await digestText(text, ownId);
 	return db.transaction('rw', writerTables(db), async () => {
 		const source = connectionId ?? (await activeConnectionId(db));
 		const taken = await takenNamesIn(db, source, folderPath);
@@ -207,8 +207,12 @@ const heldBy = (row: DrawingRecord, expected: string | readonly string[]): boole
  * never makes a drawing dirty; one `write` waits per drawing however many
  * saves come, and the push sends what the row holds then.
  *
- * The hash is computed before the transaction opens, and the row is read and
- * compared inside it, so a change that lands between the two is seen.
+ * The id is written in and the hash computed before the transaction opens,
+ * off the page's thread for a big text (`digestText`), and the row is read
+ * and compared inside it, so a change that lands between the two is seen.
+ * The text stored is the file the digest hands back: held one byte to a
+ * character where it can be, which IndexedDB writes and reads back many
+ * times faster.
  * A function for `options` is the clock, as the fourth argument once was.
  */
 export const saveDrawing = async (
@@ -222,8 +226,7 @@ export const saveDrawing = async (
 		now = Date.now,
 		...scope
 	} = typeof options === 'function' ? { now: options } : options;
-	const content = withDrawingId(text, id);
-	const hash = await contentHash(content);
+	const { hash, text: content } = await digestText(text, id);
 	return db.transaction('rw', writerTables(db), async (): Promise<SaveOutcome> => {
 		const row = await liveRow(db, await keyFor(db, id, scope));
 		if (row.contentHash === hash) return 'unchanged';
@@ -265,12 +268,12 @@ export const renameDrawing = async (
 	if (trimmed === '') return undefined;
 	return db.transaction('rw', writerTables(db), async () => {
 		const current = await liveRow(db, await keyFor(db, id, scope));
-		const content = withDrawingTitle(current.text, trimmed);
+		const retitled = withDrawingTitle(current.text, trimmed);
 		const others = await takenNamesIn(db, current.connectionId, parentPath(current.path), id);
 		const path = replaceBasename(current.path, uniqueFilename(trimmed, others));
 		// A promise already started, never `() => …`: `waitFor` runs a function
 		// outside the very transaction it is here to hold.
-		const hash = await Dexie.waitFor(contentHash(content));
+		const { hash, text: content } = await Dexie.waitFor(digestText(retitled));
 		const renamed: DrawingRecord = {
 			...current,
 			title: trimmed,

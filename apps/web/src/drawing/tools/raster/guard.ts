@@ -3,22 +3,18 @@ import { cell } from '@skysa/draw-core';
 import { t } from '../../../i18n/t.js';
 import type { LayerInfo } from '../../document/model.js';
 import { layerDisplayName } from '../../layerName.js';
+import { heldBy, type LayerNeed } from '../common/held.js';
 import type { ScreenCanvas, ToolContext } from '../types.js';
 import { clearCanvas, type RasterSurface, surfaceFor, UnreadablePictureError } from './surface.js';
 
 /**
  * What every raster tool checks before it touches a layer (docs/ARCHITECTURE.md
  * §7, "The editor"): that there is one, and that it is neither locked nor
- * hidden. A tool that may not draw says why, in the user's words, and does
- * nothing for the stroke.
+ * hidden, itself or by a group around it (`heldBy`). A tool that may not draw
+ * says why, in the user's words, naming the layer or the group that holds
+ * it, and does nothing for the stroke.
  */
 
-/**
- * The active layer, where a tool may change it, or, with `'read'`, take its
- * pixels without changing them, which a locked layer allows and a hidden one
- * does not, since what it would take cannot be seen; otherwise the user is
- * told and nothing comes back.
- */
 /** A layer's name, as the panel shows it, for a line to the user. */
 const nameOf = (context: ToolContext, layer: LayerInfo): string => {
 	const index = context.document.snapshot().layers.findIndex((each) => each.id === layer.id);
@@ -29,19 +25,24 @@ const nameOf = (context: ToolContext, layer: LayerInfo): string => {
 export const activeLayerName = (context: ToolContext): string =>
 	context.layer === undefined ? '' : nameOf(context, context.layer);
 
+/**
+ * The active layer, where a tool may change it, or, with `'read'`, take its
+ * pixels without changing them, which a lock allows and hiding does not,
+ * since what it would take cannot be seen; otherwise the user is told and
+ * nothing comes back.
+ */
 export const guardedLayer = (
 	context: ToolContext,
-	needs: 'change' | 'read' = 'change'
+	needs: LayerNeed = 'change'
 ): LayerInfo | undefined => {
 	const { layer } = context;
 	if (layer === undefined) {
 		context.notify(t('layers.noneActive'));
 		return undefined;
 	}
-	const locked = needs === 'change' && layer.locked;
-	if (!locked && !layer.hidden) return layer;
-	const name = nameOf(context, layer);
-	context.notify(locked ? t('layers.locked', { name }) : t('layers.hidden', { name }));
+	const held = heldBy(context.document.snapshot().layers, layer, needs);
+	if (held === undefined) return layer;
+	context.notify(held);
 	return undefined;
 };
 

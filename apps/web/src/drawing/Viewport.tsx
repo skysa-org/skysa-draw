@@ -451,7 +451,7 @@ export const Viewport = ({
 		transform,
 	});
 	const perform = transform.applyingFirst(commands.run);
-	useSelectionShown(selections, toolId, together, stroke, toolContext);
+	useSelectionShown(selections, toolId, together, stroke, toolContext, snapshot.version);
 
 	useImperativeHandle(ref, (): ViewportHandle => ({
 		fit,
@@ -499,10 +499,11 @@ export const Viewport = ({
 	// next stroke the hand's.
 	const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
 		if (transform.key(event, pointerPressed())) return;
-		// The arrows nudge the selected pixels, or the layers whole, with the move tool, before anything else reads them.
+		// The arrows nudge, with the move tool, what a drag of it would move, before anything else reads them.
 		const nudge = event.defaultPrevented || toolId !== 'select' ? undefined : nudgeFor(event);
 		const nudging = nudge === undefined ? undefined : toolContext();
-		if (nudge !== undefined && nudging !== undefined && nudgeWith(nudging, nudge)) {
+		const busy = stroke.current !== undefined;
+		if (nudge !== undefined && nudging !== undefined && nudgeWith(nudging, nudge, busy)) {
 			event.preventDefault();
 			return;
 		}

@@ -1266,7 +1266,7 @@ describe('The move tool with several layers chosen', () => {
 		expect(region.style.cursor).toBe('default');
 	});
 
-	it('nudges a group active alone whole, and leaves the arrows alone on a vector layer alone', () => {
+	it('nudges a group active alone whole, and a vector layer alone whole with nothing selected on it', () => {
 		const grouped = choose({
 			initial: 'layer-1',
 			chosen: ['layer-1'],
@@ -1282,8 +1282,8 @@ describe('The move tool with several layers chosen', () => {
 		const single = choose({ initial: 'layer-3', chosen: ['layer-3'] });
 		const left = arrow('ArrowLeft');
 		fire(window, left);
-		expect(left.defaultPrevented).toBe(false);
-		expect(single.transformOf('layer-3')).toBeNull();
+		expect(left.defaultPrevented).toBe(true);
+		expect(single.transformOf('layer-3')).toBe('translate(-1 0)');
 	});
 
 	it('lets go of the elements selected, and their box, as the choice grows past one layer', () => {

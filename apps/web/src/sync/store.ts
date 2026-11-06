@@ -2,7 +2,6 @@ import {
 	basename,
 	conflictContent,
 	type ConflictResolution,
-	contentHash,
 	isFileChange,
 	isWithin,
 	type NewSyncOp,
@@ -35,6 +34,7 @@ import {
 	type SyncStateRecord,
 } from '../store/db.js';
 import { deletedHere } from '../store/deletedHere.js';
+import { hashText } from '../store/digest.js';
 import { drawingFile, drawingRecordFromFile } from '../store/drawings.js';
 import { heldBytesAreCurrent } from '../store/files.js';
 import { folderRow } from '../store/folders.js';
@@ -258,7 +258,7 @@ export const createDexieSyncStore = (
 	 */
 	const digestAll = async (contents: readonly string[]): Promise<Map<string, string>> => {
 		const unique = [...new Set(contents)];
-		const hashes = await Promise.all(unique.map(contentHash));
+		const hashes = await Promise.all(unique.map(hashText));
 		return new Map(unique.map((content, at) => [content, hashes[at] ?? '']));
 	};
 
@@ -517,7 +517,7 @@ export const createDexieSyncStore = (
 		// file and its hash is already worked out; when they are not, the digest
 		// has to be waited for inside the transaction, which `Dexie.waitFor` is.
 		const copyContent = conflictContent(drawingFile(drawing), resolution.copyId);
-		const copyHash = hashes.get(copyContent) ?? (await Dexie.waitFor(contentHash(copyContent)));
+		const copyHash = hashes.get(copyContent) ?? (await Dexie.waitFor(hashText(copyContent)));
 
 		// A fresh id is the engine's promise. Writing over whatever held it would
 		// be losing a drawing to save one.

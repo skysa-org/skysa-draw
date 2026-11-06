@@ -636,8 +636,12 @@ describe('the selection bar', () => {
 		};
 		vi.mocked(areaOps.modifyArea).mockReturnValueOnce(made);
 		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
-		expect(areaOps.modifyArea).toHaveBeenLastCalledWith(WHOLE, 'contract', 20, CANVAS);
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		// Under the frame's indicator, which puts itself in place two frames first.
+		await waitFor(() =>
+			expect(areaOps.modifyArea).toHaveBeenLastCalledWith(WHOLE, 'contract', 20, CANVAS)
+		);
+		await waitFor(() => expect(window.document.querySelector('.applying')).toBeNull());
 
 		// The area is the one Modify… made: its Feather starts at that area's feather.
 		await user.click(screen.getByRole('button', { name: 'Modify…' }));
@@ -660,7 +664,9 @@ describe('the selection bar', () => {
 		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 		expect(
-			screen.getByText('That would leave nothing selected, so the selection is unchanged.')
+			await screen.findByText(
+				'That would leave nothing selected, so the selection is unchanged.'
+			)
 		).toBeDefined();
 		// Areas are not in the history: one lost here could not be got back.
 		expect(bar()).not.toBeNull();
@@ -1432,11 +1438,14 @@ describe('the Image operations under More', () => {
 			'1600'
 		);
 		await user.click(within(sheet).getByRole('button', { name: 'Apply' }));
-		expect(image.resizeImage).toHaveBeenCalledWith(lastOpened(), {
-			width: 1600,
-			height: 1000,
-			resample: true,
-		});
+		// Under the frame's indicator, which puts itself in place two frames first.
+		await waitFor(() =>
+			expect(image.resizeImage).toHaveBeenCalledWith(lastOpened(), {
+				width: 1600,
+				height: 1000,
+				resample: true,
+			})
+		);
 		expect(await screen.findByText('The image is already that size.')).toBeDefined();
 		expect(screen.queryByRole('dialog', { name: 'Image size' })).toBeNull();
 	});

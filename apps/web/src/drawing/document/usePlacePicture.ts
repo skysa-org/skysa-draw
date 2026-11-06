@@ -1,5 +1,6 @@
 import { type DragEvent, useEffect, useEffectEvent } from 'react';
 
+import { useApply } from '../../components/ui/Applying.js';
 import { t } from '../../i18n/t.js';
 import { placePicture } from '../export/place.js';
 import { isTyping } from '../keys.js';
@@ -12,6 +13,12 @@ import type { EditorDocument } from './model.js';
  * dropped on the canvas. The reading is asynchronous; the layer is one step
  * to undo, and the active one once it is there. A file that is not a picture
  * the app reads is said so and placed nowhere.
+ *
+ * A large picture holds the page a while as it is decoded and drawn, so it is
+ * placed under the frame's indicator (`components/ui/Applying.tsx`), which
+ * shows once that takes a while, and goes once the layer is there. The job is
+ * the document's pending work from the moment it is asked for, so a save
+ * waits for it even before the indicator has begun it.
  */
 
 const isPicture = (file: File): boolean => file.type.startsWith('image/');
@@ -32,18 +39,23 @@ export const usePlacePicture = (
 	onPlaced: (id: string) => void,
 	onNotify: (message: string) => void
 ): Placing => {
+	const apply = useApply();
 	const place = (file: Blob): void => {
 		if (document === undefined) return;
-		const job = placePicture(document, file, above).then(
-			(command) => {
-				if (command === undefined) {
-					onNotify(t('exporting.cannotPlace'));
-					return;
-				}
-				document.execute(command);
-				onPlaced(command.id);
-			},
-			() => onNotify(t('exporting.cannotPlace'))
+		const job = apply(
+			() =>
+				placePicture(document, file, above).then(
+					(command) => {
+						if (command === undefined) {
+							onNotify(t('exporting.cannotPlace'));
+							return;
+						}
+						document.execute(command);
+						onPlaced(command.id);
+					},
+					() => onNotify(t('exporting.cannotPlace'))
+				),
+			t('editor.placingPicture')
 		);
 		document.pending(job);
 	};

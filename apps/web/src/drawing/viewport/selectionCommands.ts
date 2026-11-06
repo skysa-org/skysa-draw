@@ -1,3 +1,4 @@
+import { useApply } from '../../components/ui/Applying.js';
 import { t } from '../../i18n/t.js';
 import { addLayer, duplicateLayer } from '../document/commands.js';
 import { type CanvasBox, canvasBoxOf, cropCanvas } from '../document/crop.js';
@@ -49,6 +50,12 @@ import type { ViewportSelection } from './selectionState.js';
  * `fillWith`; the two fills a key does at once, with the fill color and with
  * the stroke color, are the raster tools' `fillAreaWith` in normal at full
  * opacity, the first through `fillArea`, which is that.
+ *
+ * What reads and writes every pixel the area covers, a fill with a color,
+ * Clear and Layer via copy or cut on a raster layer, holds the page a while
+ * on a large layer, and is done under the frame's indicator
+ * (`components/ui/Applying.tsx`). Content-Aware is not: it has its own line
+ * over the canvas, with Stop, and leaves the page free while it works.
  */
 
 export type SelectionCommandDeps = Readonly<{
@@ -152,11 +159,13 @@ const ACTION_NAMES: Readonly<Record<LayerVia, 'layerViaCopy' | 'layerViaCut'>> =
 };
 
 /**
- * A hook in name only, so that what it is given may reach the viewport's
- * refs: nothing here reads one while rendering, only when an action runs.
+ * A hook for the frame's indicator alone, and otherwise so that what it is
+ * given may reach the viewport's refs: nothing here reads one while
+ * rendering, only when an action runs.
  */
 export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionCommands => {
 	const { document, layer, selection, notify } = deps;
+	const apply = useApply();
 	// The select tool's own box and handles, where a press would use them.
 	const handles = deps.toolId === 'select' && deps.together !== true;
 	const mode = () =>
@@ -167,6 +176,20 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 			canUndo: false,
 			canRedo: false,
 		});
+
+	/**
+	 * `act` on the area's pixels, under the indicator, in `words`: begun once
+	 * it is in place, and waited for to the end of what it wrote, its encoding
+	 * included, as a save waits for it. The area's to do wherever `act` is
+	 * asked for, whatever it finds there to say.
+	 */
+	const onPixels = (act: () => unknown, words: string): true => {
+		void apply(() => {
+			act();
+			return document.settle();
+		}, words);
+		return true;
+	};
 
 	/** Said of an action that changes pixels, asked of a layer that has none. */
 	const rasterOnly = (action: PixelAction): true => {
@@ -239,9 +262,11 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 	 */
 	const layerViaPixels = (context: ToolContext, how: LayerVia): boolean => {
 		if (context.layer?.kind !== 'raster') return rasterOnly(ACTION_NAMES[how]);
-		const work = layerViaArea(context, how);
-		if (work === undefined) return false;
-		void work.then(
+		// There is an area, on a raster layer: the work is the area's to do.
+		void apply(
+			() => layerViaArea(context, how),
+			t(`selection.working.${ACTION_NAMES[how]}`)
+		).then(
 			(made) => {
 				if (made === undefined) return;
 				selection.region.set(undefined);
@@ -276,9 +301,13 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		return act(context);
 	};
 
-	/** Fill…'s Apply: the area filled as the dialog says. */
+	/** Fill…'s Apply: the area filled as the dialog says; Content-Aware, with its own line and Stop, plainly. */
 	const fillWith = (spec: FillSpec): boolean =>
-		onAreaPixels('fillDialog', (context) => fillAreaWith(context, spec));
+		onAreaPixels('fillDialog', (context) =>
+			spec.contents === 'contentAware'
+				? fillAreaWith(context, spec)
+				: onPixels(() => fillAreaWith(context, spec), t('selection.working.fill'))
+		);
 
 	/** Fill…: the frame's dialog, where the layer is one the fill may change; a locked or a hidden one says so instead. */
 	const fillDialog = (): boolean =>
@@ -291,12 +320,16 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 	/** Ctrl or ⌘ Backspace: the stroke color at once, as Photoshop's fill with the background color. */
 	const fillWithStroke = (): boolean =>
 		onAreaPixels('fillWithStroke', (context) =>
-			fillAreaWith(context, {
-				contents: 'stroke',
-				mode: 'normal',
-				opacity: 1,
-				preserveTransparency: false,
-			})
+			onPixels(
+				() =>
+					fillAreaWith(context, {
+						contents: 'stroke',
+						mode: 'normal',
+						opacity: 1,
+						preserveTransparency: false,
+					}),
+				t('selection.working.fill')
+			)
 		);
 
 	/** With an area selected on a raster layer and no stroke under way: its pixels cleared. */
@@ -304,7 +337,10 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		if (selection.region.get() === undefined || deps.busy()) return false;
 		if (layer?.kind !== 'raster') return false;
 		const context = deps.context();
-		return context !== undefined && clearArea(context);
+		return (
+			context !== undefined &&
+			onPixels(() => clearArea(context), t('selection.working.clear'))
+		);
 	};
 
 	/** With something selected on a vector layer and no stroke under way: it deleted. */
@@ -419,7 +455,10 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		layerViaCut: () => layerVia('cut'),
 		fillDialog,
 		// Alt Backspace: the fill color at once, as Photoshop's fill with the foreground color.
-		fill: () => onAreaPixels('fill', fillArea),
+		fill: () =>
+			onAreaPixels('fill', (context) =>
+				onPixels(() => fillArea(context), t('selection.working.fill'))
+			),
 		fillWithStroke,
 		clear,
 		crop,

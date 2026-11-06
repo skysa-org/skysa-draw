@@ -1,5 +1,6 @@
 import type { LayerKind } from '@skysa/draw-core';
 
+import { useApply } from '../../components/ui/Applying.js';
 import { ContextMenu, type MenuPoint } from '../../components/ui/ContextMenu.js';
 import { IconButton } from '../../components/ui/IconButton.js';
 import {
@@ -60,6 +61,7 @@ export const LayerActions = ({
 	onShowGroups: (ids: readonly string[]) => void;
 	onNotify: (message: string) => void;
 }>) => {
+	const apply = useApply();
 	const menu = layerMenuItems({
 		document,
 		snapshot,
@@ -70,6 +72,7 @@ export const LayerActions = ({
 		onSelectLayers,
 		onShowGroups,
 		onNotify,
+		apply,
 	});
 	const root = document.root;
 	const count = Math.max(1, chosen.length);

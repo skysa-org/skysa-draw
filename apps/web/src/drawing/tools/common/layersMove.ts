@@ -9,6 +9,7 @@ import { moveInParent } from '../raster/space.js';
 import type { PointerSample, ToolBehavior, ToolContext } from '../types.js';
 import { hideSelection } from '../vector/region.js';
 import type { Offset } from './align.js';
+import { heldBy } from './held.js';
 import { createDragSnap, type ExtentOf } from './snap.js';
 
 /**
@@ -29,9 +30,10 @@ import { createDragSnap, type ExtentOf } from './snap.js';
  * The drag sets the attributes live; at its end they are put back and one
  * command sets them all, labeled as the one-layer move is, so one undo puts
  * every layer back; a cancel puts them back and runs nothing. The arrows
- * nudge the same layers by one command each (`nudgeLayers`), and the
- * options bar's alignment (`align.ts`) moves them too, each by a distance of
- * its own, by one command (`moveLayersBy`). The drag snaps what the layers
+ * nudge the same layers by one command each (`nudgeLayers`), as they nudge
+ * the active layer alone where nothing is selected on it; the options bar's
+ * alignment (`align.ts`) moves them too, each by a distance of its own, by
+ * one command (`moveLayersBy`). The drag snaps what the layers
  * paint to the canvas and to the other layers (`snap.ts`); the nudge does
  * not, as Photoshop's does not.
  *
@@ -42,8 +44,9 @@ import { createDragSnap, type ExtentOf } from './snap.js';
  *
  * A move with a layer that may not move is refused whole, as Photoshop
  * refuses it, and the first such layer, top first, is named in the words a
- * tool's guard uses: one hidden or locked itself, or a locked layer inside a
- * group that moves, which the group would carry along with it.
+ * tool's guard uses: one hidden or locked, itself or by a group around it,
+ * which is named, or a locked layer inside a group that moves, which the
+ * group would carry along with it.
  *
  * Nothing stays selected among a layer's elements once the layers move: what
  * was is let go of, with its box or its outlines, which the move would leave
@@ -155,8 +158,9 @@ export const movedIds = (context: ToolContext): readonly string[] => {
 
 /**
  * Why `ids` may not move, as a tool's guard words it, for the first layer
- * that keeps them, top first: hidden or locked itself, or a locked layer
- * inside one of them; none where every one may.
+ * that keeps them, top first: hidden or locked, itself or by a group around
+ * it (`heldBy`), or a locked layer inside one of them; none where every one
+ * may.
  */
 const refusal = (layers: readonly LayerInfo[], ids: readonly string[]): string | undefined => {
 	const byId = new Map(layers.map((layer) => [layer.id, layer]));
@@ -164,12 +168,15 @@ const refusal = (layers: readonly LayerInfo[], ids: readonly string[]): string |
 	const [first] = [...ids].reverse().flatMap((id) => {
 		const layer = byId.get(id);
 		if (layer === undefined) return [];
-		if (layer.locked || layer.hidden) return [layer];
-		return fromTop.filter((each) => each.locked && isWithin(byId, each, id));
+		const held = heldBy(layers, layer);
+		if (held !== undefined) return [held];
+		return fromTop
+			.filter((each) => each.locked && isWithin(byId, each, id))
+			.map((each) =>
+				t('layers.locked', { name: layerDisplayName(each, layers.indexOf(each)) })
+			);
 	});
-	if (first === undefined) return undefined;
-	const name = layerDisplayName(first, layers.indexOf(first));
-	return first.locked ? t('layers.locked', { name }) : t('layers.hidden', { name });
+	return first;
 };
 
 /** One layer moved, and its `transform` before the move, or `null` for none. */
@@ -369,11 +376,13 @@ export const layersMove: ToolBehavior = createLayersMove();
 /**
  * An arrow key with the move tool, where it moves layers whole, which the
  * viewport decides (`viewport/chosenLayers.ts`): the layers `layersMove`
- * moves, each by `dx` and `dy` in the drawing's user units, 1 or 10 with
- * Shift as the caller says, so every one goes the same distance on the
- * screen whatever its own scale, by one command, as a drag does. Whether
- * there was a layer to nudge: a layer that may not move, or a drag under
- * way, takes the key and moves nothing, the first said.
+ * moves, or the active layer alone where nothing is selected on it, as
+ * Photoshop's move tool moves the layer, each by `dx` and `dy` in the
+ * drawing's user units, 1 or 10 with Shift as the caller says, so every one
+ * goes the same distance on the screen whatever its own scale, by one
+ * command, as a drag does. Whether there was a layer to nudge: a layer that
+ * may not move, or a drag under way, takes the key and moves nothing, the
+ * first said.
  */
 export const nudgeLayers = (context: ToolContext, dx: number, dy: number): boolean => {
 	const ids = movedIds(context);

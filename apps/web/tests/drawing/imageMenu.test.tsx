@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApplyingProvider } from '../../src/components/ui/Applying.js';
 import type { MenuItem } from '../../src/components/ui/Menu.js';
 import type { CanvasJob } from '../../src/drawing/document/canvasOps.js';
 import * as canvasOps from '../../src/drawing/document/canvasOps.js';
@@ -296,5 +297,132 @@ describe('the Image operations', () => {
 		await screen.findByRole('dialog', { name: 'Image size' });
 		view.rerender(<Harness document={drawing()} notify={notify} />);
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+});
+
+/** Work that settles when the test says. */
+const deferred = () => {
+	const settle: { resolve?: (outcome: CanvasJob) => void } = {};
+	const promise = new Promise<CanvasJob>((resolve) => {
+		settle.resolve = resolve;
+	});
+	return { promise, resolve: (outcome: CanvasJob) => settle.resolve?.(outcome) };
+};
+
+const cover = () => window.document.querySelector('.applying');
+
+/**
+ * Inside the frame's indicator (`components/ui/Applying.tsx`): the jobs that
+ * read pixels are done under it, in their own words once they take a while,
+ * and still ask of `canvasOps.ts` what they did and say what came of it;
+ * Image size without Resample, which reads none, is done plainly.
+ */
+describe('the Image operations under the frame’s indicator', () => {
+	beforeEach(() => {
+		vi.mocked(canvasOps.resizeImage).mockReset().mockResolvedValue('done');
+		vi.mocked(canvasOps.trimCanvas).mockReset().mockResolvedValue('done');
+		vi.mocked(canvasOps.revealAll).mockReset().mockResolvedValue('done');
+	});
+
+	const setupUnder = () => {
+		const document = drawing();
+		const notify = vi.fn<(message: string) => void>();
+		render(
+			<ApplyingProvider>
+				<Harness document={document} notify={notify} />
+			</ApplyingProvider>
+		);
+		const item = (name: string) =>
+			within(screen.getByRole('navigation', { name: 'Image' })).getByRole('button', {
+				name,
+			});
+		return { document, notify, item };
+	};
+
+	it('reveals all under it, in its words, and says what came of it', async () => {
+		const job = deferred();
+		vi.mocked(canvasOps.revealAll).mockReturnValue(job.promise);
+		const { document, item, notify } = setupUnder();
+		fireEvent.click(item('Reveal all'));
+		expect(cover()).not.toBeNull();
+		// The work begins once the indicator is drawn.
+		expect(canvasOps.revealAll).not.toHaveBeenCalled();
+		await waitFor(() => expect(canvasOps.revealAll).toHaveBeenCalledWith(document, EXTENT));
+		await waitFor(() =>
+			expect(screen.getByRole('status').textContent).toBe(
+				'Growing the canvas to hold everything…'
+			)
+		);
+		act(() => job.resolve('nothing'));
+		await waitFor(() => expect(cover()).toBeNull());
+		expect(notify).toHaveBeenCalledWith('Everything is already on the canvas.');
+		expect(item('Reveal all')).toHaveProperty('disabled', false);
+	});
+
+	it('trims under it, in its words, as Trim… asks', async () => {
+		const user = userEvent.setup();
+		const job = deferred();
+		vi.mocked(canvasOps.trimCanvas).mockReturnValue(job.promise);
+		const { document, item } = setupUnder();
+		await user.click(item('Trim…'));
+		const dialog = await screen.findByRole('dialog', { name: 'Trim' });
+		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+		await waitFor(() =>
+			expect(canvasOps.trimCanvas).toHaveBeenCalledWith(
+				document,
+				'transparent',
+				// The sides as the dialog last had them.
+				expect.any(Object),
+				EXTENT
+			)
+		);
+		await waitFor(() =>
+			expect(screen.getByRole('status').textContent).toBe('Trimming the canvas…')
+		);
+		act(() => job.resolve('done'));
+		await waitFor(() => expect(cover()).toBeNull());
+	});
+
+	it('resizes the image with Resample under it, in its words, and without Resample plainly', async () => {
+		const user = userEvent.setup();
+		const job = deferred();
+		vi.mocked(canvasOps.resizeImage).mockReturnValue(job.promise);
+		const { document, item, notify } = setupUnder();
+		await user.click(item('Image size…'));
+		const dialog = await screen.findByRole('dialog', { name: 'Image size' });
+		fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Width' }), {
+			target: { value: '800' },
+		});
+		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+		await waitFor(() =>
+			expect(canvasOps.resizeImage).toHaveBeenCalledWith(document, {
+				width: 800,
+				height: 500,
+				resample: true,
+			})
+		);
+		await waitFor(() =>
+			expect(screen.getByRole('status').textContent).toBe('Resizing the image…')
+		);
+		act(() => job.resolve('changed'));
+		await waitFor(() => expect(cover()).toBeNull());
+		expect(notify).toHaveBeenCalledWith(
+			'The drawing changed before this could finish, so it is as it was. Try again.'
+		);
+
+		vi.mocked(canvasOps.resizeImage).mockReset().mockResolvedValue('done');
+		await user.click(item('Image size…'));
+		const again = await screen.findByRole('dialog', { name: 'Image size' });
+		await user.click(within(again).getByRole('button', { name: 'Resample' }));
+		fireEvent.change(within(again).getByRole('spinbutton', { name: 'Width' }), {
+			target: { value: '3200' },
+		});
+		await user.click(within(again).getByRole('button', { name: 'Apply' }));
+		expect(canvasOps.resizeImage).toHaveBeenCalledWith(document, {
+			width: 3200,
+			height: 2000,
+			resample: false,
+		});
+		expect(cover()).toBeNull();
 	});
 });

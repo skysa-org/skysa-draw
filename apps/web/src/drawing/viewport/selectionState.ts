@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 import type { DocumentSnapshot } from '../document/model.js';
 import type { SelectionFacts } from '../selectionActions.js';
+import { asReached } from '../tools/common/held.js';
 import type { Region } from '../tools/types.js';
 import { NO_SELECTION } from './context.js';
 import { type Observable, observable } from './observable.js';
@@ -33,7 +34,8 @@ export const createViewportSelection = (): ViewportSelection => ({
 /**
  * What the selection's actions are built from (`selectionActions.ts`), as
  * React reads it: anew whenever the selection, the layers or the history
- * change, so the menu and the bar say what can be done now.
+ * change, so the menu and the bar say what can be done now. The active layer
+ * is as the tools reach it, locked or hidden by a group around it too.
  */
 export const useSelectionFacts = (
 	selection: ViewportSelection,
@@ -46,10 +48,11 @@ export const useSelectionFacts = (
 		selection.transforming.subscribe,
 		selection.transforming.get
 	);
+	const reached = snapshot.layers.find((layer) => layer.id === layerId);
 	return {
 		region,
 		elements: elements.length,
-		layer: snapshot.layers.find((layer) => layer.id === layerId),
+		layer: reached === undefined ? undefined : asReached(snapshot.layers, reached),
 		canUndo: snapshot.canUndo,
 		canRedo: snapshot.canRedo,
 		transforming,

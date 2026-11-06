@@ -1,3 +1,4 @@
+import type { Apply } from '../../components/ui/Applying.js';
 import type { MenuItem } from '../../components/ui/Menu.js';
 import { t } from '../../i18n/t.js';
 import { canStepLayers, groupLayers, outermostLayers, stepLayers } from '../document/arrange.js';
@@ -29,6 +30,13 @@ import type { LayerSelection } from '../layerSelection.js';
  * out, not shown disabled (docs/decisions/0004-the-interface.md, "The layers
  * panel's menu"). One that applies but will not be done, a merge of a hidden
  * layer, is listed, and says why when it is chosen.
+ *
+ * A merge draws two layers into one picture the size of the canvas and
+ * reads it back, which holds the page a while where one is a large raster
+ * layer, and is done under the frame's indicator, which shows once it takes
+ * a while (`components/ui/Applying.tsx`). A rasterize draws one, which took
+ * a frame or two even across the whole canvas, and the rest change a few
+ * attributes or move a few elements: those are done plainly.
  */
 
 /** What a merge or a rasterize that did nothing tells the user. */
@@ -52,6 +60,8 @@ export type LayerMenuContext = Readonly<{
 	/** A group just made, shown expanded, so what went into it is seen. */
 	onShowGroups: (ids: readonly string[]) => void;
 	onNotify: (message: string) => void;
+	/** The frame's indicator, for a merge (`useApply`). */
+	apply: Apply;
 }>;
 
 /** An item, where it applies; none where it does not. */
@@ -73,6 +83,7 @@ export const layerMenuItems = ({
 	onSelectLayers,
 	onShowGroups,
 	onNotify,
+	apply,
 }: LayerMenuContext): readonly MenuItem[] => {
 	const root = document.root;
 	const id = active?.id;
@@ -132,7 +143,7 @@ export const layerMenuItems = ({
 		if (problem === 'locked') onNotify(t('layers.mergeLocked'));
 		if (problem !== undefined) return;
 		const below = layerBelow(root, id)?.getAttribute('id') ?? undefined;
-		void mergeDown(document, id).then((job) => {
+		void apply(() => mergeDown(document, id), t('layers.merging')).then((job) => {
 			if (job === 'done' && below !== undefined) onActivate(below);
 			tell(job);
 		});

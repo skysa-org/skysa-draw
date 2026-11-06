@@ -22,6 +22,13 @@ import type { Observable } from './observable.js';
  * or as it is dragged is its to show, and what it sets as the press ends it
  * has shown already, which this draws again the same. Nothing selected takes
  * the box and the outlines away, and nothing else of a tool's.
+ *
+ * Drawn again after every change to the drawing (`version`), so the box
+ * follows what an undo or a redo moved: a move of elements keeps the same
+ * nodes through both (`transformElements`, `document/elements.ts`), and so
+ * keeps them selected, where they are now. What the change took out of the
+ * drawing is not drawn around; the selection lets go of it
+ * (`viewport/selectionFollows.ts`), and that draws again.
  */
 export const useSelectionShown = (
 	selection: Observable<readonly Element[]>,
@@ -31,7 +38,9 @@ export const useSelectionShown = (
 	/** The stroke under way, if one is. */
 	stroke: RefObject<unknown>,
 	/** The tools' context, as a press would have it; none before the viewport is laid out. */
-	context: () => ToolContext | undefined
+	context: () => ToolContext | undefined,
+	/** The drawing's version, new with every change to it (`DocumentSnapshot.version`). */
+	version: number
 ): void => {
 	const elements = useSyncExternalStore(selection.subscribe, selection.get);
 	const show = useEffectEvent(() => {
@@ -42,9 +51,10 @@ export const useSelectionShown = (
 			hideSelection(shown.overlay);
 			return;
 		}
+		if (!elements.every((element) => shown.document.root.contains(element))) return;
 		showSelection(shown, elements, toolId === 'select' && !together);
 	});
 	useEffect(() => {
 		show();
-	}, [elements, toolId, together]);
+	}, [elements, toolId, together, version]);
 };

@@ -381,9 +381,14 @@
 	z-index: var(--z-sheet);
 }
 
+/* The page dimmed: behind a sheet or a drawer, and under work under way. */
+.panel-backdrop,
+.applying {
+	background: rgb(0 0 0 / 0.25);
+}
+
 .panel-backdrop {
 	animation: dim-in var(--duration-l) var(--ease-out);
-	background: rgb(0 0 0 / 0.25);
 	inset: 0;
 }
 
@@ -665,9 +670,10 @@ legend.field-legend {
 	position: relative;
 }
 
-/* What floats over the page, a menu and a notice, has the one edge. */
+/* What floats over the page, a menu, a notice and work under way, has the one edge. */
 .menu-list,
-.notice-card {
+.notice-card,
+.applying-card {
 	border: 1px solid var(--border);
 	border-radius: var(--radius-m);
 	box-shadow: var(--shadow-l);
@@ -794,4 +800,84 @@ legend.field-legend {
 	max-width: 28rem;
 	padding: var(--space-s) var(--space-m);
 	pointer-events: auto;
+}
+
+/*
+ * Work under way (`Applying.tsx`): the whole window, dimmed, over every sheet
+ * and drawer and taking every press, with a card in its middle, the work's
+ * words over a bar that does not say how far. Unseen at first, it fades in
+ * after the delay the component gives it, by opacity alone, and the bar
+ * moves by `transform` alone: the two the compositor runs while the page's
+ * own thread is held. In the top layer where there is one, and over
+ * everything else where not.
+ */
+.applying {
+	animation: fade-in var(--duration-l) var(--ease-out) both;
+	border: 0;
+	color: var(--fg);
+	display: grid;
+	height: auto;
+	inset: 0;
+	margin: 0;
+	max-height: none;
+	max-width: none;
+	overflow: hidden;
+	padding: max(var(--space-l), env(safe-area-inset-top))
+		max(var(--space-l), env(safe-area-inset-right))
+		max(var(--space-l), env(safe-area-inset-bottom))
+		max(var(--space-l), env(safe-area-inset-left));
+	place-items: center;
+	position: fixed;
+	touch-action: none;
+	width: auto;
+	z-index: var(--z-dialog-menu);
+}
+
+/* A popover's own rule, which a `display` of the author's would otherwise outweigh. */
+.applying[popover]:not(:popover-open) {
+	display: none;
+}
+
+.applying-card {
+	background: var(--bg);
+	display: flex;
+	flex-direction: column;
+	font-size: var(--text-m);
+	gap: var(--space-m);
+	max-width: 22rem;
+	min-width: min(16rem, 100%);
+	padding: var(--space-l);
+	text-align: center;
+}
+
+.applying-bar {
+	background: var(--border);
+	border-radius: var(--radius-pill);
+	height: 0.25rem;
+	overflow: hidden;
+}
+
+/* A stripe across and across again; still where the system asks for less motion, as the marching ants are. */
+.applying-bar::before {
+	animation: applying-bar calc(var(--duration-xl) * 4) linear infinite;
+	background: var(--accent);
+	border-radius: inherit;
+	content: '';
+	display: block;
+	height: 100%;
+	width: 40%;
+}
+
+.applying-bar:dir(rtl) {
+	scale: -1 1;
+}
+
+@keyframes applying-bar {
+	from {
+		transform: translateX(-100%);
+	}
+
+	to {
+		transform: translateX(250%);
+	}
 }

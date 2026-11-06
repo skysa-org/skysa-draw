@@ -3,6 +3,7 @@ import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 import { replaceRasterImage } from '../../document/commands.js';
 import { canvasBoxOf } from '../../document/crop.js';
 import type { Command, EditorDocument } from '../../document/model.js';
+import { encodeInWorker } from '../../pictures/index.js';
 import type { ToolContext } from '../types.js';
 import { type Box, invert, multiply, transformBox, translate } from '../vector/geometry.js';
 import {
@@ -341,14 +342,26 @@ const dataUrlOf = (blob: Blob): Promise<string> =>
 	});
 
 /**
- * The canvas as a `data:` URL of a PNG: through `toBlob` and a `FileReader`,
- * which do not hold the main thread for the encoding, and through
- * `toDataURL`, which does, where `toBlob` is not there or gave nothing.
+ * The canvas as a `data:` URL of a PNG on this thread: through `toBlob` and a
+ * `FileReader`, which do not hold the main thread for the encoding, and
+ * through `toDataURL`, which does, where `toBlob` is not there or gave nothing.
  */
-const encodePng = async (canvas: HTMLCanvasElement): Promise<string> => {
+const encodeHere = async (canvas: HTMLCanvasElement): Promise<string> => {
 	const blob = await blobOf(canvas);
 	return blob === null ? canvas.toDataURL('image/png') : dataUrlOf(blob);
 };
+
+/**
+ * The canvas as a `data:` URL of a PNG, of its pixels as they are when this
+ * is called: in the pictures worker (`../../pictures/`), from a snapshot
+ * taken now and transferred to it, which leaves the page's thread neither
+ * the read back nor the reading of the PNG as a `data:` URL; and here
+ * (`encodeHere`) where there is no worker, or from the snapshot where the
+ * worker failed. Either way the PNG decodes to the same bytes, a pixel that
+ * is partly transparent among them.
+ */
+const encodePng = (canvas: HTMLCanvasElement): Promise<string> =>
+	encodeInWorker(canvas, encodeHere) ?? encodeHere(canvas);
 
 const surfaces = new WeakMap<EditorDocument, Map<string, RasterSurface>>();
 

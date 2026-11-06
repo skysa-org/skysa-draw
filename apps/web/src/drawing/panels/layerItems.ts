@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { t } from '../../i18n/t.js';
 import { layerNameOf } from '../document/layers.js';
 import type { DocumentSnapshot, EditorDocument, LayerInfo } from '../document/model.js';
-import { layerDisplayName } from '../layerName.js';
+import { heldBy } from '../tools/common/held.js';
 import { elementsOf } from '../tools/vector/hit.js';
 
 /**
@@ -126,15 +126,11 @@ export const pressedSelection = (
  * the layer locked or hidden, or else the nearest group holding it that is,
  * each named as its row names it; none where nothing holds it.
  */
-export const heldNotice = (layers: readonly LayerInfo[], id: string): string | undefined => {
-	const index = layers.findIndex((layer) => layer.id === id);
-	const layer = layers[index];
-	if (layer === undefined) return undefined;
-	const name = layerDisplayName(layer, index);
-	if (layer.locked) return t('layers.locked', { name });
-	if (layer.hidden) return t('layers.hidden', { name });
-	return layer.parentId === undefined ? undefined : heldNotice(layers, layer.parentId);
-};
+export const heldNotice = (layers: readonly LayerInfo[], id: string): string | undefined =>
+	heldBy(
+		layers,
+		layers.find((layer) => layer.id === id)
+	);
 
 export type LayerItems = Readonly<{
 	/** How many items the vector layer `id` holds; 0 for a layer of another kind. */

@@ -1,5 +1,5 @@
 import { t } from '../../../i18n/t.js';
-import { editLayer } from '../../document/commands.js';
+import { transformElements } from '../../document/elements.js';
 import { type Arrangement, arrangementOffsets } from '../common/align.js';
 import type { AlignTo, ToolContext } from '../types.js';
 import { formatTransform, parseTransform, translate } from './geometry.js';
@@ -7,7 +7,7 @@ import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard
 import { elementsAtPositions, placedBox, positionsIn } from './hit.js';
 import type { Measure } from './measure.js';
 import { showSelection } from './region.js';
-import { movedBy, setTransform } from './select.js';
+import { movedBy } from './select.js';
 
 /**
  * The move tool's alignment of what is selected on a vector layer
@@ -22,7 +22,8 @@ import { movedBy, setTransform } from './select.js';
  * Aligned to the selection, they line up with the area where one is
  * selected, else with the box around them all, where two or more were
  * measured, else, one alone, with the canvas, as a layer does. One command
- * moves them, a layer edit as a drag's is, so one undo puts them back; an
+ * moves them, as a drag's does (`transformElements`), so one undo puts them
+ * back and they stay selected through it; an
  * element already where it would go is left as it is, and one with no box,
  * an empty group, stays where it is. What was selected stays selected, found
  * again after the edit by where each is in the layer, and its box is drawn
@@ -73,16 +74,10 @@ export const arrangeElements = (
 	);
 	if (finals.length === 0) return false;
 	context.document.execute(
-		editLayer(
+		transformElements(
 			layer.id,
 			arrangement.kind === 'align' ? 'tools.align.aligned' : 'tools.align.distributed',
-			(g: Element) => {
-				finals.forEach(({ position, value }) =>
-					elementsAtPositions(g, [position]).forEach((element) =>
-						setTransform(element, value)
-					)
-				);
-			}
+			finals
 		)
 	);
 	const now = elementsAtPositions(context.document.layer(layer.id), positions);

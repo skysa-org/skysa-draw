@@ -970,7 +970,10 @@ describe('the viewport', () => {
 			fake.changed();
 		});
 		expect(select.calls[0]?.context?.selection.elements).toEqual([mark]);
-		expect(overlay.childElementCount).toBe(1);
+		// The tool's own mark stays, and the box is drawn again around what is
+		// still selected, where a change to the drawing may have moved it.
+		expect(overlay.firstElementChild?.localName).toBe('circle');
+		expect(overlay.querySelectorAll('[data-draw-selection]')).toHaveLength(1);
 
 		mark.remove();
 		act(() => {

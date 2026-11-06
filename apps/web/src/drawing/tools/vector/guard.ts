@@ -1,7 +1,7 @@
 import { t } from '../../../i18n/t.js';
 import { wrapLooseLayer } from '../../document/commands.js';
 import type { LayerInfo } from '../../document/model.js';
-import { layerDisplayName } from '../../layerName.js';
+import { heldBy } from '../common/held.js';
 import type { ToolContext } from '../types.js';
 import {
 	formatFineTransform,
@@ -15,8 +15,9 @@ import {
 /**
  * What every vector tool checks before it touches a layer (docs/ARCHITECTURE.md
  * §7, "The editor"): that there is an active layer, and that it is neither
- * locked nor hidden. The tool says why it did nothing, in the user's words,
- * and the stroke is over before it began.
+ * locked nor hidden, itself or by a group around it (`heldBy`). The tool says
+ * why it did nothing, in the user's words, naming the layer or the group
+ * that holds it, and the stroke is over before it began.
  */
 export const guardLayer = (context: ToolContext): LayerInfo | undefined => {
 	const { layer } = context;
@@ -24,17 +25,10 @@ export const guardLayer = (context: ToolContext): LayerInfo | undefined => {
 		context.notify(t('layers.noneActive'));
 		return undefined;
 	}
-	const index = context.document.snapshot().layers.findIndex((each) => each.id === layer.id);
-	const name = layerDisplayName(layer, Math.max(0, index));
-	if (layer.locked) {
-		context.notify(t('layers.locked', { name }));
-		return undefined;
-	}
-	if (layer.hidden) {
-		context.notify(t('layers.hidden', { name }));
-		return undefined;
-	}
-	return layer;
+	const held = heldBy(context.document.snapshot().layers, layer);
+	if (held === undefined) return layer;
+	context.notify(held);
+	return undefined;
 };
 
 /**

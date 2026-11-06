@@ -3,6 +3,7 @@ import type { LayerInfo } from '../document/model.js';
 import { movesWith, nudgeLayers } from '../tools/common/layersMove.js';
 import { nudgeArea } from '../tools/raster/index.js';
 import type { ToolContext } from '../tools/types.js';
+import { nudgeElements } from '../tools/vector/nudge.js';
 
 /**
  * The layers chosen in the panel, as the viewport works with them
@@ -33,12 +34,35 @@ export const keepsChoice = (
 ): boolean => chosen.length > 1 && picked !== undefined && movesWith(layers, chosen, picked.id);
 
 /**
- * The arrows' nudge with the move tool, by `by` (`nudgeFor`): the chosen
- * layers whole where there are several, and a group active alone whole, as a
- * drag moves them; otherwise the area's pixels on a raster layer, as before.
- * Whether it was theirs to do.
+ * The arrows on the active layer alone, where no area of a raster layer took
+ * them: the elements selected on a vector layer, else the layer whole, as
+ * Photoshop's move tool moves the layer with nothing selected. A layer held,
+ * itself or by a group, takes the key, moves nothing and says why, as each
+ * of those says it (`guardLayer`, `mayMove`); a stroke under way (`busy`)
+ * takes it and moves nothing, saying nothing, since its drag would put back
+ * what the key moved.
  */
-export const nudgeWith = (context: ToolContext, [dx, dy]: readonly [number, number]): boolean =>
-	(context.layers?.length ?? 0) > 1 || context.layer?.kind === 'group'
-		? nudgeLayers(context, dx, dy)
-		: nudgeArea(context, dx, dy);
+const nudgeAlone = (context: ToolContext, dx: number, dy: number, busy: boolean): boolean => {
+	if (context.layer === undefined) return false;
+	if (busy) return true;
+	return nudgeElements(context, dx, dy) || nudgeLayers(context, dx, dy);
+};
+
+/**
+ * The arrows' nudge with the move tool, by `by` (`nudgeFor`), as a drag would
+ * move the same: the chosen layers whole where there are several, and a
+ * group active alone whole; otherwise the area's pixels on a raster layer
+ * where an area reaches them or they are afloat, the elements selected on a
+ * vector layer, and with none of those the active layer whole. `busy` is a
+ * stroke under way in the viewport. Whether it was theirs to do.
+ */
+export const nudgeWith = (
+	context: ToolContext,
+	[dx, dy]: readonly [number, number],
+	busy: boolean
+): boolean => {
+	if ((context.layers?.length ?? 0) > 1 || context.layer?.kind === 'group') {
+		return nudgeLayers(context, dx, dy);
+	}
+	return nudgeArea(context, dx, dy) || nudgeAlone(context, dx, dy, busy);
+};

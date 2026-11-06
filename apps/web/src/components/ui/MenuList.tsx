@@ -85,9 +85,11 @@ const CLOSE_AFTER = 300;
 
 /**
  * Whether the browser has the Popover API. jsdom has not, and yet hides an
- * element that asks for it, so the attribute is given only where it works.
+ * element that asks for it, so the attribute is given only where it works:
+ * by a menu, and by what else goes in the top layer (`Applying.tsx`).
  */
-const HAS_POPOVER = typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
+export const HAS_POPOVER =
+	typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
 
 /**
  * Puts the menu in the top layer, out of every panel's overflow and over

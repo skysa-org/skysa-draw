@@ -1,6 +1,7 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
+import { setTransform, transformElements } from '../../document/elements.js';
 import { layerExtentIn } from '../../viewport/layerExtent.js';
 import type { Offset } from '../common/align.js';
 import { createDragSnap, type ExtentOf, raiseGuides } from '../common/snap.js';
@@ -56,7 +57,9 @@ import { CHROME_STYLE, createSvg, setAttributes } from './svg.js';
  * elements carry the live transform so the user sees it; at the end the
  * originals are put back and one command sets the final ones, so the layer is
  * as the command's snapshot expects it (docs/ARCHITECTURE.md §7, "Commands and
- * history"). Shift adds to a selection, keeps a resize to the ratio and snaps
+ * history"); that command touches their `transform`s alone, on the same
+ * nodes through an undo and a redo, so they stay selected
+ * (`transformElements`, `document/elements.ts`). Shift adds to a selection, keeps a resize to the ratio and snaps
  * a rotation to 15°. A move snaps the box of what is selected to the canvas,
  * to the other layers and to the layer's other elements (`snap.ts`).
  *
@@ -118,14 +121,6 @@ const itemsOf = (layer: Element, elements: readonly Element[]): readonly Item[] 
 			matrix: parseTransform(attribute),
 		};
 	});
-};
-
-export const setTransform = (element: Element, value: string): void => {
-	if (value === '') {
-		element.removeAttribute('transform');
-		return;
-	}
-	element.setAttribute('transform', value);
 };
 
 const restore = (item: Item): void => setTransform(item.element, item.attribute ?? '');
@@ -374,8 +369,8 @@ export const createSelect = (
 	): void => {
 		const delta = dragDelta(context, sample, current, true);
 		const elements = current.items.map((item) => item.element);
-		// The layer goes back to how it was before the drag, so the command's
-		// snapshot of it is the state before the change.
+		// The elements go back to how they were before the drag, so what the
+		// command keeps for its undo is the state before the change.
 		current.items.forEach(restore);
 		const moved = current.items.some(
 			(item) => movedBy(delta, current.space, item.matrix) !== formatTransform(item.matrix)
@@ -394,15 +389,7 @@ export const createSelect = (
 				value: movedBy(delta, space, parseTransform(element.getAttribute('transform'))),
 			}))
 		);
-		context.document.execute(
-			editLayer(layer.id, 'tools.select', (g: Element) => {
-				finals.forEach(({ position, value }) =>
-					elementsAtPositions(g, [position]).forEach((element) =>
-						setTransform(element, value)
-					)
-				);
-			})
-		);
+		context.document.execute(transformElements(layer.id, 'tools.select', finals));
 		const now = elementsAtPositions(
 			context.document.layer(layer.id),
 			finals.map(({ position }) => position)

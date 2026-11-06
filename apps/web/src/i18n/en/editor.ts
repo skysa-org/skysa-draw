@@ -40,6 +40,8 @@ export const editor = {
 	placePicture: 'Place picture…',
 	/** The hidden file field "Place picture…" opens. */
 	pictureFile: 'Picture to place',
+	/** Over the window while a picture placed, from a file, a paste or a drop, takes a while to read. */
+	placingPicture: 'Placing the picture…',
 
 	/** The color panel, which the tool bar's colors open: each color's name over its field, and the swap in its header. */
 	color: {

@@ -10,9 +10,16 @@ import {
 } from '../tools/vector/geometry.js';
 import { layerSpace } from '../tools/vector/guard.js';
 import { elementsAtPositions, elementsOf } from '../tools/vector/hit.js';
-import { setTransform } from '../tools/vector/select.js';
 import { compound, copyOf, editLayer } from './commands.js';
-import { placeAfter, spaceBefore } from './dom.js';
+import {
+	attributesOf,
+	placeAfter,
+	resetAttributes,
+	type SavedAttribute,
+	savedBytes,
+	SMALL_COMMAND_BYTES,
+	spaceBefore,
+} from './dom.js';
 import { isLayerHidden, isLayerLocked, layerById, layerKindOf } from './layers.js';
 import type { Command } from './model.js';
 
@@ -34,6 +41,11 @@ import type { Command } from './model.js';
  * of the layer, a `<defs>`, a `<title>`, a `<desc>`, a `<metadata>`, stays
  * where it is, and an element moved takes the indentation before it along,
  * so the markup reads as it did.
+ *
+ * Where they are on the canvas is their own `transform`s, which the move
+ * tool's drag, its arrows and its alignment change by one command that
+ * touches that attribute alone (`transformElements`), on the same nodes
+ * through an undo and a redo, so what was selected stays selected.
  */
 
 /** Where an arrangement puts elements among their layer's own. */
@@ -58,6 +70,15 @@ const LABELS = {
 	duplicate: 'selection.history.duplicate',
 	move: 'selection.history.moveElements',
 } as const;
+
+/** An element's own `transform` set, or taken off for the empty string, which is the identity. */
+export const setTransform = (element: Element, value: string): void => {
+	if (value === '') {
+		element.removeAttribute('transform');
+		return;
+	}
+	element.setAttribute('transform', value);
+};
 
 /** Whether `element`, or a group around it short of the root, is locked or hidden. */
 const heldFrom = (root: Element, element: Element | null): boolean =>
@@ -427,5 +448,75 @@ export const moveElements = (
 		},
 		layerId: to.layerId,
 		positions: plan.to,
+	};
+};
+
+/** One element's new `transform`, by where it is among its layer's elements; the empty string for none. */
+type ElementTransform = Readonly<{ position: number; value: string }>;
+
+/**
+ * What an element's undo needs: its `transform` before, `null` for none, and,
+ * where the change takes the attribute off, every attribute it had, in their
+ * order, since one put back anew would go last.
+ */
+type KeptTransform = Readonly<{
+	position: number;
+	transform: string | null;
+	attributes: readonly SavedAttribute[] | undefined;
+}>;
+
+/**
+ * The elements of the vector layer `layerId` at the positions of `changes`
+ * given their new `transform`s, by one command labeled `label`: the move
+ * tool's drag of them, a resize or a turn of them by its box, its arrows'
+ * nudge and its alignment. Only the attribute is touched, on the very nodes
+ * there are, on every apply and every revert: an undo or a redo leaves the
+ * elements in the drawing, so what holds them, the selection, still does, as
+ * Illustrator keeps what it moved selected through an undo; and only what
+ * the undo needs is kept, the attribute before, or every attribute where the
+ * change takes it off, so a nudge held down on a layer of thousands of
+ * strokes costs the history a few bytes a step, not two copies of the layer
+ * as a layer edit would. An element that is not at its position, or a layer
+ * that is not there, is passed over; with none found nothing is recorded
+ * (`bytes` is 0).
+ */
+export const transformElements = (
+	layerId: string,
+	label: string,
+	changes: readonly ElementTransform[]
+): Command => {
+	const kept = cell<readonly KeptTransform[]>([]);
+	const at = (root: Element, position: number): readonly Element[] =>
+		elementsAtPositions(layerById(root, layerId), [position]);
+	return {
+		label,
+		apply: (root) => {
+			kept.current = changes.flatMap(({ position, value }) =>
+				at(root, position).map((element) => {
+					const transform = element.getAttribute('transform');
+					const takenOff = transform !== null && value === '';
+					const attributes = takenOff ? attributesOf(element) : undefined;
+					setTransform(element, value);
+					return { position, transform, attributes };
+				})
+			);
+		},
+		revert: (root) => {
+			kept.current.forEach(({ position, transform, attributes }) =>
+				at(root, position).forEach((element) => {
+					if (attributes !== undefined) resetAttributes(element, attributes);
+					else setTransform(element, transform ?? '');
+				})
+			);
+		},
+		get bytes() {
+			return kept.current.length === 0
+				? 0
+				: kept.current.reduce(
+						(total, { transform, attributes }) =>
+							total + (transform?.length ?? 0) + savedBytes(attributes ?? []),
+						SMALL_COMMAND_BYTES
+					);
+		},
 	};
 };

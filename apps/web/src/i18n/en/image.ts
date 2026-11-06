@@ -99,6 +99,12 @@ export const image = {
 			right: 'Right',
 		},
 	},
+	/** Over the window while an operation that measures or reads pixels takes a while. */
+	working: {
+		imageSize: 'Resizing the image…',
+		trim: 'Trimming the canvas…',
+		revealAll: 'Growing the canvas to hold everything…',
+	},
 	/** An operation that would change nothing, which is then not done. */
 	nothing: {
 		imageSize: 'The image is already that size.',

@@ -142,4 +142,32 @@ describe('ui.css', () => {
 			'margin-block-end: var(--space-2xs);'
 		);
 	});
+
+	it('covers the whole window while work is under way, over every sheet, clear of the safe areas', () => {
+		const cover = declarationsOf('.applying');
+		expect(cover).toContain('position: fixed;');
+		expect(cover).toContain('inset: 0;');
+		expect(cover).toContain('z-index: var(--z-dialog-menu);');
+		expect(cover).toContain('touch-action: none;');
+		['top', 'right', 'bottom', 'left'].forEach((side) => {
+			expect(cover).toContain(`env(safe-area-inset-${side})`);
+		});
+		// The page dimmed as behind a sheet, and the card edged as a notice is.
+		expect(cover).toContain('background: rgb(0 0 0 / 0.25);');
+		expect(declarationsOf('.panel-backdrop')).toContain('background: rgb(0 0 0 / 0.25);');
+		['border: 1px solid var(--border);', 'border-radius: var(--radius-m);'].forEach((edge) => {
+			expect(declarationsOf('.applying-card')).toContain(edge);
+			expect(declarationsOf('.notice-card')).toContain(edge);
+		});
+	});
+
+	it('fades the cover in and moves its bar by what the compositor runs: opacity and transform', () => {
+		expect(declarationsOf('.applying')).toMatch(/animation: fade-in var\(--duration-l\)/);
+		expect(declarationsOf('.applying-bar::before')).toMatch(
+			/animation: applying-bar calc\(var\(--duration-xl\) \* 4\) linear infinite;/
+		);
+		const bar = /@keyframes applying-bar \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? '';
+		expect(bar).toContain('transform: translateX(-100%);');
+		expect(bar).not.toMatch(/(^|[^-])(left|width|margin|inset)[^-]*:/m);
+	});
 });

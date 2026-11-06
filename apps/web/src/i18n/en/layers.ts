@@ -103,6 +103,8 @@ export const layers = {
 	mergeHidden: 'Hidden layers cannot be merged. Show both layers first.',
 	mergeLocked: 'Locked layers cannot be merged. Unlock both layers first.',
 	rasterizeLocked: 'A locked layer cannot be rasterized. Unlock it first.',
+	/** Over the window while a merge down takes a while. */
+	merging: 'Merging the layers…',
 	/** Clip asked of a layer that has a mask from another tool, which is never rewritten. */
 	clipForeign:
 		'This layer already has a mask from another tool, so it cannot be clipped as well.',

@@ -19,4 +19,6 @@ export const ui = {
 	recentColors: 'Recent colors',
 	/** One of the colors used lately, named by its value. */
 	recentColor: 'Use {hex}',
+	/** Over the window while work on a whole layer or the drawing takes a while, where the work has no words of its own. */
+	applying: 'Applying…',
 } as const;

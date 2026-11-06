@@ -103,6 +103,8 @@ export const selection = {
 		apply: 'Apply',
 		/** After an Apply that would leave nothing of the area, most often a Contract wider than it: the area is kept as it was. */
 		nothingLeft: 'That would leave nothing selected, so the selection is unchanged.',
+		/** Over the window while Apply takes a while, on an area of many corners. */
+		working: 'Modifying the selection…',
 	},
 	/**
 	 * Fill…: what the area is filled with, and how it is laid over the
@@ -156,4 +158,12 @@ export const selection = {
 	rasterOnly: '“{action}” works on a raster layer. Choose one in the layers panel first.',
 	/** Crop to selection of an area that lies outside the canvas. */
 	cropOutside: 'The selection is outside the canvas, so there is nothing to crop to.',
+	/** Over the window while what changes a raster layer's pixels in the area takes a while. */
+	working: {
+		/** A fill with a color: Fill…, and the fill or stroke color at once. */
+		fill: 'Filling the selection…',
+		clear: 'Clearing the selection…',
+		layerViaCopy: 'Copying the selection to a new layer…',
+		layerViaCut: 'Cutting the selection to a new layer…',
+	},
 } as const;

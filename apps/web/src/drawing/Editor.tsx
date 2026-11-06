@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { DrawingView } from '../components/drawing/DrawingView.js';
+import { ApplyingProvider } from '../components/ui/Applying.js';
 import type { MenuItem } from '../components/ui/Menu.js';
 import { Notice } from '../components/ui/Notice.js';
 import { Panel } from '../components/ui/Panel.js';
@@ -473,7 +474,7 @@ type EditorProps = Readonly<{
 	library: ReactNode;
 }>;
 
-export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
+const EditorScreen = ({ id, onBack, onReplaced, library }: EditorProps) => {
 	const sizeClass = useSizeClass();
 	const db = useDb();
 	const { row, missing, document, unreadable, saving, keptCopy, replacement, flush, remove } =
@@ -667,3 +668,14 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 		</>
 	);
 };
+
+/**
+ * The editor inside the frame's indicator (`components/ui/Applying.tsx`), so
+ * the work on a whole layer or the drawing that takes a while, a picture
+ * placed included, is done under it, over everything the editor has.
+ */
+export const Editor = (props: EditorProps) => (
+	<ApplyingProvider>
+		<EditorScreen {...props} />
+	</ApplyingProvider>
+);

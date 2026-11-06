@@ -1,3 +1,5 @@
+import { shrinkInWorker } from '../pictures/index.js';
+import { shrunkSize } from '../pictures/protocol.js';
 import { releaseCanvas } from '../tools/raster/area.js';
 import { decodePicture } from '../tools/raster/surface.js';
 
@@ -12,6 +14,9 @@ import { decodePicture } from '../tools/raster/surface.js';
  * Each picture is decoded once instead, shrunk to `STAND_IN_MOST` pixels on
  * its longer side, at the browser's best smoothing, and kept as a PNG `data:`
  * URL, which a standalone SVG may hold, where a `blob:` one would not load.
+ * That is done in a worker (`../pictures/`), off the page's thread, where the
+ * browser has one and the picture is one it can decode there, and on the
+ * page's thread where not.
  *
  * A stand-in is known by its picture's `href`, the very string, so it is made
  * again only for a picture that changed. Those no preview shows any more are
@@ -30,27 +35,14 @@ export type Shrink = (href: string, most: number) => Promise<string>;
 export const canShrink = (): boolean =>
 	typeof createImageBitmap === 'function' && typeof document !== 'undefined';
 
-/** A size held to `most` on its longer side, at its own aspect, a pixel at least either way. */
-const shrunkSize = (
-	width: number,
-	height: number,
-	most: number
-): Readonly<{ width: number; height: number }> => {
-	const scale = most / Math.max(width, height);
-	return {
-		width: Math.max(1, Math.round(width * scale)),
-		height: Math.max(1, Math.round(height * scale)),
-	};
-};
-
 /**
- * The browser's: the picture decoded as a raster surface decodes it
+ * On the page's thread: the picture decoded as a raster surface decodes it
  * (`decodePicture`), resized by `createImageBitmap`, which costs the page's
  * thread a fraction of a draw of every pixel onto a canvas, and encoded as
  * PNG, which keeps what is transparent. A picture with no size of its own, an
  * SVG without one, stands for itself.
  */
-export const browserShrink: Shrink = async (href, most) => {
+const shrinkHere: Shrink = async (href, most) => {
 	const img = await decodePicture(href);
 	const { naturalWidth, naturalHeight } = img;
 	if (!(naturalWidth > 0 && naturalHeight > 0) || Math.max(naturalWidth, naturalHeight) <= most) {
@@ -71,6 +63,16 @@ export const browserShrink: Shrink = async (href, most) => {
 	releaseCanvas(canvas);
 	return url;
 };
+
+/**
+ * The browser's: made in the pictures worker, the same way at the same size,
+ * where it can be, so a photo's every pixel is decoded off the page's thread;
+ * and on this thread where it cannot, or the worker failed: an SVG, which a
+ * worker cannot decode, a picture not in a `data:` URL of base64, or a
+ * browser without workers.
+ */
+export const browserShrink: Shrink = (href, most) =>
+	shrinkInWorker(href, most)?.catch(() => shrinkHere(href, most)) ?? shrinkHere(href, most);
 
 export type StandIns = Readonly<{
 	/** The picture's stand-in, where it is made; nothing while it is not. Every picture stands for itself where nothing shrinks. */

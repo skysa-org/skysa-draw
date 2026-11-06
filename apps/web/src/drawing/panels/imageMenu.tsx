@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react';
 
+import { useApply } from '../../components/ui/Applying.js';
 import type { MenuItem } from '../../components/ui/Menu.js';
 import { t } from '../../i18n/t.js';
 import {
@@ -33,9 +34,14 @@ import { TrimDialog } from './TrimDialog.js';
  * where that came to nothing: nothing to change, the drawing changed under
  * them, or a picture the browser would not read. While one of those is
  * under way, and while the frame says the items are not to be used (an
- * area being transformed), they are shown disabled. The view fits itself to
- * the new canvas, as after a crop, since it fits again whenever the canvas
- * changes (`Viewport.tsx`).
+ * area being transformed), they are shown disabled. On a large raster layer
+ * they read every pixel, so they are done under the frame's indicator, in
+ * their own words, which shows once they take a while
+ * (`components/ui/Applying.tsx`); Image size without Resample only changes
+ * transforms, as a turn, a flip, a rotation and a new canvas size do, and
+ * those take a frame or two on the largest layer and are done plainly. The
+ * view fits itself to the new canvas, as after a crop, since it fits again
+ * whenever the canvas changes (`Viewport.tsx`).
  */
 
 type ImageDialog = 'imageSize' | 'canvasSize' | 'rotate' | 'trim';
@@ -130,14 +136,24 @@ export const useImageMenu = ({
 		Readonly<{ dialog: ImageDialog; document: EditorDocument }> | undefined
 	>(undefined);
 	const [running, setRunning] = useState(false);
+	const apply = useApply();
 	const shown = asking?.document === document ? asking.dialog : undefined;
 	const close = () => setAsking(undefined);
 	const canvas = canvasBoxOf(document.root, document.size);
 
-	/** A job that measures or renders first, one at a time, and what is said of how it came out. */
-	const run = (job: (open: EditorDocument) => Promise<CanvasJob>, nothing: string) => {
+	/**
+	 * A job that measures or renders first, one at a time, under the
+	 * indicator in `working` where it reads pixels, and what is said of how
+	 * it came out.
+	 */
+	const run = (
+		job: (open: EditorDocument) => Promise<CanvasJob>,
+		nothing: string,
+		working?: string
+	) => {
 		setRunning(true);
-		void job(document)
+		const started = working === undefined ? job(document) : apply(() => job(document), working);
+		void started
 			.then(
 				(outcome) => {
 					const said = saidOf(outcome, nothing);
@@ -153,7 +169,11 @@ export const useImageMenu = ({
 			ask: (dialog) => setAsking({ dialog, document }),
 			turn: (turn) => document.execute(turnCanvas(document.root, document.size, turn)),
 			revealAll: () =>
-				run((open) => revealAll(open, layerExtentIn(open)), t('image.nothing.revealAll')),
+				run(
+					(open) => revealAll(open, layerExtentIn(open)),
+					t('image.nothing.revealAll'),
+					t('image.working.revealAll')
+				),
 		},
 		busy || running
 	);
@@ -165,7 +185,12 @@ export const useImageMenu = ({
 				open={shown === 'imageSize'}
 				canvas={canvas}
 				onApply={(request) =>
-					run((open) => resizeImage(open, request), t('image.nothing.imageSize'))
+					run(
+						(open) => resizeImage(open, request),
+						t('image.nothing.imageSize'),
+						// Without Resample only the transforms change, at once.
+						request.resample ? t('image.working.imageSize') : undefined
+					)
 				}
 				onClose={close}
 			/>
@@ -196,7 +221,8 @@ export const useImageMenu = ({
 				onApply={({ basis, sides }) =>
 					run(
 						(open) => trimCanvas(open, basis, sides, layerExtentIn(open)),
-						t('image.nothing.trim')
+						t('image.nothing.trim'),
+						t('image.working.trim')
 					)
 				}
 				onClose={close}
