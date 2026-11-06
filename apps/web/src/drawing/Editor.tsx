@@ -52,6 +52,7 @@ import { PropertiesPanel } from './panels/PropertiesPanel.js';
 import { ToolButtons } from './panels/ToolButtons.js';
 import { SELECTION_TOOLS, selectionModeOf, useSelectionActions } from './selectionActions.js';
 import { arrangedIds, type Arrangement } from './tools/common/align.js';
+import { arrangedCount } from './tools/common/arrange.js';
 import { toolById } from './tools/index.js';
 import type { AreaModify } from './tools/raster/areaOps.js';
 import type { Region, Tool } from './tools/types.js';
@@ -269,7 +270,10 @@ const Frame = ({
 	const align =
 		tool.id === 'select'
 			? {
-					count: arrangedIds(document.root, chosen, activeLayerId).length,
+					count: arrangedCount(
+						arrangedIds(document.root, chosen, activeLayerId),
+						facts.elements
+					),
 					onArrange: (arrangement: Arrangement) => viewport.current?.arrange(arrangement),
 				}
 			: undefined;

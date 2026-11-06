@@ -44,3 +44,4 @@ A menu item can now open a submenu beside it, by the arrow keys, Enter, a press 
 Export, Fill… and Modify… now share one dialog form with the Image dialogs, so Enter applies from any control but a button or a text field in each, and Export opens with the focus on its format.
 A clipped layer keeps its clip where the layer below is when it is dragged, nudged, aligned, carried into or out of a group, ungrouped, or turned, flipped or resized with the canvas, and a clip made on a moved or turned layer no longer shows the layer below moved twice.
 What a vector tool draws after Image rotation, a flip, Image size or a Free Transform of its layer is upright, unmirrored and at the sizes the options say, and the move tool, the marquee and the pickers find it by its own box rather than a larger one.
+Align and distribute now line up the elements selected on a vector layer with each other, such as a text, a shape and a line, instead of moving their whole layer.

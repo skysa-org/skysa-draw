@@ -21,11 +21,12 @@ import {
 	selectionActions,
 	selectionModeOf,
 } from './selectionActions.js';
-import { arrangeLayers } from './tools/common/align.js';
+import { arrange } from './tools/common/arrange.js';
 import { handBehavior } from './tools/common/hand.js';
 import { layersMove } from './tools/common/layersMove.js';
 import { behaviorFor, notAvailableMessage } from './tools/index.js';
 import type { PointerSample, ToolBehavior, ToolContext } from './tools/types.js';
+import { measureOf } from './tools/vector/measure.js';
 import type { ViewportHandle, ViewportProps } from './types.js';
 import { useAreaTransform } from './viewport/areaTransform.js';
 import { isLongPress, keyboardPoint, useCanvasMenu } from './viewport/canvasMenu.js';
@@ -466,7 +467,10 @@ export const Viewport = ({
 			const context =
 				stroke.current === undefined && !transform.active() ? toolContext() : undefined;
 			if (context === undefined) return;
-			void arrangeLayers(context, arrangement, options.alignTo, layerExtentIn(document));
+			void arrange(context, arrangement, options.alignTo, {
+				extent: layerExtentIn(document),
+				measure: measureOf,
+			});
 		},
 	}));
 

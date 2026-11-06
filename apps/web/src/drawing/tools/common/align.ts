@@ -282,7 +282,8 @@ const alignTarget = (context: ToolContext, alignTo: AlignTo, boxes: readonly Box
 	return areaBox(context) ?? (boxes.length > 1 ? unionBox(boxes) : undefined) ?? canvas;
 };
 
-const offsetsFor = (
+/** How far each of `boxes` moves for `arrangement`, in the order given, in the root's user units. */
+export const arrangementOffsets = (
 	context: ToolContext,
 	arrangement: Arrangement,
 	alignTo: AlignTo,
@@ -321,7 +322,7 @@ export const arrangeLayers = async (
 		context.notify(t('tools.align.nothing'));
 		return false;
 	}
-	const offsets = offsetsFor(
+	const offsets = arrangementOffsets(
 		context,
 		arrangement,
 		alignTo,

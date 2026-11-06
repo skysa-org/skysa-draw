@@ -120,7 +120,7 @@ const itemsOf = (layer: Element, elements: readonly Element[]): readonly Item[] 
 	});
 };
 
-const setTransform = (element: Element, value: string): void => {
+export const setTransform = (element: Element, value: string): void => {
 	if (value === '') {
 		element.removeAttribute('transform');
 		return;
@@ -223,7 +223,7 @@ const besideBoxes = (
  * it where `space` places it: into the layer, after the delta, after where the
  * element was in the drawing.
  */
-const movedBy = (delta: Mat, space: LayerSpace, matrix: Mat): string =>
+export const movedBy = (delta: Mat, space: LayerSpace, matrix: Mat): string =>
 	formatTransform(multiply(space.into, multiply(delta, multiply(space.outOf, matrix))));
 
 /**

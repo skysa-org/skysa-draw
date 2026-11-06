@@ -126,7 +126,8 @@ Aligned to the selection, the layers line up with the area where one is selected
 A distribution aligned to the selection keeps the first and the last where they are and so takes three layers; aligned to the canvas it puts them flush with the canvas's sides and takes two.
 The six buttons are always there with the move tool and disabled only with no layer; the menu lists only the distributions that apply, as the layer actions menu does.
 Each arrangement is one command, each layer moved by its own `transform` as a drag moves it, and one undo puts them back.
-Rejected: aligning the elements selected on a vector layer, which Photoshop has no counterpart for, since its shapes are layers; the alignment is the layers' until elements need their own.
+With elements selected on a vector layer, and that layer the only one the move tool would move, the arrangement is theirs instead, as Photoshop's path selection tool aligns the paths it has selected and Illustrator its objects (`tools/vector/alignElements.ts`, chosen by `tools/common/arrange.ts`): each is measured by its box as seen on the canvas, moved by its own `transform`, and still selected after, all in one command, and the menu counts the elements rather than the layer.
+Until 2026-11-06 the alignment was the layers' alone, and a text, a shape and a line selected on one layer moved together with their layer rather than lining up with each other.
 
 **Snapping.**
 A move with the move tool snaps what it moves to the canvas's edges and center and to the other layers' edges and centers, each axis on its own, within a few screen pixels, and a magenta guide shows each snap while it holds, as Photoshop's smart guides do (`tools/common/snap.ts`).
