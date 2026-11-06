@@ -259,6 +259,35 @@ describe('the layers chosen', () => {
 		expect(initialEditorState.collapsedGroupIds).toEqual([]);
 	});
 
+	it('holds the vector layers shown expanded, none to begin with, the whole set at a time', () => {
+		expect(initialEditorState.expandedLayerIds).toEqual([]);
+		const expanded = after({ type: 'setExpandedLayers', ids: ['layer-2', 'layer-5'] });
+		expect(expanded.expandedLayerIds).toEqual(['layer-2', 'layer-5']);
+		expect(
+			editorReducer(expanded, { type: 'setExpandedLayers', ids: [] }).expandedLayerIds
+		).toEqual([]);
+		// Neither changes the other.
+		expect(expanded.collapsedGroupIds).toEqual([]);
+	});
+
+	it('makes the layer of elements selected from the panel active alone, with the move tool unless a tool that selects is in hand', () => {
+		const chosen = after(
+			{ type: 'setTool', toolId: 'brush' },
+			{ type: 'selectLayers', selection: { active: 'b', selected: ['c', 'b'], anchor: 'c' } }
+		);
+		const picked = editorReducer(chosen, { type: 'selectInLayer', id: 'a' });
+		expect(picked.activeLayerId).toBe('a');
+		expect(picked.selectedLayerIds).toEqual(['a']);
+		expect(picked.layerAnchor).toBe('a');
+		expect(picked.toolId).toBe('select');
+		expect(
+			editorReducer({ ...chosen, toolId: 'lasso' }, { type: 'selectInLayer', id: 'a' }).toolId
+		).toBe('lasso');
+		expect(
+			editorReducer({ ...chosen, toolId: 'wand' }, { type: 'selectInLayer', id: 'a' }).toolId
+		).toBe('wand');
+	});
+
 	it('keeps only layers the document has, and always the active one', () => {
 		const layers = [layer('a'), layer('b'), layer('c')];
 		expect(selectedLayersIn(layers, ['c', 'gone', 'a'], 'a')).toEqual(['c', 'a']);

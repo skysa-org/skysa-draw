@@ -64,6 +64,22 @@ export const shutAncestor = (
 export const topLayerOf = (layers: readonly LayerInfo[], id: string): string | undefined =>
 	layers.filter((layer) => layer.parentId === id).at(-1)?.id;
 
+/**
+ * A row of the panel as the arrows walk them: a layer's, or, by its position
+ * among the layer's elements, one of an expanded vector layer's items'.
+ */
+export type Entry = Readonly<{ layerId: string; position?: number }>;
+
+/** Every row shown, top first: each layer's, followed by its items' rows where it shows them, top first. */
+export const entriesOf = (
+	rows: readonly Row[],
+	shownOf: (id: string) => readonly Readonly<{ position: number }>[]
+): readonly Entry[] =>
+	rows.flatMap(({ layer }) => [
+		{ layerId: layer.id },
+		...shownOf(layer.id).map(({ position }) => ({ layerId: layer.id, position })),
+	]);
+
 /** The rows as the drop model reads them (`layerDrop.ts`). */
 export const dropRowsOf = (
 	rows: readonly Row[],

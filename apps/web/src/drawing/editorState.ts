@@ -1,6 +1,7 @@
 import { isNone, toHex } from '../components/ui/color.js';
 import type { LayerInfo } from './document/model.js';
 import type { LayerSelection } from './layerSelection.js';
+import { SELECTION_TOOLS } from './selectionActions.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type ToolId,
@@ -42,6 +43,13 @@ export type EditorState = Readonly<{
 	 * in the drawing.
 	 */
 	collapsedGroupIds: readonly string[];
+	/**
+	 * The vector layers the layers panel shows expanded, a row for each of
+	 * their items under them: the editor's, as `collapsedGroupIds` is, and the
+	 * other way round, since a vector layer starts collapsed where a group
+	 * starts open, so that a layer of 300 strokes does not flood the panel.
+	 */
+	expandedLayerIds: readonly string[];
 	panel: PanelId | undefined;
 	/** The expanded window's dock, as the layers button left it; until then it follows the window. */
 	dockOpen: boolean | undefined;
@@ -87,6 +95,15 @@ export type EditorAction =
 	| Readonly<{ type: 'selectLayers'; selection: LayerSelection }>
 	/** The groups to show collapsed from now on, the whole set. */
 	| Readonly<{ type: 'setCollapsedGroups'; ids: readonly string[] }>
+	/** The vector layers to show expanded from now on, the whole set. */
+	| Readonly<{ type: 'setExpandedLayers'; ids: readonly string[] }>
+	/**
+	 * Elements of a layer selected from its items in the layers panel, as
+	 * Illustrator's panel selects them: the layer active and chosen alone, and
+	 * the move tool in hand unless a tool that selects is (`SELECTION_TOOLS`),
+	 * since another tool lets go of what is selected.
+	 */
+	| Readonly<{ type: 'selectInLayer'; id: string }>
 	| Readonly<{ type: 'togglePanel'; panel: PanelId }>
 	| Readonly<{ type: 'closePanel' }>
 	| Readonly<{ type: 'setDockOpen'; open: boolean }>
@@ -102,6 +119,7 @@ export const initialEditorState: EditorState = {
 	selectedLayerIds: [],
 	layerAnchor: undefined,
 	collapsedGroupIds: [],
+	expandedLayerIds: [],
 	panel: undefined,
 	dockOpen: undefined,
 	libraryOpen: false,
@@ -178,17 +196,38 @@ export const selectedLayersIn = (
 	return kept.includes(active) ? kept : [active];
 };
 
-/** What the layers panel changes of the state: the active layer, the choice, the groups collapsed. */
+/**
+ * What the layers panel changes of the state: the active layer, the choice,
+ * the groups collapsed and the vector layers expanded, and the tool where
+ * elements are selected from it.
+ */
 type LayerAction = Extract<
 	EditorAction,
-	Readonly<{ type: 'setActiveLayer' | 'selectLayers' | 'setCollapsedGroups' }>
+	Readonly<{
+		type:
+			| 'setActiveLayer'
+			| 'selectLayers'
+			| 'setCollapsedGroups'
+			| 'setExpandedLayers'
+			| 'selectInLayer';
+	}>
 >;
 
 const LAYER_ACTIONS: ReadonlySet<EditorAction['type']> = new Set([
 	'setActiveLayer',
 	'selectLayers',
 	'setCollapsedGroups',
+	'setExpandedLayers',
+	'selectInLayer',
 ]);
+
+/** One layer active and chosen alone. */
+const activeAlone = (state: EditorState, id: string | undefined): EditorState => ({
+	...state,
+	activeLayerId: id,
+	selectedLayerIds: id === undefined ? [] : [id],
+	layerAnchor: id,
+});
 
 const isLayerAction = (action: EditorAction): action is LayerAction =>
 	LAYER_ACTIONS.has(action.type);
@@ -196,12 +235,7 @@ const isLayerAction = (action: EditorAction): action is LayerAction =>
 const withLayers = (state: EditorState, action: LayerAction): EditorState => {
 	switch (action.type) {
 		case 'setActiveLayer':
-			return {
-				...state,
-				activeLayerId: action.id,
-				selectedLayerIds: action.id === undefined ? [] : [action.id],
-				layerAnchor: action.id,
-			};
+			return activeAlone(state, action.id);
 		case 'selectLayers':
 			return {
 				...state,
@@ -211,6 +245,13 @@ const withLayers = (state: EditorState, action: LayerAction): EditorState => {
 			};
 		case 'setCollapsedGroups':
 			return { ...state, collapsedGroupIds: action.ids };
+		case 'setExpandedLayers':
+			return { ...state, expandedLayerIds: action.ids };
+		case 'selectInLayer':
+			return {
+				...activeAlone(state, action.id),
+				toolId: SELECTION_TOOLS.has(state.toolId) ? state.toolId : 'select',
+			};
 	}
 };
 

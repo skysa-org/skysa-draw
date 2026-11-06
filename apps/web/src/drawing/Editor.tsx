@@ -60,6 +60,7 @@ import { TopBar } from './TopBar.js';
 import type { ViewportHandle } from './types.js';
 import { useOpenDrawing } from './useOpenDrawing.js';
 import { Viewport } from './Viewport.js';
+import { NO_SELECTION } from './viewport/context.js';
 import { isMac } from './viewport/pointer.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 
@@ -298,6 +299,14 @@ const Frame = ({
 			onSelectLayers={(choice) => dispatch({ type: 'selectLayers', selection: choice })}
 			collapsedGroupIds={state.collapsedGroupIds}
 			onCollapseGroups={(ids) => dispatch({ type: 'setCollapsedGroups', ids })}
+			expandedLayerIds={state.expandedLayerIds}
+			onExpandLayers={(ids) => dispatch({ type: 'setExpandedLayers', ids })}
+			selectedElements={selection.elements}
+			// An item's row selects on the canvas: its layer active, a tool that selects in hand.
+			onSelectElements={(id, elements) => {
+				dispatch({ type: 'selectInLayer', id });
+				selection.elements.set(elements.length === 0 ? NO_SELECTION : elements);
+			}}
 			withProperties={!expanded}
 			onClose={onClose}
 			onNotify={notify}
@@ -485,10 +494,11 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 	useNoticeTimeout(state.notice, dispatch);
 
 	// Another drawing opened from the library: the drawer has done its job,
-	// and the groups collapsed were the last drawing's.
+	// and the groups collapsed and the layers expanded were the last drawing's.
 	useEffect(() => {
 		dispatch({ type: 'setLibraryOpen', open: false });
 		dispatch({ type: 'setCollapsedGroups', ids: [] });
+		dispatch({ type: 'setExpandedLayers', ids: [] });
 	}, [id]);
 
 	// The drawing changed elsewhere under unsaved edits, which were kept as a

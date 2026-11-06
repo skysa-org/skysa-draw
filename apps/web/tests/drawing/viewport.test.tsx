@@ -1966,3 +1966,87 @@ describe('the move tool’s alignment, through the handle', () => {
 		expect(arranging.arrangeLayers).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe('a selection made outside the canvas', () => {
+	/** A rectangle and a circle on layer-1, as an item's row in the layers panel would select them. */
+	const shapes = (root: SVGSVGElement): readonly Element[] => {
+		const layer = root.querySelector('[id="layer-1"]');
+		if (layer === null) throw new Error('layer-1');
+		const rect = root.ownerDocument.createElementNS(SVG_NS, 'rect');
+		rect.setAttribute('x', '10');
+		rect.setAttribute('y', '20');
+		rect.setAttribute('width', '30');
+		rect.setAttribute('height', '40');
+		const circle = root.ownerDocument.createElementNS(SVG_NS, 'circle');
+		circle.setAttribute('cx', '100');
+		circle.setAttribute('cy', '100');
+		circle.setAttribute('r', '5');
+		layer.append(rect, circle);
+		return [rect, circle];
+	};
+
+	const box = (overlay: SVGSVGElement) => overlay.querySelector('[data-draw-selection]');
+	const outlines = (overlay: SVGSVGElement) =>
+		overlay.querySelectorAll('[data-draw-region-outline] rect');
+
+	it('shows it as the move tool does, its box and handles, and takes the box away with it', () => {
+		const selection = createViewportSelection();
+		const { overlay, document } = setup(fakeTool('select', { vector: recorder().behavior }), {
+			selection,
+		});
+		const [rect] = shapes(document.root);
+		expect(box(overlay)).toBeNull();
+
+		act(() => selection.elements.set(rect === undefined ? [] : [rect]));
+		const drawn = box(overlay);
+		expect(drawn).not.toBeNull();
+		expect(drawn?.querySelector('rect')?.getAttribute('x')).toBe('10');
+		expect(drawn?.querySelector('rect')?.getAttribute('height')).toBe('40');
+
+		act(() => selection.elements.set([]));
+		expect(box(overlay)).toBeNull();
+	});
+
+	it('shows it as outlines with the marquee, the lasso or the wand, and not at all with another tool', () => {
+		const selection = createViewportSelection();
+		const { overlay, document, rerender, props } = setup(
+			fakeTool('marquee', { vector: recorder().behavior }),
+			{ selection }
+		);
+		const both = shapes(document.root);
+
+		act(() => selection.elements.set(both));
+		expect(outlines(overlay)).toHaveLength(2);
+		expect(box(overlay)).toBeNull();
+
+		// Taken up with the selection kept, the move tool shows its box at once.
+		rerender(
+			<Viewport {...props} tool={fakeTool('select', { vector: recorder().behavior })} />
+		);
+		expect(outlines(overlay)).toHaveLength(0);
+		expect(box(overlay)).not.toBeNull();
+
+		// Another tool lets go of the selection, and shows none.
+		rerender(<Viewport {...props} tool={fakeTool('brush', { vector: recorder().behavior })} />);
+		expect(selection.elements.get()).toEqual([]);
+		act(() => selection.elements.set(both));
+		expect(overlay.childElementCount).toBe(0);
+	});
+
+	it('draws nothing while a stroke is under way, which is the tool’s to show', () => {
+		const selection = createViewportSelection();
+		const { region, overlay, document } = setup(
+			fakeTool('select', { vector: recorder().behavior }),
+			{ selection }
+		);
+		const [rect] = shapes(document.root);
+		fire(region, pointer('pointerdown', { clientX: 5, clientY: 5 }));
+		// The recorder's mark, and nothing else.
+		expect(overlay.childElementCount).toBe(1);
+
+		act(() => selection.elements.set(rect === undefined ? [] : [rect]));
+		expect(box(overlay)).toBeNull();
+		expect(overlay.childElementCount).toBe(1);
+		fire(region, pointer('pointerup', { clientX: 5, clientY: 5 }));
+	});
+});

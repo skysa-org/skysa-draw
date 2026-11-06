@@ -11,6 +11,31 @@ export const layers = {
 	/** A group's control that shows the rows of its layers, or hides them; Alt with it does every group inside too. */
 	expand: 'Expand group',
 	collapse: 'Collapse group',
+	/** A vector layer's control, on its preview, that shows a row for each of its items under it, or hides them. */
+	expandItems: 'Expand layer',
+	collapseItems: 'Collapse layer',
+	/**
+	 * A vector layer's items, each a row under the layer, named by what it
+	 * is where it has no name of its own and is no text, whose words name it.
+	 */
+	items: {
+		rectangle: 'Rectangle',
+		ellipse: 'Ellipse',
+		line: 'Line',
+		polyline: 'Polyline',
+		polygon: 'Polygon',
+		path: 'Path',
+		/** A text with no words in it. */
+		text: 'Text',
+		group: 'Group',
+		image: 'Image',
+		/** A `<use>`: a copy of something else in the drawing, drawn again here. */
+		clone: 'Clone',
+		/** An `<svg>` inside the layer: a drawing placed whole. */
+		drawing: 'Embedded drawing',
+		/** A text's words, cut short where they run long, as its name. */
+		cut: '{text}…',
+	},
 	/** The panel's menu of what can be made above the active layer, as Photoshop's Layer › New. */
 	new: 'New',
 	newVector: 'Vector layer',

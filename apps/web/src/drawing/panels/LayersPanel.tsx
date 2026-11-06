@@ -1,4 +1,12 @@
-import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
+import {
+	Fragment,
+	type KeyboardEvent,
+	type MouseEvent,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from 'react';
 
 import type { MenuPoint } from '../../components/ui/ContextMenu.js';
 import { Panel } from '../../components/ui/Panel.js';
@@ -13,14 +21,19 @@ import {
 	type LayerSelection,
 	stepSelection,
 } from '../layerSelection.js';
+import type { Observable } from '../viewport/observable.js';
 import { isMac } from '../viewport/pointer.js';
 import { LayerActions } from './LayerActions.js';
 import { type DropTarget, nextPlace } from './layerDrop.js';
+import { focusItem, LayerItemRow } from './LayerItemRow.js';
+import { ITEMS_LEAST, layerElements, pressedSelection, useLayerItems } from './layerItems.js';
 import { LayerProperties } from './LayerProperties.js';
 import { type Disclosure, focusPick, LayerRow, type RowDrop, underButton } from './LayerRow.js';
 import {
 	ancestorsOf,
 	dropRowsOf,
+	entriesOf,
+	type Entry,
 	groupsInside,
 	inOrder,
 	type Row,
@@ -54,6 +67,22 @@ import { useLayerDrag } from './useLayerDrag.js';
  * may be inside a collapsed group, as in Photoshop, and a layer chosen there
  * stays chosen through Ctrl, which adds to the rows shown or takes from them.
  *
+ * A vector layer of two or more items expands the same way, by its preview,
+ * a row for each of its items under it (`LayerItemRow`, `layerItems.ts`),
+ * and starts collapsed, the other way round from a group, so a layer of 300
+ * strokes does not flood the panel; which are expanded is the editor's too. A
+ * press on an item's row selects it on the canvas, as Illustrator's panel
+ * does: its layer made active and chosen alone, the move tool taken up
+ * unless a tool that selects is in hand, and the item selected alone, or
+ * with Shift, Ctrl or ⌘ added to what is selected on the layer or taken out
+ * of it (`onSelectElements`). An item's row is tinted while its element is
+ * selected, whatever selected it, the canvas, a marquee or the panel.
+ *
+ * The arrows up and down walk every row shown, the items' too, choosing each
+ * as a press does; right opens a collapsed group or vector layer and on an
+ * open one goes to its first row, and left shuts it, and on a layer inside a
+ * group or an item goes to the group's or the layer's row, as a tree view's.
+ *
  * A row is a list item of buttons — the eye, the layer itself, the lock —
  * rather than a listbox's option, whose content a screen reader is not told
  * of: the eye and the lock would be lost in it.
@@ -64,27 +93,44 @@ const MAC = isMac();
 /** The arrow keys walk the rows as they are shown: down the list is down the drawing. */
 const ROW_STEPS: Readonly<Record<string, -1 | 1>> = { ArrowDown: 1, ArrowUp: -1 };
 
-/** What the row at `at` shows of a drop: the line over it, the line under the last row, or itself lit. */
+/** The depth of the line under the last row, where the drop is there: under the last layer, or its items. */
+const dropUnderAll = (
+	target: DropTarget | undefined,
+	at: number,
+	count: number
+): number | undefined =>
+	target?.kind === 'gap' && target.before === count && at === count - 1
+		? target.depth
+		: undefined;
+
+/**
+ * What the row at `at` shows of a drop: the line over it, the line under the
+ * last row unless its items' rows are under it, or itself lit.
+ */
 const dropOn = (
 	target: DropTarget | undefined,
 	row: Row,
 	at: number,
-	count: number
+	count: number,
+	withItems: boolean
 ): RowDrop | undefined => {
 	if (target === undefined) return undefined;
 	if (target.kind === 'into') return target.id === row.layer.id ? { at: 'into' } : undefined;
 	if (target.before === at) return { at: 'before', depth: target.depth };
-	return target.before === count && at === count - 1
-		? { at: 'after', depth: target.depth }
-		: undefined;
+	const under = withItems ? undefined : dropUnderAll(target, at, count);
+	return under === undefined ? undefined : { at: 'after', depth: under };
 };
 
-/** The layer whose row holds the focus, if a row of `list` does. */
+/** The layer whose row, or one of whose items' rows, holds the focus, if a row of `list` does. */
 const focusedRow = (list: HTMLElement | null): string | undefined => {
 	const focused = window.document.activeElement;
 	const row = focused === null || list?.contains(focused) !== true ? null : focused.closest('li');
-	return row instanceof HTMLElement ? row.dataset.layerId : undefined;
+	return row instanceof HTMLElement ? (row.dataset.layerId ?? row.dataset.itemOf) : undefined;
 };
+
+/** Whether a key is pressed with nothing held. */
+const plainKey = (event: KeyboardEvent): boolean =>
+	!event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey;
 
 export const LayersPanel = ({
 	document,
@@ -93,9 +139,13 @@ export const LayersPanel = ({
 	selectedLayerIds,
 	layerAnchor,
 	collapsedGroupIds,
+	expandedLayerIds,
+	selectedElements,
 	onActivate,
 	onSelectLayers,
 	onCollapseGroups,
+	onExpandLayers,
+	onSelectElements,
 	withProperties,
 	onClose,
 	onNotify = () => undefined,
@@ -109,11 +159,23 @@ export const LayersPanel = ({
 	layerAnchor: string | undefined;
 	/** The groups shown collapsed, their layers' rows hidden; the editor's, never the file's. */
 	collapsedGroupIds: readonly string[];
+	/** The vector layers shown expanded, a row for each of their items; the editor's, never the file's. */
+	expandedLayerIds: readonly string[];
+	/** The elements selected on the canvas, which the items' rows show (`ViewportSelection.elements`). */
+	selectedElements: Observable<readonly Element[]>;
 	/** One layer made active and chosen alone: a new layer, a group just made. */
 	onActivate: (id: string) => void;
 	onSelectLayers: (selection: LayerSelection) => void;
 	/** The groups to show collapsed from now on, the whole set. */
 	onCollapseGroups: (ids: readonly string[]) => void;
+	/** The vector layers to show expanded from now on, the whole set. */
+	onExpandLayers: (ids: readonly string[]) => void;
+	/**
+	 * Elements of the layer `layerId` selected from its items' rows, the whole
+	 * selection, in paint order: the layer made active and chosen alone, and a
+	 * tool that selects taken up where none is in hand.
+	 */
+	onSelectElements: (layerId: string, elements: readonly Element[]) => void;
 	/** The active layer's properties under the list: in the sheet and the drawer, where there is no properties panel. */
 	withProperties: boolean;
 	onClose?: () => void;
@@ -140,6 +202,14 @@ export const LayersPanel = ({
 		anchor: layerAnchor,
 	};
 	const holding = new Set(layers.flatMap((layer) => layer.parentId ?? []));
+	const expanded = new Set(expandedLayerIds);
+	const items = useLayerItems(document, snapshot, expandedLayerIds);
+	const entries = entriesOf(rows, items.shownOf);
+	const selection = useSyncExternalStore(selectedElements.subscribe, selectedElements.get);
+	const selected = new Set(selection);
+	/** Whether the layer is a vector layer of enough items to show them. */
+	const expandable = (layer: LayerInfo): boolean =>
+		layer.kind === 'vector' && items.countOf(layer.id) >= ITEMS_LEAST;
 
 	useEffect(() => {
 		const id = refocus.current;
@@ -173,6 +243,26 @@ export const LayersPanel = ({
 				? collapsedGroupIds.filter((each) => !affected.includes(each))
 				: [...collapsedGroupIds, ...affected]
 		);
+	};
+
+	/** A vector layer's items shown, or hidden, from now on: of the drawing's vector layers alone. */
+	const toggleItems = (id: string) => {
+		const vector = new Set(
+			layers.filter((layer) => layer.kind === 'vector').map((layer) => layer.id)
+		);
+		const kept = expandedLayerIds.filter((each) => each !== id && vector.has(each));
+		onExpandLayers(expanded.has(id) ? kept : [...kept, id]);
+	};
+
+	/**
+	 * A press on an item's row, or an arrow to it: the item selected alone, or
+	 * with `toggle` added to what is selected on its layer or taken out of it.
+	 */
+	const pickItem = (layerId: string, position: number, toggle: boolean) => {
+		const own = layerElements(document.layer(layerId));
+		const item = own[position];
+		if (item !== undefined)
+			onSelectElements(layerId, pressedSelection(own, selection, item, toggle));
 	};
 
 	/** Groups just made shown expanded, where an id taken before left one collapsed. */
@@ -219,29 +309,46 @@ export const LayersPanel = ({
 		else onActivate(id);
 	};
 
+	/** A layer's row, chosen alone, with the focus. Whether there is one. */
+	const goToLayer = (id: string | undefined): boolean => {
+		if (id === undefined) return false;
+		onActivate(id);
+		focusPick(id);
+		return true;
+	};
+
+	/** A row, chosen alone as a press chooses it, with the focus: a layer's, or an item's, selected. */
+	const goTo = (entry: Entry | undefined): boolean => {
+		if (entry?.position === undefined) return goToLayer(entry?.layerId);
+		pickItem(entry.layerId, entry.position, false);
+		focusItem(entry.layerId, entry.position);
+		return true;
+	};
+
+	/** Where a row is among every row shown: a layer's, or with `position` one of its items'. */
+	const entryAt = (layerId: string, position?: number): number =>
+		entries.findIndex((entry) => entry.layerId === layerId && entry.position === position);
+
 	/**
-	 * The arrows across, as a tree view's: right opens a collapsed group, and
-	 * on an open one goes to its first layer; left shuts an open group, and on
-	 * a layer inside a group goes to the group's row, each chosen alone as a
-	 * plain arrow up or down chooses. Whether it did anything.
+	 * The arrows across, as a tree view's: right opens a collapsed group or an
+	 * expandable vector layer, and on an open one goes to its first row; left
+	 * shuts an open one, and on a layer inside a group goes to the group's
+	 * row, each chosen as a plain arrow up or down chooses. Whether it did
+	 * anything.
 	 */
 	const across = (at: number, right: boolean): boolean => {
 		const layer = rows[at]?.layer;
 		if (layer === undefined) return false;
-		const holds = layer.kind === 'group' && holding.has(layer.id);
-		const open = holds && !collapsed.has(layer.id);
-		const goTo = (id: string | undefined) => {
-			if (id === undefined) return false;
-			onActivate(id);
-			focusPick(id);
-			return true;
-		};
+		const group = layer.kind === 'group';
+		const holds = group ? holding.has(layer.id) : expandable(layer);
+		const open = holds && (group ? !collapsed.has(layer.id) : expanded.has(layer.id));
 		if (holds && right !== open) {
-			toggleGroup(layer.id, false);
+			if (group) toggleGroup(layer.id, false);
+			else toggleItems(layer.id);
 			return true;
 		}
-		if (right) return open && goTo(rows[at + 1]?.layer.id);
-		return goTo(layer.parentId);
+		if (right) return open && goTo(entries[entryAt(layer.id) + 1]);
+		return goToLayer(layer.parentId);
 	};
 
 	/** Shift with an arrow: the range from the anchor grown or shrunk a row, the focus with it. */
@@ -252,13 +359,10 @@ export const LayersPanel = ({
 		focusPick(next.active);
 	};
 
-	/** A plain arrow up or down: the next row shown, chosen alone, with the focus. Whether there is one. */
+	/** A plain arrow up or down: the next row shown, an item's too, chosen alone, with the focus. Whether there is one. */
 	const walk = (at: number, step: -1 | 1): boolean => {
-		const neighbor = rows[at + step]?.layer.id;
-		if (neighbor === undefined) return false;
-		onActivate(neighbor);
-		focusPick(neighbor);
-		return true;
+		const id = rows[at]?.layer.id;
+		return id !== undefined && goTo(entries[entryAt(id) + step]);
 	};
 
 	/** The arrow keys on a row; whether one of them did anything. */
@@ -266,8 +370,7 @@ export const LayersPanel = ({
 		const id = rows[at]?.layer.id;
 		if (id === undefined) return false;
 		if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
-			const plain = !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey;
-			return plain && across(at, event.key === 'ArrowRight');
+			return plainKey(event) && across(at, event.key === 'ArrowRight');
 		}
 		const step = ROW_STEPS[event.key];
 		if (step === undefined) return false;
@@ -316,6 +419,40 @@ export const LayersPanel = ({
 		}
 	};
 
+	/**
+	 * The keys on an item's row: the arrows walk the rows, left goes to the
+	 * layer's, and none of them reaches the canvas, where the move tool would
+	 * nudge what is selected; Shift F10 opens the layer's menu. Delete and
+	 * Ctrl or ⌘ A are the canvas's, as on any button outside it: what is
+	 * selected deleted, every item of the layer selected.
+	 */
+	const onItemKeyDown = (
+		event: KeyboardEvent<HTMLButtonElement>,
+		layerId: string,
+		position: number
+	) => {
+		if (event.key === 'F10' && event.shiftKey && !event.altKey) {
+			event.preventDefault();
+			openMenu(layerId, underButton(event.currentTarget));
+			return;
+		}
+		if (!event.key.startsWith('Arrow')) return;
+		event.preventDefault();
+		if (!plainKey(event)) return;
+		const step = ROW_STEPS[event.key];
+		if (event.key === 'ArrowLeft') goToLayer(layerId);
+		if (step !== undefined) goTo(entries[entryAt(layerId, position) + step]);
+	};
+
+	/** A press on an item's row: it selected alone, or with Shift, Ctrl or ⌘ added or taken out. */
+	const onPickItem = (
+		event: MouseEvent<HTMLButtonElement>,
+		layerId: string,
+		position: number
+	) => {
+		pickItem(layerId, position, event.shiftKey || choiceKeysOf(event, MAC).toggle);
+	};
+
 	const onPick = (event: MouseEvent<HTMLButtonElement>, id: string) => {
 		if (drag.spentClick()) return;
 		const keys = choiceKeysOf(event, MAC);
@@ -328,13 +465,20 @@ export const LayersPanel = ({
 	};
 
 	const disclosureOf = ({ layer }: Row): Disclosure => {
+		if (expandable(layer)) {
+			return {
+				expanded: expanded.has(layer.id),
+				onToggle: () => toggleItems(layer.id),
+				topLayer: undefined,
+			};
+		}
 		if (layer.kind !== 'group') return 'none';
 		if (!holding.has(layer.id)) return 'empty';
-		const expanded = !collapsed.has(layer.id);
+		const open = !collapsed.has(layer.id);
 		return {
-			expanded,
+			expanded: open,
 			onToggle: (deep) => toggleGroup(layer.id, deep),
-			topLayer: expanded ? undefined : topLayerOf(layers, layer.id),
+			topLayer: open ? undefined : topLayerOf(layers, layer.id),
 		};
 	};
 
@@ -377,27 +521,59 @@ export const LayersPanel = ({
 				aria-label={t('layers.title')}
 				data-dragging={dragging === undefined ? undefined : ''}
 			>
-				{rows.map((row, at) => (
-					<LayerRow
-						key={row.layer.id}
-						document={document}
-						row={row}
-						isActive={row.layer.id === activeLayerId}
-						isChosen={chosen.includes(row.layer.id)}
-						sayChosen={chosen.length > 1}
-						renaming={renaming === row.layer.id}
-						dragged={moving.has(row.layer.id)}
-						drop={dropOn(dragging?.target, row, at, rows.length)}
-						disclosure={disclosureOf(row)}
-						onPick={(event) => onPick(event, row.layer.id)}
-						onRename={() => setRenaming(row.layer.id)}
-						onRenamed={() => setRenaming(undefined)}
-						onKeyDown={(event) => onRowKeyDown(event, at)}
-						onMenu={(point) => openMenu(row.layer.id, point)}
-						pickDrag={drag.handlers(row.layer.id, 'pick')}
-						gripDrag={drag.handlers(row.layer.id, 'grip')}
-					/>
-				))}
+				{rows.map((row, at) => {
+					const { layer } = row;
+					const shown = items.shownOf(layer.id);
+					return (
+						<Fragment key={layer.id}>
+							<LayerRow
+								document={document}
+								row={row}
+								isActive={layer.id === activeLayerId}
+								isChosen={chosen.includes(layer.id)}
+								sayChosen={chosen.length > 1}
+								renaming={renaming === layer.id}
+								dragged={moving.has(layer.id)}
+								drop={dropOn(
+									dragging?.target,
+									row,
+									at,
+									rows.length,
+									shown.length > 0
+								)}
+								disclosure={disclosureOf(row)}
+								onPick={(event) => onPick(event, layer.id)}
+								onRename={() => setRenaming(layer.id)}
+								onRenamed={() => setRenaming(undefined)}
+								onKeyDown={(event) => onRowKeyDown(event, at)}
+								onMenu={(point) => openMenu(layer.id, point)}
+								pickDrag={drag.handlers(layer.id, 'pick')}
+								gripDrag={drag.handlers(layer.id, 'grip')}
+							/>
+							{shown.map((item, nth) => (
+								<LayerItemRow
+									key={item.position}
+									document={document}
+									layerId={layer.id}
+									item={item}
+									depth={layer.depth}
+									selected={selected.has(item.element)}
+									hidden={layer.hidden}
+									dropAfter={
+										nth === shown.length - 1
+											? dropUnderAll(dragging?.target, at, rows.length)
+											: undefined
+									}
+									onPick={(event) => onPickItem(event, layer.id, item.position)}
+									onKeyDown={(event) =>
+										onItemKeyDown(event, layer.id, item.position)
+									}
+									onMenu={(point) => openMenu(layer.id, point)}
+								/>
+							))}
+						</Fragment>
+					);
+				})}
 			</ul>
 			{withProperties && active !== undefined && (
 				<LayerProperties document={document} layer={active} indexFromBottom={activeIndex} />

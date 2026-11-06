@@ -9,9 +9,10 @@ import {
 	within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useReducer } from 'react';
+import { useReducer, useState } from 'react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { editLayer } from '../../src/drawing/document/commands.js';
 import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
 import { useDocumentSnapshot } from '../../src/drawing/document/useDocument.js';
@@ -24,6 +25,12 @@ import {
 import type { LayerSelection } from '../../src/drawing/layerSelection.js';
 import { blendKey } from '../../src/drawing/panels/blendKey.js';
 import { LayersPanel } from '../../src/drawing/panels/LayersPanel.js';
+import type { ToolId } from '../../src/drawing/tools/types.js';
+import { NO_SELECTION } from '../../src/drawing/viewport/context.js';
+import {
+	createViewportSelection,
+	type ViewportSelection,
+} from '../../src/drawing/viewport/selectionState.js';
 import { t } from '../../src/i18n/t.js';
 
 /**
@@ -50,36 +57,55 @@ const Harness = ({
 	onActivate = () => undefined,
 	onSelect = () => undefined,
 	onNotify = () => undefined,
+	selection: given,
+	tool = initialEditorState.toolId,
 }: Readonly<{
 	document: EditorDocument;
 	onActivate?: (id: string) => void;
 	onSelect?: (selection: LayerSelection) => void;
 	onNotify?: (message: string) => void;
+	/** The selection the viewport would share, where a test sets it as the canvas would. */
+	selection?: ViewportSelection;
+	/** The tool in hand to begin with. */
+	tool?: ToolId;
 }>) => {
 	const snapshot = useDocumentSnapshot(document);
-	const [state, dispatch] = useReducer(editorReducer, initialEditorState);
+	const [state, dispatch] = useReducer(editorReducer, { ...initialEditorState, toolId: tool });
+	const [own] = useState(createViewportSelection);
+	const selection = given ?? own;
 	if (snapshot === undefined) return null;
 	const active = activeLayerIn(snapshot.layers, state.activeLayerId);
 	return (
-		<LayersPanel
-			document={document}
-			snapshot={snapshot}
-			activeLayerId={active}
-			selectedLayerIds={selectedLayersIn(snapshot.layers, state.selectedLayerIds, active)}
-			layerAnchor={state.layerAnchor}
-			onActivate={(id) => {
-				dispatch({ type: 'setActiveLayer', id });
-				onActivate(id);
-			}}
-			onSelectLayers={(selection) => {
-				dispatch({ type: 'selectLayers', selection });
-				onSelect(selection);
-			}}
-			collapsedGroupIds={state.collapsedGroupIds}
-			onCollapseGroups={(ids) => dispatch({ type: 'setCollapsedGroups', ids })}
-			withProperties
-			onNotify={onNotify}
-		/>
+		<>
+			{/* The tool in hand, as the frame's state has it. */}
+			<span data-testid="tool" data-tool={state.toolId} />
+			<LayersPanel
+				document={document}
+				snapshot={snapshot}
+				activeLayerId={active}
+				selectedLayerIds={selectedLayersIn(snapshot.layers, state.selectedLayerIds, active)}
+				layerAnchor={state.layerAnchor}
+				onActivate={(id) => {
+					dispatch({ type: 'setActiveLayer', id });
+					onActivate(id);
+				}}
+				onSelectLayers={(selection) => {
+					dispatch({ type: 'selectLayers', selection });
+					onSelect(selection);
+				}}
+				collapsedGroupIds={state.collapsedGroupIds}
+				onCollapseGroups={(ids) => dispatch({ type: 'setCollapsedGroups', ids })}
+				expandedLayerIds={state.expandedLayerIds}
+				onExpandLayers={(ids) => dispatch({ type: 'setExpandedLayers', ids })}
+				selectedElements={selection.elements}
+				onSelectElements={(id, elements) => {
+					dispatch({ type: 'selectInLayer', id });
+					selection.elements.set(elements.length === 0 ? NO_SELECTION : elements);
+				}}
+				withProperties
+				onNotify={onNotify}
+			/>
+		</>
 	);
 };
 
@@ -1093,6 +1119,88 @@ describe('dragging layers', () => {
 		);
 		lift(from);
 	});
+
+	describe('past an expanded vector layer', () => {
+		/** Layer 3 on top; Layer 2, a vector layer of two items, expanded; Layer 1 at the bottom. */
+		const expandedIn = (middle: boolean) => {
+			const items = '<rect width="1" height="1"/><circle r="1"/>';
+			const document = open(
+				emptyDrawing({ id: DRAWING_ID }).replace(
+					/<g id="layer-1"[^>]*\/>/,
+					middle
+						? `<g id="layer-1" draw:kind="vector"/><g id="layer-2" draw:kind="vector">${items}</g><g id="layer-3" draw:kind="vector"/>`
+						: `<g id="layer-1" draw:kind="vector">${items}</g><g id="layer-2" draw:kind="vector"/><g id="layer-3" draw:kind="vector"/>`
+				)
+			);
+			render(<Harness document={document} />);
+			const control = list().querySelector('.layer-disclosure');
+			if (!(control instanceof HTMLElement)) throw new Error('a disclosure');
+			fireEvent.click(control);
+			layOut();
+			return document;
+		};
+
+		it('drops over the items under their layer, the line under the last of them', async () => {
+			expandedIn(true);
+			expect(names()).toEqual(['Layer 3', 'Layer 2', 'Ellipse', 'Rectangle', 'Layer 1']);
+			const from = row('Layer 3');
+
+			// Over either item, the gap under Layer 2, drawn over Layer 1.
+			drag(from, [[100, yOf(2, 0.2)]]);
+			expect(line()).toEqual(['Layer 1', 'before']);
+			expect(lit()).toEqual([]);
+			fire(from, pointer('pointermove', 100, yOf(3, 0.9)));
+			expect(line()).toEqual(['Layer 1', 'before']);
+			lift(from);
+
+			await waitFor(() =>
+				expect(names()).toEqual(['Layer 2', 'Ellipse', 'Rectangle', 'Layer 3', 'Layer 1'])
+			);
+		});
+
+		it('drops above the layer from the top of its own row; its bottom is the gap its items are', async () => {
+			expandedIn(true);
+			const from = row('Layer 1');
+
+			// Under Layer 2, from the bottom of its row or over its items, is where Layer 1 is.
+			drag(from, [[100, yOf(1, 0.7)]]);
+			expect(line()).toBeUndefined();
+			fire(from, pointer('pointermove', 100, yOf(3, 0.5)));
+			expect(line()).toBeUndefined();
+			fire(from, pointer('pointermove', 100, yOf(1, 0.3)));
+			expect(line()).toEqual(['Layer 2', 'before']);
+			lift(from);
+
+			await waitFor(() =>
+				expect(names()).toEqual(['Layer 3', 'Layer 1', 'Layer 2', 'Ellipse', 'Rectangle'])
+			);
+		});
+
+		it('draws the line under the last item where the bottom layer is expanded, and drops at the bottom', async () => {
+			expandedIn(false);
+			expect(names()).toEqual(['Layer 3', 'Layer 2', 'Layer 1', 'Ellipse', 'Rectangle']);
+			const from = row('Layer 3');
+
+			drag(from, [[100, yOf(3)]]);
+			expect(line()).toEqual(['Rectangle', 'after']);
+			expect(list().querySelectorAll('.layer-drop-line')).toHaveLength(1);
+			fire(from, pointer('pointermove', 100, yOf(6)));
+			expect(line()).toEqual(['Rectangle', 'after']);
+			lift(from);
+
+			await waitFor(() =>
+				expect(names()).toEqual(['Layer 2', 'Layer 1', 'Ellipse', 'Rectangle', 'Layer 3'])
+			);
+		});
+
+		it('moves the expanded layer with Alt and an arrow past its neighbors, its items with it', async () => {
+			expandedIn(true);
+			fireEvent.keyDown(row('Layer 2'), { key: 'ArrowDown', altKey: true });
+			await waitFor(() =>
+				expect(names()).toEqual(['Layer 3', 'Layer 1', 'Layer 2', 'Ellipse', 'Rectangle'])
+			);
+		});
+	});
 });
 
 describe('collapsing groups', () => {
@@ -1144,10 +1252,10 @@ describe('collapsing groups', () => {
 		expect(names()).toEqual(['Layer 6', 'Group 2', 'Layer 5', 'Group 3', 'Layer 4', 'Layer 1']);
 	});
 
-	it('has the folder be the disclosure, where a layer has its kind, and moves no row over for it', () => {
+	it('has the folder be the disclosure, where a layer has its preview, and moves no row over for it', () => {
 		const { unmount } = render(<Harness document={open()} />);
 		expect(list().querySelector('.layer-disclosure')).toBeNull();
-		expect(list().querySelector('.layer-pick .layer-kind-icon')).not.toBeNull();
+		expect(list().querySelector('.layer-pick .layer-preview')).not.toBeNull();
 		unmount();
 
 		render(<Harness document={nested()} />);
@@ -1158,7 +1266,11 @@ describe('collapsing groups', () => {
 			groups.every((each) => each.querySelector(':scope > .layer-disclosure') !== null)
 		).toBe(true);
 		expect(
-			groups.every((each) => each.querySelector('.layer-pick .layer-kind-icon') === null)
+			groups.every(
+				(each) =>
+					each.querySelector('.layer-pick .layer-kind-icon') === null &&
+					each.querySelector('.layer-preview') === null
+			)
 		).toBe(true);
 		expect(
 			list().querySelectorAll('.layer-row:not([data-group]) .layer-disclosure')
@@ -1377,5 +1489,347 @@ describe('dropping on a collapsed group', () => {
 
 		await waitFor(() => expect(names()).toEqual(['Group 2', 'Layer 4', 'Layer 1']));
 		expect(depthOf('Layer 4')).toBe('0');
+	});
+});
+
+describe('the previews, and a vector layer’s items', () => {
+	const INKSCAPE = 'http://www.inkscape.org/namespaces/inkscape';
+
+	/** Layer 3 on top, a vector layer holding `inside`; Layer 2, a vector layer of one rectangle; Layer 1, raster, at the bottom. */
+	const itemized = (inside = '<rect width="4" height="4"/><circle r="2"/>') =>
+		open(
+			emptyDrawing({ id: DRAWING_ID })
+				.replace('xmlns:draw=', `xmlns:inkscape="${INKSCAPE}" xmlns:draw=`)
+				.replace(
+					/<g id="layer-1"[^>]*\/>/,
+					`<g id="layer-1" draw:kind="raster"/><g id="layer-2" draw:kind="vector"><rect width="1" height="1"/></g><g id="layer-3" draw:kind="vector">${inside}</g>`
+				)
+		);
+
+	/** A layer's row, by its name. */
+	const rowOf = (name: string) => {
+		const found = [...list().querySelectorAll('.layer-row:not(.layer-item)')].find(
+			(each) => each.querySelector('.layer-name')?.textContent === name
+		);
+		if (!(found instanceof HTMLElement)) throw new Error(`a row for ${name}`);
+		return found;
+	};
+
+	/** The disclosure on a layer's row, if it has one. */
+	const disclosureOf = (name: string) => rowOf(name).querySelector(':scope > .layer-disclosure');
+
+	const toggle = (name: string) => {
+		const control = disclosureOf(name);
+		if (!(control instanceof HTMLElement)) throw new Error(`a disclosure on ${name}`);
+		fireEvent.click(control);
+	};
+
+	/** The items' rows' names, top first. */
+	const itemNames = () => names('.layer-item');
+
+	/** The item's own button, by its name, whatever is said after it. */
+	const item = (name: string, nth = 0) => {
+		const found = within(list())
+			.getAllByRole('button', { name: new RegExp(`^${name}( |$)`) })
+			.filter((button) => button.closest('.layer-item') !== null)[nth];
+		if (found === undefined) throw new Error(`an item called ${name}`);
+		return found;
+	};
+
+	const chosenLayers = () => names(':not(.layer-item)[data-selected]');
+	const selectedItems = () => names('.layer-item[data-selected]');
+	const tool = () => screen.getByTestId('tool').getAttribute('data-tool');
+
+	/** The layer's elements, in paint order. */
+	const elementsOf = (document: EditorDocument, id: string) => [
+		...(document.layer(id)?.children ?? []),
+	];
+
+	it('shows a preview where a layer’s kind was, a vector layer’s with its mark, and keeps a group’s folder', () => {
+		const document = itemized();
+		render(<Harness document={document} />);
+
+		const raster = rowOf('Layer 1');
+		expect(raster.querySelector('.layer-pick .layer-preview')).not.toBeNull();
+		expect(raster.querySelector('.layer-preview-mark')).toBeNull();
+		const vector = rowOf('Layer 2');
+		expect(
+			vector.querySelector('.layer-pick .layer-preview .layer-preview-mark')
+		).not.toBeNull();
+		expect(vector.querySelector('.layer-kind-icon')).toBeNull();
+		// The picture says nothing the name does not.
+		expect(pick('Layer 2').textContent).toBe('Layer 2');
+	});
+
+	it('gives a vector layer of one item no caret: its preview is in the layer’s button, and nothing expands', () => {
+		render(<Harness document={itemized()} />);
+		expect(disclosureOf('Layer 2')).toBeNull();
+		expect(rowOf('Layer 2').querySelector('.layer-preview-caret')).toBeNull();
+		fireEvent.keyDown(row('Layer 2'), { key: 'ArrowRight' });
+		expect(itemNames()).toEqual([]);
+	});
+
+	it('makes a vector layer of two items expandable by its preview, collapsed to begin with, with a caret that turns', () => {
+		const document = itemized();
+		const before = document.text();
+		render(<Harness document={document} />);
+		const control = disclosureOf('Layer 3');
+		expect(control?.getAttribute('aria-expanded')).toBe('false');
+		expect(control?.getAttribute('aria-label')).toBe('Expand layer');
+		// The preview is the disclosure, before the layer's button, with the caret and the mark on it.
+		expect(control?.querySelector('.layer-preview .layer-preview-caret')).not.toBeNull();
+		expect(control?.querySelector('.layer-preview .layer-preview-mark')).not.toBeNull();
+		expect(rowOf('Layer 3').querySelector('.layer-pick .layer-preview')).toBeNull();
+		expect(itemNames()).toEqual([]);
+		const caret = () => control?.querySelector('.layer-preview-caret path')?.getAttribute('d');
+		const shut = caret();
+
+		toggle('Layer 3');
+
+		expect(control?.getAttribute('aria-expanded')).toBe('true');
+		expect(control?.getAttribute('aria-label')).toBe('Collapse layer');
+		expect(caret()).not.toBe(shut);
+		expect(names()).toEqual(['Layer 3', 'Ellipse', 'Rectangle', 'Layer 2', 'Layer 1']);
+		toggle('Layer 3');
+		expect(itemNames()).toEqual([]);
+		expect(document.text()).toBe(before);
+		expect(document.snapshot().dirty).toBe(false);
+	});
+
+	it('lists the items top first, a level deeper than their layer, each with its preview, named in the user’s words', () => {
+		const document = itemized(
+			[
+				'<rect width="1" height="1"/>',
+				'<circle r="1"/>',
+				'<ellipse rx="1" ry="2"/>',
+				'<line x2="1"/>',
+				'<polyline points="0,0 1,1"/>',
+				'<polygon points="0,0 1,1 1,0"/>',
+				'<path d="M0 0L1 1"/>',
+				'<text>  Harbor\n   at  dusk </text>',
+				'<text>The quick brown fox jumps over the lazy dog</text>',
+				'<text> </text>',
+				'<g><rect width="1" height="1"/></g>',
+				'<image width="1" height="1"/>',
+				'<use href="#nowhere"/>',
+				'<rect inkscape:label="Sky" width="1" height="1"/>',
+				'<path d="M0 0L2 2"><title>Coastline</title></path>',
+			].join('')
+		);
+		render(<Harness document={document} />);
+		toggle('Layer 3');
+
+		expect(itemNames()).toEqual([
+			'Coastline',
+			'Sky',
+			'Clone',
+			'Image',
+			'Group',
+			'Text',
+			'The quick brown fox jump…',
+			'Harbor at dusk',
+			'Path',
+			'Polygon',
+			'Polyline',
+			'Line',
+			'Ellipse',
+			'Ellipse',
+			'Rectangle',
+		]);
+		const items = [...list().querySelectorAll<HTMLElement>('.layer-item')];
+		expect(
+			items.every((each) => each.style.paddingInlineStart === 'calc(1 * var(--space-l))')
+		).toBe(true);
+		expect(rowOf('Layer 3').style.paddingInlineStart).toBe('calc(0 * var(--space-l))');
+		// Where an eye is on a layer's row, an empty place, so the previews line up.
+		expect(
+			items.every((each) => each.querySelector(':scope > .layer-item-slot') !== null)
+		).toBe(true);
+		expect(
+			items.every((each) => each.querySelector('.layer-pick .layer-preview') !== null)
+		).toBe(true);
+		// No item can be dragged, and none has an eye or a lock of its own.
+		expect(items.every((each) => each.querySelectorAll('button').length === 1)).toBe(true);
+	});
+
+	it('indents the items of a vector layer inside a group a level deeper than the layer', () => {
+		const document = open(
+			emptyDrawing({ id: DRAWING_ID }).replace(
+				/<g id="layer-1"[^>]*\/>/,
+				'<g id="layer-1" draw:kind="group"><g id="layer-2" draw:kind="vector"><rect width="1" height="1"/><rect width="2" height="2"/></g></g>'
+			)
+		);
+		render(<Harness document={document} />);
+		toggle('Layer 2');
+		const items = [...list().querySelectorAll<HTMLElement>('.layer-item')];
+		expect(items.map((each) => each.style.paddingInlineStart)).toEqual([
+			'calc(2 * var(--space-l))',
+			'calc(2 * var(--space-l))',
+		]);
+	});
+
+	it('selects an item from its row: its layer active and chosen alone, the move tool taken up, the item alone selected', () => {
+		const document = itemized();
+		const selection = createViewportSelection();
+		render(<Harness document={document} selection={selection} tool="brush" />);
+		toggle('Layer 3');
+		click('Layer 1');
+		click('Layer 2', { ctrlKey: true });
+		expect(chosenLayers()).toEqual(['Layer 2', 'Layer 1']);
+		const [rect, circle] = elementsOf(document, 'layer-3');
+
+		fireEvent.click(item('Ellipse'));
+
+		expect(activeName()).toBe('Layer 3');
+		expect(chosenLayers()).toEqual(['Layer 3']);
+		expect(tool()).toBe('select');
+		expect(selection.elements.get()).toEqual([circle]);
+		expect(selectedItems()).toEqual(['Ellipse']);
+		expect(item('Ellipse').textContent).toBe('Ellipse Selected');
+
+		// Shift adds, in paint order, and takes out again; Ctrl or ⌘ as well.
+		fireEvent.click(item('Rectangle'), { shiftKey: true });
+		expect(selection.elements.get()).toEqual([rect, circle]);
+		expect(selectedItems()).toEqual(['Ellipse', 'Rectangle']);
+		fireEvent.click(item('Ellipse'), { shiftKey: true });
+		expect(selection.elements.get()).toEqual([rect]);
+		fireEvent.click(item('Ellipse'), { ctrlKey: true, metaKey: true });
+		expect(selection.elements.get()).toEqual([rect, circle]);
+		fireEvent.click(item('Rectangle'), { ctrlKey: true, metaKey: true });
+		expect(selectedItems()).toEqual(['Ellipse']);
+		// A plain press selects the one alone again.
+		fireEvent.click(item('Rectangle'));
+		expect(selection.elements.get()).toEqual([rect]);
+		expect(document.snapshot().dirty).toBe(false);
+	});
+
+	it('keeps a tool that selects in hand, and adds within the item’s layer alone', () => {
+		const document = open(
+			emptyDrawing({ id: DRAWING_ID }).replace(
+				/<g id="layer-1"[^>]*\/>/,
+				'<g id="layer-1" draw:kind="vector"><rect width="1" height="1"/><circle r="1"/></g><g id="layer-2" draw:kind="vector"><rect width="1" height="1"/><line x2="1"/></g>'
+			)
+		);
+		const selection = createViewportSelection();
+		render(<Harness document={document} selection={selection} tool="marquee" />);
+		toggle('Layer 2');
+		toggle('Layer 1');
+		const [line] = elementsOf(document, 'layer-2').slice(1);
+
+		fireEvent.click(item('Line'));
+		// Shift on another layer's item selects it alone: a selection is one layer's.
+		fireEvent.click(item('Ellipse'), { shiftKey: true });
+
+		expect(tool()).toBe('marquee');
+		expect(activeName()).toBe('Layer 1');
+		expect(selection.elements.get()).toEqual([elementsOf(document, 'layer-1')[1]]);
+		expect(selection.elements.get()).not.toContain(line);
+	});
+
+	it('shows an item selected however it was selected, as on the canvas, and lets it go as it is let go', () => {
+		const document = itemized();
+		const selection = createViewportSelection();
+		render(<Harness document={document} selection={selection} />);
+		toggle('Layer 3');
+		const [rect, circle] = elementsOf(document, 'layer-3');
+
+		act(() => selection.elements.set([rect, circle].flatMap((each) => each ?? [])));
+		expect(selectedItems()).toEqual(['Ellipse', 'Rectangle']);
+		expect(item('Rectangle').textContent).toBe('Rectangle Selected');
+
+		act(() => selection.elements.set(NO_SELECTION));
+		expect(selectedItems()).toEqual([]);
+		expect(item('Rectangle').textContent).toBe('Rectangle');
+	});
+
+	it('walks the items with the arrows, opens and shuts a vector layer across, and keeps the arrows from the canvas', () => {
+		const document = itemized();
+		const selection = createViewportSelection();
+		render(<Harness document={document} selection={selection} />);
+		const [rect, circle] = elementsOf(document, 'layer-3');
+
+		fireEvent.keyDown(row('Layer 3'), { key: 'ArrowRight' });
+		expect(itemNames()).toEqual(['Ellipse', 'Rectangle']);
+		fireEvent.keyDown(row('Layer 3'), { key: 'ArrowRight' });
+		expect(window.document.activeElement).toBe(item('Ellipse'));
+		expect(selection.elements.get()).toEqual([circle]);
+
+		const down = createEvent.keyDown(item('Ellipse'), { key: 'ArrowDown' });
+		fireEvent(item('Ellipse'), down);
+		expect(down.defaultPrevented).toBe(true);
+		expect(window.document.activeElement).toBe(item('Rectangle'));
+		expect(selection.elements.get()).toEqual([rect]);
+
+		// Past the last item, the next layer's row.
+		fireEvent.keyDown(item('Rectangle'), { key: 'ArrowDown' });
+		expect(activeName()).toBe('Layer 2');
+		expect(window.document.activeElement).toBe(row('Layer 2'));
+		fireEvent.keyDown(row('Layer 2'), { key: 'ArrowUp' });
+		expect(window.document.activeElement).toBe(item('Rectangle'));
+		expect(activeName()).toBe('Layer 3');
+
+		// Left from an item goes to its layer's row; on the layer's, it shuts the layer.
+		fireEvent.keyDown(item('Rectangle'), { key: 'ArrowLeft' });
+		expect(window.document.activeElement).toBe(row('Layer 3'));
+		expect(chosenLayers()).toEqual(['Layer 3']);
+		fireEvent.keyDown(row('Layer 3'), { key: 'ArrowLeft' });
+		expect(itemNames()).toEqual([]);
+
+		// Shift with an arrow on an item does nothing here, and nothing on the canvas.
+		fireEvent.keyDown(row('Layer 3'), { key: 'ArrowRight' });
+		const nudge = createEvent.keyDown(item('Ellipse'), { key: 'ArrowUp', shiftKey: true });
+		fireEvent(item('Ellipse'), nudge);
+		expect(nudge.defaultPrevented).toBe(true);
+		expect(selection.elements.get()).toEqual([rect]);
+	});
+
+	it('opens the layer’s actions menu over an item, choosing its layer alone first', async () => {
+		render(<Harness document={itemized()} />);
+		toggle('Layer 3');
+		click('Layer 1');
+
+		fireEvent.contextMenu(item('Ellipse'), { clientX: 10, clientY: 20 });
+
+		expect(await screen.findByRole('menu', { name: 'Layer actions' })).toBeDefined();
+		expect(chosenLayers()).toEqual(['Layer 3']);
+	});
+
+	it('keeps a layer expanded through an edit and an undo that put its markup back, and loses the caret at one item', () => {
+		const document = itemized();
+		render(<Harness document={document} />);
+		toggle('Layer 3');
+
+		act(() =>
+			document.execute(
+				editLayer('layer-3', 'tools.select', (layer) => {
+					layer.appendChild(
+						layer.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'path')
+					);
+				})
+			)
+		);
+		expect(itemNames()).toEqual(['Path', 'Ellipse', 'Rectangle']);
+		act(() => document.undo());
+		expect(disclosureOf('Layer 3')?.getAttribute('aria-expanded')).toBe('true');
+		expect(itemNames()).toEqual(['Ellipse', 'Rectangle']);
+
+		act(() =>
+			document.execute(
+				editLayer('layer-3', 'tools.select', (layer) => {
+					layer.lastElementChild?.remove();
+				})
+			)
+		);
+		expect(disclosureOf('Layer 3')).toBeNull();
+		expect(itemNames()).toEqual([]);
+		expect(rowOf('Layer 3').querySelector('.layer-pick .layer-preview-mark')).not.toBeNull();
+	});
+
+	it('starts every vector layer collapsed, so a layer of 300 strokes is one row', () => {
+		const strokes = Array.from({ length: 300 }, (_, at) => `<path d="M0 ${at}L1 ${at}"/>`);
+		render(<Harness document={itemized(strokes.join(''))} />);
+		expect(names()).toEqual(['Layer 3', 'Layer 2', 'Layer 1']);
+		toggle('Layer 3');
+		expect(itemNames()).toHaveLength(300);
 	});
 });

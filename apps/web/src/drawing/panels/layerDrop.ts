@@ -23,6 +23,13 @@ import type { LayerPlace } from '../document/arrange.js';
  * it is still at its top, above its top layer, and under its row is under the
  * group, beside it, never among layers no row shows; Alt with an arrow passes
  * over it whole.
+ *
+ * An expanded vector layer's items are rows of their own under the layer's,
+ * which hold no layers and take no drop: the layer is one row here, whose
+ * `foot` is where its items' rows end. Over them is under the layer, as the
+ * lower half of its own row is, so the line is drawn under the last of them,
+ * on the next layer's row, between a layer's row and the next layer's
+ * wherever items' rows sit.
  */
 
 export type DropRow = Readonly<{
@@ -37,8 +44,21 @@ export type DropRow = Readonly<{
 	topLayer?: string;
 }>;
 
-/** A row as it is drawn: its top and bottom edges, in CSS px from the top of the page. */
-export type MeasuredRow = DropRow & Readonly<{ top: number; bottom: number }>;
+/**
+ * A row as it is drawn: its top and bottom edges, in CSS px from the top of
+ * the page, and the bottom of its items' rows where it shows them.
+ */
+export type MeasuredRow = DropRow & Readonly<{ top: number; bottom: number; foot?: number }>;
+
+/** Where what a row shows ends: its items' rows, or its own. */
+const footOf = (row: MeasuredRow): number => Math.max(row.bottom, row.foot ?? row.bottom);
+
+/** How far down a row the point is, as a share of its height; under it, over its items, is all the way. */
+const shareOf = (row: MeasuredRow, y: number): number => {
+	const height = row.bottom - row.top;
+	if (y >= row.bottom) return 1;
+	return height > 0 ? (y - row.top) / height : 0;
+};
 
 /** Where depth 0 begins across the page, and how far in each depth more is, in CSS px. */
 export type Indent = Readonly<{ left: number; step: number }>;
@@ -138,13 +158,12 @@ export const dropTargetAt = (
 	if (point.y < first.top) {
 		return { kind: 'gap', before: 0, depth: first.depth, place: aboveRow(rows, 0) };
 	}
-	if (point.y >= last.bottom)
+	if (point.y >= footOf(last))
 		return { kind: 'gap', before: rows.length, depth: 0, place: BOTTOM };
-	const at = rows.findIndex((row) => point.y < row.bottom);
+	const at = rows.findIndex((row) => point.y < footOf(row));
 	const row = rows[at];
 	if (row === undefined) return undefined;
-	const height = row.bottom - row.top;
-	const share = height > 0 ? (point.y - row.top) / height : 0;
+	const share = shareOf(row, point.y);
 	if (row.group && share >= INTO_FROM && share < INTO_TO) {
 		return { kind: 'into', id: row.id, place: intoGroup(rows, at) };
 	}

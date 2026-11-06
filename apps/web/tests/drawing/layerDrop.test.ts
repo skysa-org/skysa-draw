@@ -324,3 +324,70 @@ describe('over a collapsed group', () => {
 		expect(nextPlace(SHUT, ['b'], 'up', () => true)).toEqual(place(undefined, 'g'));
 	});
 });
+
+describe('over an expanded vector layer’s items', () => {
+	/** a over v, a vector layer whose two items' rows follow its own, which the drop reads as its foot, over b. */
+	const ROW_PX = 44;
+	const ITEMS = measured([
+		{ id: 'a', depth: 0, parentId: undefined, group: false },
+		{ id: 'v', depth: 0, parentId: undefined, group: false },
+		{ id: 'b', depth: 0, parentId: undefined, group: false },
+	]).map((row, at) => {
+		// Rows from v's on are pushed down by v's two items.
+		const shift = at > 1 ? 2 * ROW_PX : 0;
+		const moved = { ...row, top: row.top + shift, bottom: row.bottom + shift };
+		return row.id === 'v' ? { ...moved, foot: moved.bottom + 2 * ROW_PX } : moved;
+	});
+
+	it('drops above the layer from the top of its own row, and under it from the bottom and the items', () => {
+		expect(dropTargetAt(ITEMS, { x: 200, y: ROW_PX + 10 }, INDENT)).toEqual({
+			kind: 'gap',
+			before: 1,
+			depth: 0,
+			place: place(undefined, 'v'),
+		});
+		const under = {
+			kind: 'gap',
+			before: 2,
+			depth: 0,
+			place: place(undefined, 'b'),
+		};
+		expect(dropTargetAt(ITEMS, { x: 200, y: ROW_PX + 30 }, INDENT)).toEqual(under);
+		expect(dropTargetAt(ITEMS, { x: 200, y: 2 * ROW_PX + 2 }, INDENT)).toEqual(under);
+		expect(dropTargetAt(ITEMS, { x: 200, y: 4 * ROW_PX - 2 }, INDENT)).toEqual(under);
+		// The next layer's row is itself again.
+		expect(dropTargetAt(ITEMS, { x: 200, y: 4 * ROW_PX + 10 }, INDENT)).toEqual(under);
+		expect(dropTargetAt(ITEMS, { x: 200, y: 4 * ROW_PX + 30 }, INDENT)).toEqual({
+			kind: 'gap',
+			before: 3,
+			depth: 0,
+			place: place(undefined, undefined),
+		});
+	});
+
+	it('chooses with x how far out of a group the items of its last layer drop, and under all at the bottom', () => {
+		const NESTED: MeasuredRow[] = [
+			{ id: 'g', depth: 0, parentId: undefined, group: true, top: 0, bottom: 44 },
+			{ id: 'w', depth: 1, parentId: 'g', group: false, top: 44, bottom: 88, foot: 176 },
+		];
+		expect(dropTargetAt(NESTED, { x: 40, y: 150 }, INDENT)).toEqual({
+			kind: 'gap',
+			before: 2,
+			depth: 1,
+			place: place('g', undefined),
+		});
+		expect(dropTargetAt(NESTED, { x: 4, y: 150 }, INDENT)).toEqual({
+			kind: 'gap',
+			before: 2,
+			depth: 0,
+			place: place(undefined, undefined),
+		});
+		// Past the last item is the bottom of the drawing.
+		expect(dropTargetAt(NESTED, { x: 40, y: 180 }, INDENT)).toEqual({
+			kind: 'gap',
+			before: 2,
+			depth: 0,
+			place: place(undefined, undefined),
+		});
+	});
+});

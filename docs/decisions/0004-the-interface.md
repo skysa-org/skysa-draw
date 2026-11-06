@@ -182,6 +182,12 @@ This is the opposite of the canvas's menu, which shows disabled what cannot be d
 The panel's head is New, a menu of a vector layer, a raster layer and a group; Duplicate; Delete; and the ⋯ menu.
 Move up and Move down left the head on 2026-11-06, once a row could be dragged, and stay in the menu so a layer can be moved without a drag (WCAG 2.5.7).
 
+**The layers panel's previews.**
+Each layer's row shows a picture of the layer where its kind's icon was, as Photoshop's layer thumbnails do, and a vector layer's picture carries a small vector mark in its corner; a raster layer's carries none, and a group keeps its folder, as Photoshop's does.
+A vector layer of two or more items is expandable just as a group is: its picture is its disclosure, with a caret on its other corner that turns as the group's does, so no row moves over for it, and its items are listed under it a level deeper, each with its name and its picture, framed on the item as Illustrator's are, where a layer's shows the whole canvas as Photoshop's does.
+A press on an item selects it on the canvas with the move tool, as Illustrator's layers panel does, and an item selected on the canvas is shown selected in the panel.
+Rejected: a caret column that moves every row over; vector layers starting open, which floods the panel with a layer of strokes; dragging items, which is arranging within a layer or moving elements between layers, other commands; a copy of the drawing in each row, which puts the drawing into the panel's DOM outside the shadow root, where its `<style>` reaches the app; and keeping every definition in each picture, which would draw every picture again for a change to one layer's adjustment.
+
 **The Image menu.**
 The top bar's More holds Photoshop's Image menu as a group of its own after Export: Image size…, Canvas size…, Image rotation, Trim… and Reveal all, in its order and under its names (`drawing/panels/imageMenu.tsx`, done by `drawing/document/canvasOps.ts`).
 Image rotation is a submenu of 180°, 90° clockwise, 90° counterclockwise and Arbitrary…, then Flip canvas horizontal and Flip canvas vertical, each done at once as one step of undo, as Reveal all is.

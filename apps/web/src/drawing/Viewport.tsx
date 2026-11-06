@@ -46,6 +46,7 @@ import { isMac, pointerTypeOf, sampleFrom } from './viewport/pointer.js';
 import { usePointerPressed } from './viewport/pointerPressed.js';
 import { useSelectionCommands } from './viewport/selectionCommands.js';
 import { useSelectionFollows } from './viewport/selectionFollows.js';
+import { useSelectionShown } from './viewport/selectionShown.js';
 import { createViewportSelection, useSelectionFacts } from './viewport/selectionState.js';
 import { shadowOf } from './viewport/shadow.js';
 import { StageCover, useCover } from './viewport/StageCover.js';
@@ -450,6 +451,7 @@ export const Viewport = ({
 		transform,
 	});
 	const perform = transform.applyingFirst(commands.run);
+	useSelectionShown(selections, toolId, together, stroke, toolContext);
 
 	useImperativeHandle(ref, (): ViewportHandle => ({
 		fit,

@@ -741,6 +741,60 @@ describe('the selection bar', () => {
 	});
 });
 
+describe('selecting from a vector layer’s items', () => {
+	beforeEach(() => {
+		fake.settings.kind = 'vector';
+	});
+
+	/** The fake drawing's one layer, a vector layer holding a rectangle and a circle, read again. */
+	const twoItems = () => {
+		const document = lastOpened();
+		const svg = 'http://www.w3.org/2000/svg';
+		const layer = window.document.createElementNS(svg, 'g');
+		layer.setAttribute('id', 'layer-1');
+		layer.append(
+			window.document.createElementNS(svg, 'rect'),
+			window.document.createElementNS(svg, 'circle')
+		);
+		document.root.appendChild(layer);
+		vi.spyOn(document, 'layer').mockImplementation(
+			(id) => document.root.querySelector<SVGGraphicsElement>(`[id="${id}"]`) ?? undefined
+		);
+		act(() => document.edit(document.text()));
+		return layer;
+	};
+
+	const layers = () => within(screen.getByRole('list', { name: 'Layers' }));
+	const bar = () => screen.queryByRole('group', { name: 'Selection' });
+
+	it('selects an item on the canvas from its row, the move tool taken up, and shows a canvas selection on the rows', async () => {
+		await renderEditor('expanded');
+		twoItems();
+		fireEvent.keyDown(window, { key: 'b' });
+		const select = screen.getByRole('button', { name: 'Select' });
+		await waitFor(() => expect(select.getAttribute('aria-pressed')).toBe('false'));
+
+		fireEvent.click(layers().getByRole('button', { name: 'Expand layer' }));
+		fireEvent.click(layers().getByRole('button', { name: 'Ellipse' }));
+
+		await waitFor(() => expect(select.getAttribute('aria-pressed')).toBe('true'));
+		expect(layers().getByRole('button', { name: 'Ellipse Selected' })).toBeDefined();
+		expect(layers().getByRole('button', { name: 'Rectangle' })).toBeDefined();
+		await waitFor(() => expect(bar()).not.toBeNull());
+		// The canvas shows it, with the move tool's box.
+		expect(
+			window.document.querySelector('.viewport-overlay [data-draw-selection]')
+		).not.toBeNull();
+
+		// Every element selected on the canvas, Ctrl or ⌘ A: both rows say so.
+		fireEvent.keyDown(window, { key: 'a', ctrlKey: true, metaKey: true });
+		await waitFor(() =>
+			expect(layers().getByRole('button', { name: 'Rectangle Selected' })).toBeDefined()
+		);
+		expect(layers().getByRole('button', { name: 'Ellipse Selected' })).toBeDefined();
+	});
+});
+
 describe('the move tool’s alignment', () => {
 	beforeEach(() => {
 		fake.settings.kind = 'vector';

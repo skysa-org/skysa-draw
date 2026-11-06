@@ -235,7 +235,8 @@
 	margin-block-start: auto;
 }
 
-/* The layers: top first, each row an eye, the kind, the name and a lock.
+/* The layers: top first, each row an eye, the preview or a group's folder,
+   the name and a lock, and an expanded vector layer's items' rows under it.
    No text is selected by a Shift-click or a drag across the rows. */
 .layer-list {
 	display: flex;
@@ -332,15 +333,16 @@
 	}
 }
 
-/* A group's folder, its disclosure (`LayerRow.tsx`): in the row as wide as a
-   layer's kind icon and where the layer's button puts that, so a group's name
-   lines up with a layer's and no row moves over for it. Its target is the
-   44 px every control has: from the eye's edge, over the gaps, to a little
-   into the name. Under the pointer the folder darkens, since a tint as narrow
-   as the icon would read as a mark, not a target. */
+/* A group's folder, or an expandable vector layer's preview, its disclosure
+   (`LayerRow.tsx`): in the row as wide as a preview and where the layer's
+   button puts one, so every row's name starts at the same place and no row
+   moves over for a disclosure. Its target is the 44 px every control has:
+   from the eye's edge, over the gaps, to a little into the name. Under the
+   pointer the folder and the caret darken, since a tint as narrow as the
+   icon would read as a mark, not a target. */
 .layer-row .layer-disclosure {
 	color: var(--muted);
-	inline-size: 24px;
+	inline-size: var(--layer-preview-width);
 	margin-inline-start: var(--space-2xs);
 	min-width: 0;
 }
@@ -348,17 +350,27 @@
 .layer-row .layer-disclosure::before {
 	content: '';
 	inset-block: 0;
-	inset-inline-end: calc(24px + 2 * var(--space-2xs) - var(--target));
+	inset-inline-end: calc(var(--layer-preview-width) + 2 * var(--space-2xs) - var(--target));
 	inset-inline-start: calc(-2 * var(--space-2xs));
 	position: absolute;
 }
 
 /* An empty group's folder, with no caret, since it has nothing to show or
-   hide, and no button: where a group's folder is. */
+   hide, and no button: where a group's folder is, as wide. */
 .layer-row .layer-folder {
 	display: inline-grid;
 	flex: none;
+	inline-size: var(--layer-preview-width);
 	margin-inline-start: var(--space-2xs);
+	place-items: center;
+}
+
+/* A group's caret, shut, points toward the end of the line: mirrored where
+   it runs right to left, and the folder with it left as it is. */
+.layer-list:dir(rtl) .layer-disclosure[aria-expanded='false'] .layer-kind-icon path:last-child {
+	transform: scaleX(-1);
+	transform-box: fill-box;
+	transform-origin: center;
 }
 
 /* A clipped group's arrow, before its folder, where a layer's is before its kind. */
@@ -380,9 +392,51 @@
 	color: inherit;
 }
 
-/* A group's button starts at its name, its folder being before it. */
-.layer-row[data-group] .layer-pick {
+/* A button starts at its name where its folder or its preview is before it. */
+.layer-row > :is(.layer-disclosure, .layer-folder) ~ .layer-pick {
 	padding-inline-start: 0;
+}
+
+/* The marks over a preview's corners (`LayerRow.tsx`): a vector layer's kind
+   at the end, an expandable one's caret at the start, each on a chip of the
+   panel's own background with a hairline, so it reads over any picture. */
+.layer-preview-chip {
+	background: var(--bg);
+	block-size: 0.875rem;
+	border-radius: var(--radius-xs);
+	box-shadow: 0 0 0 1px var(--border);
+	color: var(--muted);
+	display: grid;
+	inline-size: 0.875rem;
+	inset-block-end: -0.125rem;
+	place-items: center;
+	pointer-events: none;
+	position: absolute;
+}
+
+.layer-preview-mark {
+	inset-inline-end: -0.125rem;
+}
+
+.layer-preview-caret {
+	inset-inline-start: -0.125rem;
+}
+
+.layer-row .layer-disclosure:hover .layer-preview-caret {
+	color: var(--fg);
+}
+
+/* Shut, the caret points toward the end of the line, as a group's does. */
+.layer-list:dir(rtl) .layer-preview-caret:not([data-open]) svg {
+	scale: -1 1;
+}
+
+/* An item's row (`LayerItemRow.tsx`): a level deeper than its layer, and an
+   empty place as wide as a layer's eye, so the items' previews line up in a
+   column of their own and their names in another. */
+.layer-item-slot {
+	flex: none;
+	inline-size: var(--target);
 }
 
 /* The layer itself, between its eye and its lock: the whole of the middle. */

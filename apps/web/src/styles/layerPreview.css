@@ -1,0 +1,37 @@
+/* CONTRACT — a layer's preview in the layers panel (`LayerPreview.tsx`):
+   the box its picture is fitted in, which the row lays out by. The room is
+   what the canvas is fitted in, the box less a pixel each side for the
+   hairline round it; `PREVIEW_ROOM` in `layerPreviews.ts` is the same room
+   at a 16 px rem, and the two say the same aspect. */
+:root {
+	--layer-preview-width: 2.25rem;
+	--layer-preview-height: 1.75rem;
+	--layer-preview-room-width: calc(var(--layer-preview-width) - 2px);
+	--layer-preview-room-height: calc(var(--layer-preview-height) - 2px);
+}
+
+.layer-preview {
+	block-size: var(--layer-preview-height);
+	display: inline-grid;
+	flex: none;
+	inline-size: var(--layer-preview-width);
+	place-items: center;
+	position: relative;
+}
+
+/* The canvas, sized by `LayerPreview.tsx` to the room at its own aspect and
+   centered in the box. The transparency grid is the picture's own
+   background, so it shows under what is clear on the canvas and nowhere
+   else, in squares of a thumbnail's size, the same in either theme, as the
+   canvas's is (`--checker-grid`). The hairline is drawn outside it, in the
+   pixel the room leaves. The row takes every press: the picture is never
+   dragged out as an image, nor chosen as text. */
+.layer-preview-picture {
+	background: var(--checker-grid);
+	background-size: 0.5rem 0.5rem;
+	display: block;
+	outline: 1px solid var(--border);
+	pointer-events: none;
+	-webkit-user-drag: none;
+	user-select: none;
+}
