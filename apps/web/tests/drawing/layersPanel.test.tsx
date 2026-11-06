@@ -1273,6 +1273,7 @@ describe('dragging layers', () => {
 			]);
 			const [rect] = document.layer('layer-1')?.children ?? [];
 			const from = itemPick('Rectangle');
+			const canvas = canvasRegion();
 
 			// Under itself, or under the item over it, is where it is: nothing to show.
 			drag(from, [[100, yOf(8, 0.7)]]);
@@ -1299,6 +1300,9 @@ describe('dragging layers', () => {
 			expect(names('.layer-item[data-selected]')).toEqual(['Rectangle']);
 			expect(activeName()).toBe('Layer 1');
 			expect(list().getAttribute('data-dragging')).toBeNull();
+			// The keyboard is the canvas's after a drag, as after a press.
+			expect(window.document.activeElement).toBe(canvas);
+			canvas.remove();
 			act(() => document.undo());
 			await waitFor(() =>
 				expect(names('.layer-item')).toEqual(['Line', 'Ellipse', 'Rectangle'])
@@ -1741,6 +1745,16 @@ describe('dropping on a collapsed group', () => {
 	});
 });
 
+/** The canvas's region, as the viewport draws it, which a press in the panel gives the keyboard back to. */
+const canvasRegion = (): HTMLElement => {
+	const region = window.document.createElement('div');
+	region.className = 'viewport';
+	region.setAttribute('role', 'region');
+	region.tabIndex = 0;
+	window.document.body.append(region);
+	return region;
+};
+
 describe('the previews, and a vector layer’s items', () => {
 	const INKSCAPE = 'http://www.inkscape.org/namespaces/inkscape';
 
@@ -1950,6 +1964,26 @@ describe('the previews, and a vector layer’s items', () => {
 		fireEvent.click(item('Rectangle'));
 		expect(selection.elements.get()).toEqual([rect]);
 		expect(document.snapshot().dirty).toBe(false);
+	});
+
+	it('gives the keyboard to the canvas after a pointer’s press on an item, and keeps it on a row Enter pressed', () => {
+		const document = itemized();
+		const selection = createViewportSelection();
+		const canvas = canvasRegion();
+		render(<Harness document={document} selection={selection} />);
+		toggle('Layer 3');
+		const [rect, circle] = elementsOf(document, 'layer-3');
+
+		// A pointer's click counts its presses; Enter's and Space's count none.
+		fireEvent.click(item('Ellipse'), { detail: 1 });
+		expect(selection.elements.get()).toEqual([circle]);
+		expect(window.document.activeElement).toBe(canvas);
+
+		item('Rectangle').focus();
+		fireEvent.click(item('Rectangle'));
+		expect(selection.elements.get()).toEqual([rect]);
+		expect(window.document.activeElement).toBe(item('Rectangle'));
+		canvas.remove();
 	});
 
 	it('keeps a tool that selects in hand, and adds within the item’s layer alone', () => {

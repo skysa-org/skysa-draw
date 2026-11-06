@@ -28,7 +28,9 @@ import type { DragFrom, Dragged, PointerHandlers } from './useLayerDrag.js';
  *
  * A press selects the item on the canvas, as Illustrator's panel does: alone,
  * or with Shift, Ctrl or ⌘ added to what is selected on its layer or taken
- * out of it (`onSelectElements`). Its menu is the selection's actions, the
+ * out of it (`onSelectElements`). A pointer's press, and a drag's drop, then
+ * give the keyboard to the canvas, so the arrows nudge what was selected; a
+ * row reached by the keyboard keeps it, and the arrows walk the rows. Its menu is the selection's actions, the
  * very list the canvas's menu shows, opened over the row once the item is
  * selected alone, unless it is among what is selected on its layer already,
  * as a layer's row is chosen alone first for the layer actions. It is dragged
@@ -46,6 +48,18 @@ import type { DragFrom, Dragged, PointerHandlers } from './useLayerDrag.js';
  */
 
 const MAC = isMac();
+
+/**
+ * The keyboard given back to the canvas, its region (`Viewport.tsx`), which
+ * hears the keys the page is sent, so the arrows nudge what a press in the
+ * panel selected rather than walk the rows, as Illustrator's and Figma's
+ * panels hand the keys back; nothing scrolls to show it.
+ */
+const focusCanvas = (): void => {
+	window.document.querySelector<HTMLElement>('.viewport[role="region"]')?.focus({
+		preventScroll: true,
+	});
+};
 
 /** What the rows read of the panel's one drag (`useLayerDrag`). */
 type ItemDragView = Readonly<{
@@ -121,12 +135,20 @@ export const useItemRows = ({
 			: [position];
 	};
 
-	/** After a move: what it moved selected where it is now, and the focus on the row of the one at `nth` among them, where one shows. */
-	const settle = (moved: PlacingCommand, nth: number) => {
+	/**
+	 * After a move: what it moved selected where it is now, and the focus on
+	 * the row of the one at `nth` among them, where one shows, after a key; on
+	 * the canvas after a drag, as after a press.
+	 */
+	const settle = (moved: PlacingCommand, nth: number, by: 'key' | 'pointer') => {
 		const now = elementsAtPositions(document.layer(moved.layerId), moved.positions);
 		onSelectElements(moved.layerId, now);
 		const position = moved.positions[nth];
-		refocus.current = position === undefined ? undefined : { layerId: moved.layerId, position };
+		refocus.current =
+			by === 'pointer' || position === undefined
+				? undefined
+				: { layerId: moved.layerId, position };
+		if (by === 'pointer') focusCanvas();
 	};
 
 	/** Alt with an arrow: what a move from the item moves, a step forward up the list or backward down it. */
@@ -137,7 +159,7 @@ export const useItemRows = ({
 		if (!canArrange(elementsIn(layerId).length, positions, how)) return;
 		const done = arrangeElements(layerId, positions, how);
 		document.execute(done);
-		settle(done, positions.indexOf(position));
+		settle(done, positions.indexOf(position), 'key');
 	};
 
 	/** The item's menu at `at`, the item selected alone first unless it is among what is selected; none on a held layer. */
@@ -213,7 +235,7 @@ export const useItemRows = ({
 		if (target === undefined) return;
 		const moved = moveElements(document.root, layerId, positions, target.place);
 		document.execute(moved);
-		settle(moved, positions.indexOf(pressed));
+		settle(moved, positions.indexOf(pressed), 'pointer');
 	};
 
 	/** What an item's row is given: the layer's `isHeld`, and `under`, the line of a drop of layers under the row. */
@@ -241,6 +263,8 @@ export const useItemRows = ({
 			onPick: (event) => {
 				if (drag.spentClick()) return;
 				press(layer.id, item.position, event.shiftKey || choiceKeysOf(event, MAC).toggle);
+				// A pointer's press, not Enter's or Space's, whose click has no count.
+				if (event.detail > 0) focusCanvas();
 			},
 			onKeyDown: (event) => onKeyDown(event, at),
 			onMenu: (point) => openMenu(layer.id, item.position, point),

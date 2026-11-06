@@ -53,7 +53,8 @@ Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and
 A new layer is Insert, Krita's key, with no modifier, since Shift and Ctrl with Insert are paste and copy on Windows and Linux; Photoshop's Ctrl or ⌘ Shift N is kept for an installed window, but a browser tab never receives it, and a Mac keyboard has no Insert, so on a Mac in a tab the layers panel is the way.
 The map is one file, `drawing/keys.ts`, so a dispute about a key is settled in one place.
 An undo of a move, a nudge or an alignment of elements keeps them selected, as Illustrator's does, so the next arrow moves them again rather than the layer.
-A press in the layers panel keeps the keyboard there, where the arrows walk the rows, so the canvas has the arrows again after a press on it or a Tab to it.
+A pointer's press on an item's row in the layers panel, and a drag of one, give the keyboard back to the canvas, as Illustrator's and Figma's panels do, so the arrows nudge what was selected; a row reached by the keyboard keeps it, and there the arrows walk the rows.
+A layer's row keeps the keyboard after a press, since Delete, F2 and the arrows on it are the panel's.
 Chrome on Windows and Linux keeps Ctrl Shift I for its developer tools in a tab, so there the context menu and the selection bar are the way to Select inverse, as the layers panel is to a new layer on a Mac.
 
 **Selection modes.**
