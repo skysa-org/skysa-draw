@@ -441,6 +441,17 @@
 /* An item's row (`LayerItemRow.tsx`): a level deeper than its layer, and an
    empty place as wide as a layer's eye, so the items' previews line up in a
    column of their own and their names in another. */
+/* Every item's row is the same height, so a long list of them can be drawn
+   as a window onto it, the rows not drawn stood for by space of their height
+   (`ItemRows`). */
+.layer-item {
+	block-size: var(--target);
+}
+
+.layer-item-gap {
+	flex: none;
+}
+
 .layer-item-slot {
 	flex: none;
 	inline-size: var(--target);

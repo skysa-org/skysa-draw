@@ -28,6 +28,7 @@ import { isMac } from '../viewport/pointer.js';
 import type { ItemsDrag } from './dragItems.js';
 import { beginLayerDrag, type LayersDrag } from './dragLayers.js';
 import { itemDropOnLayer } from './itemDrop.js';
+import { ItemRows } from './ItemRows.js';
 import { LayerActions } from './LayerActions.js';
 import { type DropTarget, nextPlace } from './layerDrop.js';
 import { LayerItemRow } from './LayerItemRow.js';
@@ -470,6 +471,12 @@ export const LayersPanel = ({
 					.map((layer) => layer.id)
 	);
 
+	/** The line of a drop of layers under the last of the layer's items' rows, where a drag of layers is aimed there. */
+	const underAll = (at: number) => {
+		const depth = dropUnderAll(layersDrag?.target, at, rows.length);
+		return depth === undefined ? undefined : ({ at: 'after', depth } as const);
+	};
+
 	/** What a layer's row shows of the drag: of layers, a line or itself lit; of items, itself lit for on top of its elements. */
 	const rowDrop = (row: Row, at: number, withItems: boolean): RowDrop | undefined =>
 		dragging?.kind === 'items'
@@ -529,26 +536,22 @@ export const LayersPanel = ({
 								pickDrag={drag.handlers(layerDrag(layer.id), 'pick')}
 								gripDrag={drag.handlers(layerDrag(layer.id), 'grip')}
 							/>
-							{shown.map((item, nth) => {
-								const under =
-									nth === shown.length - 1
-										? dropUnderAll(layersDrag?.target, at, rows.length)
-										: undefined;
-								return (
+							<ItemRows
+								layerId={layer.id}
+								items={shown}
+								kept={
+									itemDrag.items?.layerId === layer.id
+										? [itemDrag.items.pressed]
+										: []
+								}
+								under={underAll(at)}
+								row={(item, under) => (
 									<LayerItemRow
 										key={item.position}
-										{...itemRows.rowProps(
-											layer,
-											held,
-											item,
-											under === undefined
-												? undefined
-												: { at: 'after', depth: under },
-											itemDrag
-										)}
+										{...itemRows.rowProps(layer, held, item, under, itemDrag)}
 									/>
-								);
-							})}
+								)}
+							/>
 						</Fragment>
 					);
 				})}

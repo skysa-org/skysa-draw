@@ -48,3 +48,4 @@ Align and distribute now line up the elements selected on a vector layer with ea
 The layers panel shows a preview of each layer, a vector layer's marked in its corner; a vector layer of two or more items expands into a row per item, and a press on one selects it on the canvas.
 An item in the layers panel has its own menu, the canvas's, which now arranges and duplicates what is selected on a vector layer; items are dragged within their layer or into another vector layer, and a locked or hidden layer's items are shown but not selected from the panel.
 The layers panel's preview of a large raster layer no longer stalls the page after each stroke, or each time the panel is shown: it is drawn from a small copy of the layer's picture, made once.
+A vector layer of hundreds or thousands of items expands at once in the layers panel and no longer stalls the page after each change to it: only the rows in view are drawn.

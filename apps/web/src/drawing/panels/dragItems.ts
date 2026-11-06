@@ -28,9 +28,13 @@ export type ItemsDrag = Readonly<{
 	target: ItemDropTarget | undefined;
 }>;
 
-/** A row of the list as the drop reads it, from what it carries, or none for a row that is neither a layer's nor an item's. */
+/**
+ * A row of the list as the drop reads it, from what it carries, or none for a
+ * row that is neither a layer's nor an item's, and none for the space that
+ * stands for items' rows not drawn (`ItemRows`), where nothing is aimed at.
+ */
 const measureItemRow = (row: Element): readonly MeasuredItemRow[] => {
-	if (!(row instanceof HTMLElement)) return [];
+	if (!(row instanceof HTMLElement) || row.dataset.gap !== undefined) return [];
 	const { itemOf, layerId, position, itemCount, takesItems } = row.dataset;
 	const id = itemOf ?? layerId;
 	if (id === undefined) return [];
