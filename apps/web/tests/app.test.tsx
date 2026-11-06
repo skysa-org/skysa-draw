@@ -34,10 +34,18 @@ const liveDrawings = async (db: DrawDatabase): Promise<number> =>
 	(await db.drawings.toArray()).filter((row) => !isTombstone(row)).length;
 
 /**
- * The top bar's More menu, open, and the item named. Once the drawing is open,
- * with its tools: while it loads the frame is a still one with a top bar of
- * its own, and a menu opened there goes with it when the drawing opens.
+ * The drawing called `title`, open, with its tools. While it loads the frame
+ * is a still one with a top bar of its own, which gives way to the open
+ * frame's, and a menu, a drawer or a field opened on it goes with it: on a
+ * slow runner a test that pressed the bar as soon as the title showed pressed
+ * the still one.
  */
+const opened = async (title: string) => {
+	await screen.findByRole('toolbar', { name: 'Tool options' });
+	return screen.getByRole('heading', { name: title });
+};
+
+/** The top bar's More menu, open, and the item named, once the drawing is open. */
 const more = async (user: ReturnType<typeof userEvent.setup>, item: string) => {
 	await screen.findByRole('toolbar', { name: 'Tool options' });
 	await user.click(screen.getByRole('button', { name: 'More' }));
@@ -112,7 +120,7 @@ describe('the app', () => {
 		await waitFor(() => {
 			expect(router.state.location.search).toEqual({ d: made.id });
 		});
-		expect(await screen.findByRole('heading', { name: 'Plan' })).toBeDefined();
+		expect(await opened('Plan')).toBeDefined();
 
 		await user.click(await screen.findByRole('button', { name: 'Drawings' }));
 		const library = await screen.findByRole('dialog', { name: 'Drawings' });
@@ -157,11 +165,10 @@ describe('the app', () => {
 		const db = freshDatabase();
 		const made = await createDrawing(db, { title: 'Before' });
 		renderApp(`/?d=${made.id}`, db);
-		const heading = await screen.findByRole('heading', { name: 'Before' });
+		const heading = await opened('Before');
 		expect(heading.getAttribute('title')).toBe('Double-click to rename');
 
-		// Looked up again: the editor draws its bar anew once the drawing is open.
-		await user.dblClick(screen.getByRole('heading', { name: 'Before' }));
+		await user.dblClick(heading);
 		expect(document.activeElement).toBe(screen.getByLabelText('Title'));
 		await user.keyboard('{Escape}');
 		expect(screen.queryByLabelText('Title')).toBeNull();
