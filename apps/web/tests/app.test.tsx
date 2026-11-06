@@ -33,8 +33,13 @@ const renderApp = (path = '/', db: DrawDatabase = freshDatabase()) => {
 const liveDrawings = async (db: DrawDatabase): Promise<number> =>
 	(await db.drawings.toArray()).filter((row) => !isTombstone(row)).length;
 
-/** The top bar's More menu, open, and the item named. */
+/**
+ * The top bar's More menu, open, and the item named. Once the drawing is open,
+ * with its tools: while it loads the frame is a still one with a top bar of
+ * its own, and a menu opened there goes with it when the drawing opens.
+ */
 const more = async (user: ReturnType<typeof userEvent.setup>, item: string) => {
+	await screen.findByRole('toolbar', { name: 'Tool options' });
 	await user.click(screen.getByRole('button', { name: 'More' }));
 	await user.click(await screen.findByRole('menuitem', { name: item }));
 };
