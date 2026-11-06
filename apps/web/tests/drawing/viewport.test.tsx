@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type * as ContextMenuModule from '../../src/components/ui/ContextMenu.js';
 import type { MenuPoint } from '../../src/components/ui/ContextMenu.js';
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
+import type * as AlignModule from '../../src/drawing/tools/common/align.js';
 import { withBrushOutline } from '../../src/drawing/tools/common/brushOutline.js';
 import { ZOOM_CLICK, ZOOM_DRAG_PX } from '../../src/drawing/tools/common/zoom.js';
 import { toolById } from '../../src/drawing/tools/index.js';
@@ -59,6 +60,16 @@ vi.mock('../../src/drawing/tools/raster/index.js', () => ({
 vi.mock('../../src/drawing/tools/raster/areaFill.js', () => ({
 	fillAreaWith: behaviors.fillAreaWith,
 	canFillArea: behaviors.canFillArea,
+}));
+
+// The move tool's alignment, watched: what it does to the layers is
+// `align.test.ts`'s; what is here is what the viewport gives it.
+const arranging = vi.hoisted(() => ({
+	arrangeLayers: vi.fn<typeof AlignModule.arrangeLayers>(() => Promise.resolve(true)),
+}));
+vi.mock('../../src/drawing/tools/common/align.js', async (importOriginal) => ({
+	...(await importOriginal<typeof AlignModule>()),
+	arrangeLayers: arranging.arrangeLayers,
 }));
 
 // The real context menu, with where it was last asked to open kept, since
@@ -358,6 +369,7 @@ afterEach(() => {
 	behaviors.fillAreaWith.mockClear();
 	behaviors.canFillArea.mockClear();
 	behaviors.layerViaArea.mockClear();
+	arranging.arrangeLayers.mockClear();
 	menus.at = undefined;
 });
 
@@ -1894,5 +1906,63 @@ describe('the brush’s outline over the canvas', () => {
 		rerender(<Viewport {...props} tool={sizeTool('raster').tool} />);
 		expect(region.style.cursor).toBe('not-allowed');
 		expect(region.hasAttribute('data-tool-cursor')).toBe(false);
+	});
+});
+
+describe('the move tool’s alignment, through the handle', () => {
+	const arrange = (
+		ref: ReturnType<typeof setup>['ref'],
+		arrangement: AlignModule.Arrangement
+	) => {
+		act(() => {
+			ref.current?.arrange(arrangement);
+		});
+	};
+
+	it('arranges the layers the move tool moves, aligned to what the options say, measured in the drawing', () => {
+		const { ref, document } = setup(fakeTool('select', { vector: recorder().behavior }), {
+			options: { ...DEFAULT_TOOL_OPTIONS, alignTo: 'canvas' },
+		});
+		arrange(ref, { kind: 'distribute', how: 'spaceX' });
+		expect(arranging.arrangeLayers).toHaveBeenCalledTimes(1);
+		const [context, arrangement, alignTo, extent] = arranging.arrangeLayers.mock.calls[0] ?? [];
+		expect(context?.document).toBe(document);
+		expect(context?.layer?.id).toBe('layer-1');
+		expect(arrangement).toEqual({ kind: 'distribute', how: 'spaceX' });
+		expect(alignTo).toBe('canvas');
+		expect(extent).toBeTypeOf('function');
+	});
+
+	it('arranges nothing while a press is under way, and does once it has ended', () => {
+		const { ref, region } = setup(fakeTool('select', { vector: recorder().behavior }));
+		fire(region, pointer('pointerdown', { clientX: 10, clientY: 10 }));
+		arrange(ref, { kind: 'align', edge: 'left' });
+		expect(arranging.arrangeLayers).not.toHaveBeenCalled();
+		fire(region, pointer('pointerup', { clientX: 10, clientY: 10 }));
+		arrange(ref, { kind: 'align', edge: 'left' });
+		expect(arranging.arrangeLayers).toHaveBeenCalledTimes(1);
+		expect(arranging.arrangeLayers.mock.calls[0]?.[2]).toBe('selection');
+	});
+
+	it('arranges nothing while Transform selection is on, whose box the layers are not', () => {
+		const selection = createViewportSelection();
+		const { ref } = setup(fakeTool('select', { vector: recorder().behavior }), { selection });
+		act(() => {
+			selection.region.set({
+				path: 'M 10 10 L 50 10 L 50 30 L 10 30 Z',
+				inverted: false,
+				feather: 0,
+			});
+		});
+		act(() => {
+			ref.current?.perform('transformSelection');
+		});
+		arrange(ref, { kind: 'align', edge: 'top' });
+		expect(arranging.arrangeLayers).not.toHaveBeenCalled();
+		act(() => {
+			ref.current?.perform('cancelTransform');
+		});
+		arrange(ref, { kind: 'align', edge: 'top' });
+		expect(arranging.arrangeLayers).toHaveBeenCalledTimes(1);
 	});
 });

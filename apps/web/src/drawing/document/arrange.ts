@@ -8,6 +8,7 @@ import {
 	multiply,
 	parseTransform,
 } from '../tools/vector/geometry.js';
+import { keepingClips } from './clip.js';
 import {
 	compound,
 	copyOf,
@@ -310,9 +311,11 @@ const carryBack = (root: Element, moves: readonly Moved[]): void => {
  * that is itself among the layers moved is read as the nearest layer under it
  * that is not, or the bottom where there is none. Each layer leaves its
  * indentation behind and takes that of the layer it goes above, or of the
- * parent's bottom layer. Undo puts each back where it was, among the same
- * siblings, with the very attributes and indentation it had. Nothing, costing
- * nothing, where `canPlaceLayers` says no when the command runs.
+ * parent's bottom layer. A clipped layer whose `transform` changes keeps
+ * its clip true in the same step (`keepingClips`). Undo puts each back where
+ * it was, among the same siblings, with the very attributes and indentation
+ * it had. Nothing, costing nothing, where `canPlaceLayers` says no when the
+ * command runs.
  */
 export const placeLayers = (
 	root: SVGSVGElement,
@@ -322,7 +325,7 @@ export const placeLayers = (
 ): Command => {
 	const chosen = outermostLayers(root, ids);
 	const done = cell<readonly Moved[] | undefined>(undefined);
-	return {
+	return keepingClips({
 		label,
 		apply: (live) => {
 			const plan = planOf(live, chosen, place);
@@ -340,7 +343,7 @@ export const placeLayers = (
 						SMALL_COMMAND_BYTES
 					);
 		},
-	};
+	});
 };
 
 /** Two layers, by id, that trade places. */

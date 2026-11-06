@@ -49,7 +49,7 @@ An option that is on or off, Auto-select, Contiguous, Pressure or Constrain, is 
 | Magic wand | W | Select the elements painted in a color near the one clicked, in the four selection modes | Select the pixels of a color near the one clicked, joined to it or anywhere, in the four selection modes |
 | Crop | C | The canvas's `viewBox` | The canvas's `viewBox` |
 
-Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and D drops the selection, Shift with I inverts it, J makes a new layer of what is selected (Layer via copy) and duplicates the layer when nothing is, and Shift with J cuts what is selected to a new layer (Layer via cut), as in Photoshop; the arrows nudge the selected pixels with the select tool, a pixel at a time or ten with Shift; Shift F6 opens Modify… at Feather, as Photoshop's Shift F6 opens Feather; Shift F5 or Shift Backspace opens Fill…; Alt or Option Backspace fills it at once with the fill color, the one Alt chord the map takes, and Ctrl or ⌘ Backspace with the stroke color; inside a text field all three stay the field's; Shift Delete still deletes; `[` and `]` change a brush's size; X swaps the two colors and D puts back the default ones; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
+Undo and redo are Ctrl or ⌘ Z and Shift with it; Ctrl or ⌘ A selects all and D drops the selection, Shift with I inverts it, J makes a new layer of what is selected (Layer via copy) and duplicates the layer when nothing is, and Shift with J cuts what is selected to a new layer (Layer via cut), as in Photoshop; the arrows nudge the selected pixels with the select tool, a pixel at a time or ten with Shift; Shift F6 opens Modify… at Feather, as Photoshop's Shift F6 opens Feather; Shift F5 or Shift Backspace opens Fill…; Alt or Option Backspace fills it at once with the fill color, the one Alt chord the map takes, and Ctrl or ⌘ Backspace with the stroke color; inside a text field all three stay the field's; Shift Delete still deletes; `[` and `]` change a brush's size; Ctrl or ⌘ Shift `;` turns snapping on or off, as Photoshop's View › Snap; X swaps the two colors and D puts back the default ones; Ctrl or ⌘ 0 fits the drawing to the window and 1 shows it at actual size; Delete removes what is selected; Escape cancels what a tool has begun.
 A new layer is Insert, Krita's key, with no modifier, since Shift and Ctrl with Insert are paste and copy on Windows and Linux; Photoshop's Ctrl or ⌘ Shift N is kept for an installed window, but a browser tab never receives it, and a Mac keyboard has no Insert, so on a Mac in a tab the layers panel is the way.
 The map is one file, `drawing/keys.ts`, so a dispute about a key is settled in one place.
 Chrome on Windows and Linux keeps Ctrl Shift I for its developer tools in a tab, so there the context menu and the selection bar are the way to Select inverse, as the layers panel is to a new layer on a Mac.
@@ -103,16 +103,37 @@ A size for some of a text's characters would need runs, a `<tspan font-size>` ea
 A double-click on the drawing's title in the top bar renames it, as More's Rename does.
 
 **Auto-select.**
-The move tool's one option is Auto-select, Photoshop's Auto-Select in its Layer mode, off by default as there.
-With it on, a press makes the topmost layer with something under it the active one, and the same press moves it: on a vector layer the element under it is selected and dragged, on a raster layer the layer moves whole, or the area's pixels where the area reaches that layer.
+The move tool's options are Auto-select, Photoshop's Auto-Select, off by default as there, with its Layer or Group menu beside it; Snap ("Snapping"); and its alignment ("Align and distribute").
+With it on, in Layer mode, a press makes the topmost layer with something under it the active one, and the same press moves it: on a vector layer the element under it is selected and dragged, on a raster layer the layer moves whole, or the area's pixels where the area reaches that layer.
 Ctrl or ⌘ held as the press begins does the other for that press, as in Photoshop.
 Something is under the press where the layer is more than half opaque there as seen, Photoshop's line: a vector layer where the select tool's own hit finds an element, a raster layer by its pixel's alpha, either times its opacity and its groups', and a layer clipped to the one below only where that one has paint.
 Hidden layers and the layers of hidden groups are passed over, and a group is gone into, never picked.
 A locked layer and the layers of a locked group are passed over too, as a click goes through a locked object in Illustrator and Figma, so the press moves what lies under it.
 A press over nothing, or on a handle of the box around what is selected, keeps the active layer.
 A press that is canceled, by Escape, a second finger or a long press that opens the menu, gives the active layer back.
-Group mode, which picks the outermost group, waits for the move tool to move a group.
+Beside it, as in Photoshop, a menu says what Auto-select picks: the Layer, as above, or the Group, the outermost group the layer found is in, which the same press then moves whole; a layer in no group is picked itself either way, and Ctrl or ⌘ picks in the mode chosen.
+Where the outermost group holds a locked layer, and so could not move, Group mode picks the outermost group inside it, toward the layer found, that holds none, or the layer itself, for the reason locked layers are passed over: a group that refuses every move would take every press on the layers in it.
+With several layers chosen, a press on one of them, or on a layer inside one, keeps the choice and moves them all, in either mode.
+In Group mode a double press on a text or a path inside a group is the group's, as Photoshop's is, and opens nothing; Layer mode, or the layer chosen in the panel, opens it.
 Rejected: picking a locked layer and refusing the move, as Photoshop does, under which a locked layer takes every press meant for what lies on it or under it; keeping the active layer for a press inside an area, which Photoshop 20 and 21 did in a bug Adobe acknowledged; a notice when a press picks a layer, which the layers panel shows already.
+
+**Align and distribute.**
+The move tool's options bar has Photoshop's six alignments after Auto-select, as buttons in its order: left edges, horizontal centers, right edges, top edges, vertical centers, bottom edges (`tools/common/align.ts`).
+A menu after them holds the distributions, by top edges, vertical centers, bottom edges, left edges, horizontal centers or right edges, or by even vertical or horizontal spacing, and Photoshop's Align To, the selection or the canvas.
+The layers arranged are the ones a drag of the move tool moves: the outermost of those chosen in the panel where there are several, else the active layer alone; one that may not move refuses the whole, in the drag's words.
+Each layer is measured by what it paints, as Photoshop measures its pixels that are not clear: a vector layer's shapes with their strokes, a raster layer's pixels that are not clear, a group's layers together (`viewport/layerExtent.ts`); one that paints nothing is left where it is.
+Aligned to the selection, the layers line up with the area where one is selected, the canvas where it is inverted, else with the box around them all, else, one layer alone, with the canvas, as Photoshop's has since 2019; aligned to the canvas, with the canvas.
+A distribution aligned to the selection keeps the first and the last where they are and so takes three layers; aligned to the canvas it puts them flush with the canvas's sides and takes two.
+The six buttons are always there with the move tool and disabled only with no layer; the menu lists only the distributions that apply, as the layer actions menu does.
+Each arrangement is one command, each layer moved by its own `transform` as a drag moves it, and one undo puts them back.
+Rejected: aligning the elements selected on a vector layer, which Photoshop has no counterpart for, since its shapes are layers; the alignment is the layers' until elements need their own.
+
+**Snapping.**
+A move with the move tool snaps what it moves to the canvas's edges and center and to the other layers' edges and centers, each axis on its own, within a few screen pixels, and a magenta guide shows each snap while it holds, as Photoshop's smart guides do (`tools/common/snap.ts`).
+It is on by default, as Photoshop's View › Snap is; the move tool's Snap toggle and Ctrl or ⌘ Shift `;` turn it off and on, and Control held during a move suspends it for as long as it is held, as in Photoshop.
+What snaps is the box of what moves: the layers moved whole, by the move tool's drag of several layers, a group or a raster layer, or the elements dragged on a vector layer, which snap to the layer's other elements too.
+The layers are measured as alignment measures them (`viewport/layerExtent.ts`), when the move begins; nothing snaps until the pointer has gone 3 screen pixels from the press, so a click selects without moving; the arrows' nudge does not snap, as Photoshop's does not.
+An area's pixels, which move in whole pixels of the layer and often along 45° with Shift, do not snap, nor do the resize and rotate handles, for now.
 
 **The context menu.**
 A right-click on the canvas opens a menu of what can be done with what is selected; so do a pen's barrel button, the Menu key or Shift F10 while the canvas has the focus, and a long press where the browser turns one into a `contextmenu` (Chrome on Android).
@@ -132,6 +153,8 @@ The list is made in one place, `drawing/selectionActions.ts`, and the options st
 After Layer via copy or Layer via cut, the selection is dropped and the new layer is the active one.
 The menu is a button's menu without the button (`components/ui/MenuList.tsx` is the list both show, its keys and its rules between groups), opened in the top layer under the point, or left of it and above it where the window has not the room, never past an edge, and as tall as fits with the rest scrolling.
 Escape, Tab, a choice, a press, a scroll or a wheel outside it, a resize or the window losing the focus close it, and the focus goes back where it was; a choice closes it before the item acts, so a dialog the item opens has the focus.
+An item may open a submenu, the same list beside it, flush with the menu toward the end of the line, or toward its start or over it where the window has not the room, with its first item level with the one that opened it.
+The arrow toward the end of the line, Enter, Space or a press opens it at its first item, and the arrow back or Escape closes it alone, the focus back on its item; a mouse or a pen resting 200 ms on the item opens it and resting 300 ms on another closes it, so a diagonal way into it is not lost, and a touch opens it only by a tap.
 Fill… is a dialog of the frame's, a sheet on compact and a drawer elsewhere.
 It asks the contents first, the fill color, the stroke color, Color… with a color field of its own, or Content-Aware, each with its swatch, then the blending: a mode from the layers' own list, an opacity and Preserve transparency.
 The focus starts on the contents chosen, Enter applies from any control but a button or a text field, and Escape or Cancel leaves the layer as it was.
@@ -157,6 +180,17 @@ The menu lists only what applies to the layers chosen, a rule between its kinds 
 This is the opposite of the canvas's menu, which shows disabled what cannot be done: the canvas's list is one for every selection, learned once, where the layer menu is about the layers chosen, which already say what applies, and a list of disabled merges and clips for a group of several is noise.
 The panel's head is New, a menu of a vector layer, a raster layer and a group; Duplicate; Delete; and the ⋯ menu.
 Move up and Move down left the head on 2026-11-06, once a row could be dragged, and stay in the menu so a layer can be moved without a drag (WCAG 2.5.7).
+
+**The Image menu.**
+The top bar's More holds Photoshop's Image menu as a group of its own after Export: Image size…, Canvas size…, Image rotation, Trim… and Reveal all, in its order and under its names (`drawing/panels/imageMenu.tsx`, done by `drawing/document/canvasOps.ts`).
+Image rotation is a submenu of 180°, 90° clockwise, 90° counterclockwise and Arbitrary…, then Flip canvas horizontal and Flip canvas vertical, each done at once as one step of undo, as Reveal all is.
+Image size… asks a width and a height in px, Constrain proportions and Resample, both on as Photoshop starts them: everything drawn scales with the canvas, and with Resample a raster layer's pixels are made again at the new size rather than stretched.
+Canvas size… asks a width and a height, or with Relative how much to add or take away, and an anchor, Photoshop's nine squares, which says where what is drawn stays as the canvas grows or is cut around it; nothing drawn moves or scales, and what the canvas gains is clear, as a new drawing is.
+Arbitrary… asks an angle and a direction, and the canvas grows to hold what was on it, as Photoshop's does.
+Trim… asks what is cut away, transparent pixels or the top left or the bottom right pixel's color, and from which sides; Reveal all grows the canvas to hold every layer's paint.
+A dialog is a sheet on compact and a drawer elsewhere, made as Fill… and Modify… are (`components/ui/DialogForm.tsx`): it starts at the canvas as it is and at the choices last applied, for the page's life, with the focus on its first field; Enter applies from any control but a button or a text field; and Escape, Cancel or a tap beside it changes nothing.
+An operation that would change nothing is not done and a notice says so, and one that measures or reads pixels first is not done, and a notice says so, if the drawing changed meanwhile.
+The items are shown disabled while a selection is being transformed or an operation is running, as the canvas's menu shows what cannot be done, and the view refits to the new canvas.
 
 **The brush's outline.**
 Every tool with a size shows it as its pointer over the canvas, as Photoshop's Normal Brush Tip does: a circle as big on the screen as what the tool will paint, which grows and shrinks with the zoom and follows `[`, `]` and the Size slider at once, with a small crosshair at its middle, and the crosshair alone where the circle would be too small to see.

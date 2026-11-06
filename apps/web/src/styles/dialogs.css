@@ -1,0 +1,133 @@
+/* What a dialog of the frame's is made of (`components/ui/DialogForm.tsx`,
+   `NumberField.tsx`, `RadioRows.tsx`): its groups, as the color panel's are
+   (`ui.css`, `.field-groups`), a number with its unit, a row of a choice or
+   of an option to press, and Cancel and Apply under them. Every control is a
+   `--target` tall. */
+
+.dialog-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-s);
+	justify-content: flex-end;
+	margin-block-start: var(--space-s);
+}
+
+.dialog-actions button {
+	min-height: var(--target);
+	min-width: 6rem;
+}
+
+.dialog-actions button:disabled {
+	cursor: default;
+}
+
+/* Faded where it cannot be pressed; while the dialog is busy, Apply's words
+   say what is under way, and stay as legible as ever. */
+form:not([aria-busy='true']) > .dialog-actions button:disabled {
+	opacity: 0.4;
+}
+
+/* The name, the field and the unit on one line; the fields of a dialog line
+   up, since each name takes the same room. */
+.number-field {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	min-height: var(--target);
+	min-width: 0;
+}
+
+.number-field > .field-label {
+	flex: 0 0 5rem;
+	white-space: normal;
+}
+
+.number-field input {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: 0 1 8rem;
+	font: inherit;
+	/* What Safari on a phone needs of a field, or it zooms in on focus. */
+	font-size: var(--text-field-floor);
+	font-variant-numeric: tabular-nums;
+	min-height: var(--target);
+	min-width: 4rem;
+	padding: 0 var(--space-s);
+}
+
+.number-field input[aria-invalid='true'] {
+	border-color: var(--bad);
+	outline-color: var(--bad);
+}
+
+.number-field-unit {
+	color: var(--muted);
+	font-size: var(--text-s);
+}
+
+/* A whole row to press, the radio or the checkbox and its name. */
+.radio-row,
+.check-row {
+	align-items: center;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	display: flex;
+	gap: var(--space-s);
+	min-height: var(--target);
+	padding-inline: var(--space-xs);
+	touch-action: manipulation;
+}
+
+.radio-row:hover,
+.check-row:hover {
+	background: var(--hover-bg);
+}
+
+.radio-row input,
+.check-row input {
+	accent-color: var(--accent);
+	flex: none;
+	height: 1.25rem;
+	margin: 0;
+	width: 1.25rem;
+}
+
+.radio-row:has(:focus-visible),
+.check-row:has(:focus-visible) {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
+/* A slider and the number field beside it (`SliderField.tsx`), which says
+   the value and is the one to type in: the slider's own read-out would only
+   be squeezed under it. */
+.slider-field {
+	align-items: center;
+	display: flex;
+	gap: var(--space-s);
+	min-width: 0;
+}
+
+.slider-field .slider {
+	flex: 1;
+}
+
+.slider-field .slider output {
+	display: none;
+}
+
+.slider-field-input {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-s);
+	color: inherit;
+	flex: none;
+	font: inherit;
+	/* What Safari on a phone needs of a field, or it zooms in on focus. */
+	font-size: var(--text-field-floor);
+	min-height: var(--target);
+	padding: 0 var(--space-s);
+	width: 5.5rem;
+}

@@ -235,7 +235,7 @@ export const imageOf = (layer: Element): Element | undefined =>
 	);
 
 /** `href`, or the `xlink:href` an older file writes. */
-const hrefOf = (image: Element | undefined): string | undefined =>
+export const hrefOf = (image: Element | undefined): string | undefined =>
 	image?.getAttribute('href') ?? image?.getAttributeNS(XLINK_NAMESPACE, 'href') ?? undefined;
 
 /** A length in user units, with or without `px`; 0 for anything else. */
@@ -304,7 +304,7 @@ const relaid = (
  * element never enters the page: it is decoded, drawn and dropped. A picture
  * the browser cannot decode rejects.
  */
-const decodePicture = async (href: string): Promise<HTMLImageElement> => {
+export const decodePicture = async (href: string): Promise<HTMLImageElement> => {
 	const img = document.createElement('img');
 	img.setAttribute('src', href);
 	await img.decode();

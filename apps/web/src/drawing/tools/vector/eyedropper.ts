@@ -1,6 +1,5 @@
 import { t } from '../../../i18n/t.js';
 import type { ToolBehavior } from '../types.js';
-import { apply } from './geometry.js';
 import { activeLayerElement, layerSpace } from './guard.js';
 import { elementsOf, paintedColor, topmostAt } from './hit.js';
 import type { Measure } from './measure.js';
@@ -25,8 +24,8 @@ export const createEyedropper = (measure: Measure): ToolBehavior => ({
 			context.notify(t('layers.noneActive'));
 			return;
 		}
-		const point = apply(layerSpace(layer).into, { x: sample.x, y: sample.y });
-		const hit = topmostAt(elementsOf(layer), point, measure);
+		const point = { x: sample.x, y: sample.y };
+		const hit = topmostAt(elementsOf(layer), point, measure, 0, layerSpace(layer).outOf);
 		if (hit === undefined) return;
 		const which = sample.altKey ? 'stroke' : 'fill';
 		context.setColor(which, paintedColor(hit, which, context.document.root, DEFAULTS[which]));

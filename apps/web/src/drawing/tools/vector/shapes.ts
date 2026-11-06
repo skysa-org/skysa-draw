@@ -3,7 +3,7 @@ import { cell } from '@skysa/draw-core';
 import { editLayer } from '../../document/commands.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { apply, constrainLine, constrainRect, distance, type Point, rectFrom } from './geometry.js';
-import { guardLayer, layerSpace, targetLayer } from './guard.js';
+import { guardLayer, newElementSpace, targetLayer } from './guard.js';
 import { type Attributes, createSvg, inkOf, opacityOf, paintOf, setAttributes } from './svg.js';
 import { rounded } from './textMarkup.js';
 
@@ -13,7 +13,9 @@ import { rounded } from './textMarkup.js';
  * `<line>`, previewed on the overlay and added to the layer by one command at
  * the end. Shift, or the constrain option, keeps a rectangle square, an
  * ellipse round and a line to a multiple of 45°. A drag shorter than a user
- * unit is a click, and makes nothing.
+ * unit is a click, and makes nothing. What lands is what was previewed, upright
+ * and its stroke and corners the options' sizes, on a layer turned or scaled
+ * too (`newElementSpace`).
  */
 type ShapeKind = 'rectangle' | 'ellipse' | 'line';
 
@@ -113,13 +115,11 @@ export const createShape = (kind: ShapeKind): ToolBehavior => {
 			if (distance(current.from, to) < LEAST_DRAG) return;
 			const layer = targetLayer(context);
 			if (layer === undefined) return;
-			const { into } = layerSpace(layer);
-			const attributes = attributesOf(
-				kind,
-				apply(into, current.from),
-				apply(into, to),
-				context.options
-			);
+			const { into, transform } = newElementSpace(layer);
+			const attributes = {
+				...attributesOf(kind, apply(into, current.from), apply(into, to), context.options),
+				transform,
+			};
 			context.document.execute(
 				editLayer(layer.id, `tools.${kind}`, (g: Element) => {
 					g.appendChild(createSvg(g.ownerDocument, ELEMENT[kind], attributes));

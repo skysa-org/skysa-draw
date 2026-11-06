@@ -232,11 +232,11 @@ describe.each(placements)('the layer operations, with the root %s', (placement) 
 });
 
 describe('the clip, as the file has it', () => {
-	it('is a mask in a defs after the title, indented as the title is', () => {
+	it('is a mask in a defs after the title, indented as the title is, the use undoing the layer’s move', () => {
 		const document = opened();
 		document.execute(clipToBelow(document.root, 'layer-2'));
 		expect(document.text()).toContain(
-			'<title>Harbor</title>\n  <defs><mask id="clip-layer-2" style="mask-type:alpha"><use href="#layer-1"/></mask></defs>'
+			'<title>Harbor</title>\n  <defs><mask id="clip-layer-2" style="mask-type:alpha"><use href="#layer-1" transform="translate(-5 -5)"/></mask></defs>'
 		);
 		expect(document.text()).toContain(
 			'opacity="0.5" transform="translate(5 5)" mask="url(#clip-layer-2)"'

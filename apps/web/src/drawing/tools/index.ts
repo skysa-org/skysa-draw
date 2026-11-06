@@ -47,7 +47,7 @@ const CROSSHAIR = 'crosshair';
 
 export const TOOLS: readonly Tool[] = [
 	{
-		...tool('select', ['autoSelect'], 'default'),
+		...tool('select', ['autoSelect', 'autoSelectMode', 'snap'], 'default'),
 		behaviors: { ...behaviorsOf('select'), group: layersMove },
 		pick: autoSelect(measureOf),
 	},

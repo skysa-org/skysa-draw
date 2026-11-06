@@ -66,6 +66,56 @@ export const tools = {
 		pupilSize: 'Pupil size',
 		/** The red eye tool: how dark the corrected pupil is made, as Photoshop's Darken Amount. */
 		darken: 'Darken amount',
+		/** The move tool: what the layers are aligned to, as Photoshop's Align To. */
+		alignTo: 'Align to',
+		/** The move tool: what Auto-select picks, the layer or its outermost group, as Photoshop's menu beside Auto-Select. */
+		autoSelectMode: 'Auto-select picks',
+		/** The move tool: a move snaps to the canvas and to the other layers, as Photoshop's View › Snap. */
+		snap: 'Snap',
+	},
+	/** What Auto-select picks, as Photoshop's names for the two. */
+	autoSelectModes: {
+		layer: 'Layer',
+		group: 'Group',
+	},
+	/**
+	 * The move tool's alignment, as Photoshop's options bar has it
+	 * (`drawing/tools/common/align.ts`): six buttons, then a menu of the
+	 * distributions and what the layers are aligned to.
+	 */
+	align: {
+		/** The six buttons, as a group. */
+		bar: 'Align',
+		left: 'Align left edges',
+		centerX: 'Align horizontal centers',
+		right: 'Align right edges',
+		top: 'Align top edges',
+		centerY: 'Align vertical centers',
+		bottom: 'Align bottom edges',
+		/** The menu after the six buttons. */
+		more: 'More alignment',
+		distribute: {
+			top: 'Distribute top edges',
+			centerY: 'Distribute vertical centers',
+			bottom: 'Distribute bottom edges',
+			left: 'Distribute left edges',
+			centerX: 'Distribute horizontal centers',
+			right: 'Distribute right edges',
+			/** The same gap between each layer and the next, top to bottom. */
+			spaceY: 'Distribute vertical spacing',
+			/** The same gap between each layer and the next, left to right. */
+			spaceX: 'Distribute horizontal spacing',
+		},
+		/** What the layers are lined up with, one of the two, in the same menu. */
+		to: {
+			selection: 'Align to selection',
+			canvas: 'Align to canvas',
+		},
+		/** What undo calls an alignment, and a distribution. */
+		aligned: 'Align layers',
+		distributed: 'Distribute layers',
+		/** The layers to align paint nothing that could be measured. */
+		nothing: 'There is nothing on these layers to align.',
 	},
 	/**
 	 * The selection tools' four modes, each a button of the group, by

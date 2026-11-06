@@ -15,6 +15,7 @@ import { createText } from '../../src/drawing/tools/vector/text.js';
 import { HIDDEN_TEXT_MARK, hideText } from '../../src/drawing/tools/vector/textHide.js';
 import { shadowOf } from '../../src/drawing/viewport/shadow.js';
 import { t } from '../../src/i18n/t.js';
+import { attributesBut, expectOnCanvasAsWritten, PLACEMENTS } from './placements.js';
 
 /**
  * The text tool (docs/decisions/0004-the-interface.md) against a fake editor,
@@ -388,19 +389,26 @@ describe('the text tool on a vector layer', () => {
 		expect(fieldIn(host)).not.toBeNull();
 	});
 
-	it('writes in the layer’s own units, and sizes the field as the layer scales it', () => {
+	it('writes at the options’ size on a scaled layer, as the field shows it', () => {
+		// Was the layer's units, `x="100" y="25"` and a field of 20 px: a text
+		// as large as the layer made it. A new text is the options' size on the
+		// canvas now, written in the drawing's units under a `transform` that
+		// undoes the layer's (`newElementSpace`, `tools/vector/guard.ts`).
 		const { root, layer } = createDrawing();
 		layer.setAttribute('transform', 'translate(100 0) scale(2)');
 		const { context, host } = createFake(root, { options: { fontSize: 10 } });
 		click(createText(), context, 300, 50);
 		const field = openField(host);
-		expect(field.style.fontSize).toBe('20px');
+		// 10 px, set at the phone's floor and scaled down to it.
+		expect(field.style.fontSize).toBe('16px');
+		expect(field.style.transform).toBe('scale(0.625)');
 		type(field, 'scaled');
 		fireEvent.keyDown(field, { key: 'Escape' });
 		const [text] = textsIn(layer);
-		expect(text?.getAttribute('x')).toBe('100');
-		expect(text?.getAttribute('y')).toBe('25');
+		expect(text?.getAttribute('x')).toBe('300');
+		expect(text?.getAttribute('y')).toBe('50');
 		expect(text?.getAttribute('font-size')).toBe('10');
+		expect(text?.getAttribute('transform')).toBe('matrix(0.5 0 0 0.5 -50 0)');
 	});
 
 	it('fills with the stroke color, else black, where the fill is none', () => {
@@ -887,7 +895,12 @@ describe('the options an edited text shows', () => {
 		expect(fake.labels).toEqual([]);
 	});
 
-	it('gives the size in the layer’s units for a text its own transform scales, and writes the user’s back in the text’s own', () => {
+	it('gives the size seen on the canvas for a text its own transform and its layer’s scale, and writes the user’s back in the text’s own', () => {
+		// Was the size in the layer's units, 20, and a 30 written back as 15:
+		// the options are the size seen on the canvas now, the size a new text
+		// is drawn at whatever the layer's placement, so a text drawn there
+		// reads back at the size it was drawn, as Photoshop's options show a
+		// text that was scaled.
 		const { root, layer } = createDrawing(
 			'<text x="10" y="20" font-size="10" transform="scale(2)">Hi</text>'
 		);
@@ -896,18 +909,18 @@ describe('the options an edited text shows', () => {
 		const { context, setOptions } = withSetOptions(fake.context);
 		const tool = createText();
 		click(tool, context, 65, 115);
-		expect(setOptions).toHaveBeenCalledWith({ fontSize: 20, fill: '#000000' });
+		expect(setOptions).toHaveBeenCalledWith({ fontSize: 60, fill: '#000000' });
 		const { optionsChanged } = behaviorOf(tool);
-		const own = withOptions(context, { fontSize: 20, fill: '#000000' });
+		const own = withOptions(context, { fontSize: 60, fill: '#000000' });
 		optionsChanged(own);
 		const field = openField(fake.host);
 		expect(field.style.fontSize).toBe('60px');
-		// The user's own change: a size of 30 in the layer's units is 15 in the text's.
+		// The user's own change: a size of 30 on the canvas is 5 in the text's units.
 		optionsChanged(withOptions(own, { fontSize: 30 }));
-		expect(field.style.fontSize).toBe('90px');
+		expect(field.style.fontSize).toBe('30px');
 		fireEvent.keyDown(field, { key: 'Escape' });
 		expect(fake.labels).toEqual(['tools.text']);
-		expect(textsIn(layer)[0]?.getAttribute('font-size')).toBe('15');
+		expect(textsIn(layer)[0]?.getAttribute('font-size')).toBe('5');
 		expect(textsIn(layer)[0]?.hasAttribute('fill')).toBe(false);
 	});
 
@@ -1214,5 +1227,75 @@ describe('the text a field is open on', () => {
 		click(createText(), context, 50, 55);
 		expect(openField(host).value).toBe('Hello');
 		expect(document.querySelector(`[${HIDDEN_TEXT_MARK}]`)).toBeNull();
+	});
+});
+
+describe('the text tool on a layer turned, flipped or scaled', () => {
+	// A new text is upright, unmirrored and the options' size on the canvas
+	// whatever the layer's placement, as Photoshop types after Image rotation
+	// or Image size (`newElementSpace`, `tools/vector/guard.ts`): written in
+	// the drawing's units under a `transform` that undoes the layer's, and
+	// edited in place, its field over it at the size it is seen.
+	const options = { fontSize: 24, fill: '#123456' };
+
+	/** A text typed at (300, 200) on the layer placed by `transform`, and the tool that typed it. */
+	const typedOn = (transform: string) => {
+		const drawing = createDrawing();
+		drawing.layer.setAttribute('transform', transform);
+		const fake = createFake(drawing.root, { options });
+		const tool = createText();
+		click(tool, fake.context, 300, 200);
+		const field = openField(fake.host);
+		const look = { fontSize: field.style.fontSize, left: field.style.left };
+		type(field, 'Upright');
+		fireEvent.keyDown(field, { key: 'Escape' });
+		const [text] = textsIn(drawing.layer);
+		return { ...drawing, ...fake, tool, look, text };
+	};
+
+	describe.each(PLACEMENTS)('%s', (_, transform) => {
+		it('writes the text upright at the click and the options’ size, as its field showed it', () => {
+			const { look, labels, text } = typedOn(transform);
+			expect(look).toEqual({ fontSize: '24px', left: '300px' });
+			expect(labels).toEqual(['tools.text']);
+			expect(attributesBut(text)).toMatchObject({
+				x: '300',
+				y: '200',
+				'font-size': '24',
+				fill: '#123456',
+			});
+			expect(text?.hasAttribute('transform')).toBe(true);
+			expectOnCanvasAsWritten(text);
+		});
+
+		it('edits it in place, its field over it at its size, keeping its transform', () => {
+			const { context, host, labels, layer, tool, text } = typedOn(transform);
+			const written = text?.getAttribute('transform');
+			const setOptions = vi.fn<NonNullable<ToolContext['setOptions']>>();
+			click(tool, { ...context, setOptions }, 320, 190);
+			expect(setOptions).toHaveBeenCalledExactlyOnceWith({ fontSize: 24, fill: '#123456' });
+			const field = openField(host);
+			expect(field.value).toBe('Upright');
+			// To the nine places the transforms are written to.
+			expect(Number.parseFloat(field.style.fontSize)).toBeCloseTo(24, 6);
+			expect(Number.parseFloat(field.style.left)).toBeCloseTo(300, 3);
+			expect(Number.parseFloat(field.style.top)).toBeCloseTo(200 - 0.95 * 24, 3);
+			type(field, 'Upright still');
+			fireEvent.keyDown(field, { key: 'Escape' });
+			expect(labels).toEqual(['tools.text', 'tools.text']);
+			const [edited, ...others] = textsIn(layer);
+			expect(others).toEqual([]);
+			expect(edited?.textContent).toBe('Upright still');
+			expect(edited?.getAttribute('transform')).toBe(written);
+			expect(edited?.getAttribute('font-size')).toBe('24');
+			expectOnCanvasAsWritten(edited);
+		});
+	});
+
+	it('writes in the layer’s numbers with no transform on a layer only moved, as ever', () => {
+		const { look, text } = typedOn('translate(100 50)');
+		expect(look).toEqual({ fontSize: '24px', left: '300px' });
+		expect(text?.hasAttribute('transform')).toBe(false);
+		expect(attributesBut(text)).toMatchObject({ x: '200', y: '150', 'font-size': '24' });
 	});
 });

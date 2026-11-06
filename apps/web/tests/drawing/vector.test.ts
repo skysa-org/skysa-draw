@@ -2,6 +2,7 @@ import { DEFAULT_DRAWING_SIZE, emptyDrawing, SVG_NAMESPACE } from '@skysa/draw-c
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
+import type { ExtentOf } from '../../src/drawing/tools/common/snap.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
 	type PointerSample,
@@ -17,7 +18,9 @@ import {
 } from '../../src/drawing/tools/vector/geometry.js';
 import { createVectorBehaviors, deleteSelection } from '../../src/drawing/tools/vector/index.js';
 import { attributeBox, measureOf } from '../../src/drawing/tools/vector/measure.js';
+import { createSelect } from '../../src/drawing/tools/vector/select.js';
 import { t } from '../../src/i18n/t.js';
+import { attributesBut, expectOnCanvasAsWritten, onCanvas, PLACEMENTS } from './placements.js';
 
 /**
  * The vector tools (docs/decisions/0004-the-interface.md) against a fake
@@ -482,7 +485,10 @@ describe('the eraser', () => {
 describe('a size on a scaled layer', () => {
 	// The size is in the drawing's units, as the brush's outline shows it
 	// (`tools/common/brushOutline.ts`), whatever the layer's `transform`: on a
-	// layer drawn twice as large, a mark is half as wide in the layer's own units.
+	// layer drawn twice as large, a new mark is written in the drawing's units,
+	// its size as it is, under a `transform` that halves what the layer
+	// doubles (`newElementSpace`, `tools/vector/guard.ts`); the eraser reaches
+	// half as far in the layer's own units.
 	const scaled = (children: Record<string, string>[] = []) => {
 		const drawing = createDrawing(children);
 		drawing.layer.setAttribute('transform', 'scale(2)');
@@ -497,9 +503,13 @@ describe('a size on a scaled layer', () => {
 			{ x: 20, y: 20 },
 			{ x: 40, y: 20 },
 		]);
+		// Was the layer's units, `M 10 10 L 20 10` 3 wide, which is the same
+		// on the canvas: one rule for every tool on every placement now, which
+		// a width scaled by one factor cannot be on a layer stretched one way.
 		const path = layer.firstElementChild;
-		expect(path?.getAttribute('d')).toBe('M 10 10 L 20 10');
-		expect(path?.getAttribute('stroke-width')).toBe('3');
+		expect(path?.getAttribute('d')).toBe('M 20 20 L 40 20');
+		expect(path?.getAttribute('stroke-width')).toBe('6');
+		expect(path?.getAttribute('transform')).toBe('matrix(0.5 0 0 0.5 0 0)');
 	});
 
 	it('draws the brush its size across in the drawing’s units', () => {
@@ -507,10 +517,12 @@ describe('a size on a scaled layer', () => {
 		const info = layerInfo('layer-1');
 		const { context } = createFake(root, [info], info, { size: 10, pressure: false });
 		stroke(tool('brush'), context, [{ x: 20, y: 20 }]);
-		// One dab: a circle 10 across in the drawing, 5 in the layer, about (10, 10).
-		expect(layer.firstElementChild?.getAttribute('d')).toBe(
-			'M 12.5 10 A 2.5 2.5 0 1 1 7.5 10 A 2.5 2.5 0 1 1 12.5 10 Z'
-		);
+		// One dab: a circle 10 across about (20, 20) in the drawing, written so
+		// under a `transform` that undoes the layer's. Was 5 across about
+		// (10, 10) in the layer's units, the same on the canvas, as the pencil's.
+		const dab = layer.firstElementChild;
+		expect(dab?.getAttribute('d')).toBe('M 25 20 A 5 5 0 1 1 15 20 A 5 5 0 1 1 25 20 Z');
+		expect(dab?.getAttribute('transform')).toBe('matrix(0.5 0 0 0.5 0 0)');
 	});
 
 	it('erases within half the eraser’s size in the drawing’s units', () => {
@@ -527,6 +539,154 @@ describe('a size on a scaled layer', () => {
 		// 1.5 past it, 3 of the drawing's: within it.
 		stroke(tool('eraser'), context, [{ x: 13, y: 4 }]);
 		expect([...layer.children].map((child) => child.id)).toEqual(['b']);
+	});
+});
+
+describe('what a tool draws on a layer turned, flipped or scaled', () => {
+	// What a tool adds is upright, unmirrored and at the options' sizes on the
+	// canvas, whatever the layer's placement, as in Photoshop after Image
+	// rotation or Image size (`newElementSpace`, `tools/vector/guard.ts`): the
+	// very element the same gesture draws on a layer at rest, in the drawing's
+	// units, under a `transform` that undoes the layer's.
+	const options: Partial<ToolOptions> = {
+		fill: '#00ff00',
+		stroke: '#ff0000',
+		strokeWidth: 4,
+		cornerRadius: 6,
+		size: 8,
+		smoothing: 0,
+		pressure: false,
+	};
+	const CORNERS: Point[] = [
+		{ x: 300, y: 200 },
+		{ x: 410, y: 260 },
+		{ x: 520, y: 330 },
+	];
+	const FREEHAND: Point[] = [
+		{ x: 300, y: 200 },
+		{ x: 320, y: 214 },
+		{ x: 340, y: 209 },
+		{ x: 360, y: 216 },
+	];
+	const GESTURES: ReadonlyArray<readonly [keyof typeof tools, Point[]]> = [
+		['rectangle', CORNERS],
+		['ellipse', CORNERS],
+		['line', CORNERS],
+		['pencil', FREEHAND],
+		['brush', FREEHAND],
+	];
+
+	/** The drawing, its layer placed by `transform`, after the tool's gesture. */
+	const drawnOn = (transform: string | undefined, name: keyof typeof tools, points: Point[]) => {
+		const drawing = createDrawing();
+		if (transform !== undefined) drawing.layer.setAttribute('transform', transform);
+		const info = layerInfo('layer-1');
+		const fake = createFake(drawing.root, [info], info, options);
+		stroke(tool(name), fake.context, points);
+		return { ...drawing, ...fake, drawn: drawing.layer.lastElementChild };
+	};
+
+	describe.each(PLACEMENTS)('%s', (_, transform) => {
+		it.each(GESTURES)(
+			'draws the %s as on a layer at rest, under a transform that undoes the layer’s',
+			(name, points) => {
+				const atRest = drawnOn(undefined, name, points).drawn;
+				const { drawn, labels } = drawnOn(transform, name, points);
+				expect(labels).toEqual([`tools.${name}`]);
+				expect(drawn?.localName).toBe(atRest?.localName);
+				expect(attributesBut(drawn)).toEqual(attributesBut(atRest));
+				expect(drawn?.hasAttribute('transform')).toBe(true);
+				expectOnCanvasAsWritten(drawn);
+			}
+		);
+
+		it('draws a rectangle from corner to corner, its corners and stroke the options’ sizes', () => {
+			const { drawn } = drawnOn(transform, 'rectangle', CORNERS);
+			expect(attributesBut(drawn)).toMatchObject({
+				x: '300',
+				y: '200',
+				width: '220',
+				height: '130',
+				rx: '6',
+				ry: '6',
+				'stroke-width': '4',
+			});
+			expectOnCanvasAsWritten(drawn);
+		});
+	});
+
+	it.each([
+		['turned a quarter', 'matrix(0 1 -1 0 1000 0)', 'matrix(0 -1 1 0 0 1000)'],
+		['flipped across', 'matrix(-1 0 0 1 1600 0)', 'matrix(-1 0 0 1 1600 0)'],
+		['scaled by half', 'scale(0.5)', 'matrix(2 0 0 2 0 0)'],
+	])('undoes a layer %s in whole numbers', (_, placement, undone) => {
+		expect(drawnOn(placement, 'rectangle', CORNERS).drawn?.getAttribute('transform')).toBe(
+			undone
+		);
+	});
+
+	it.each(GESTURES)(
+		'draws the %s on a layer only moved in the layer’s numbers with no transform, as ever',
+		(name, points) => {
+			const back = points.map((p) => ({ x: p.x - 100, y: p.y - 50 }));
+			const atRest = drawnOn(undefined, name, back).drawn;
+			const { drawn } = drawnOn('translate(100 50)', name, points);
+			expect(drawn?.hasAttribute('transform')).toBe(false);
+			expect(attributesBut(drawn)).toEqual(attributesBut(atRest));
+		}
+	);
+
+	it('finds what it drew there where it is seen: the fill fills it and the eraser takes it', () => {
+		const [, turned = ''] = PLACEMENTS.find(([name]) => name === 'turned 30°') ?? [];
+		const { context, layer } = drawnOn(turned, 'rectangle', CORNERS);
+		const fill = tool('fill');
+		const blue = { ...context, options: { ...context.options, fill: '#0000ff' } };
+		fill.begin(blue, at(20, 900));
+		// 30 above its top edge: in the box of its box in the layer's turned
+		// units, but not in its own box on the canvas, where it is upright.
+		fill.begin(blue, at(410, 170));
+		expect(layer.lastElementChild?.getAttribute('fill')).toBe('#00ff00');
+		fill.begin(blue, at(410, 265));
+		expect(layer.lastElementChild?.getAttribute('fill')).toBe('#0000ff');
+		stroke(tool('eraser'), context, [{ x: 410, y: 175 }]);
+		expect(layer.children.length).toBe(1);
+		stroke(tool('eraser'), context, [{ x: 410, y: 197 }]);
+		expect(layer.children.length).toBe(0);
+	});
+
+	it('selects what it drew there by its own box, as the marquee does', () => {
+		const [, turned = ''] = PLACEMENTS.find(([name]) => name === 'turned 30°') ?? [];
+		const { context, drawn } = drawnOn(turned, 'rectangle', CORNERS);
+		const select = tool('select');
+		// 30 above its top edge: in the box of its box, not in its own.
+		select.begin(context, at(410, 170));
+		select.end(context, at(410, 170));
+		expect(context.selection.elements).toEqual([]);
+		select.begin(context, at(410, 265));
+		select.end(context, at(410, 265));
+		expect(context.selection.elements).toEqual([drawn]);
+		// A marquee over the band above it, which the box of its box reaches.
+		select.begin(context, at(290, 150));
+		select.move(context, at(530, 190));
+		select.end(context, at(530, 190));
+		expect(context.selection.elements).toEqual([]);
+		select.begin(context, at(290, 150));
+		select.move(context, at(530, 210));
+		select.end(context, at(530, 210));
+		expect(context.selection.elements).toEqual([drawn]);
+	});
+
+	it('moves what it drew there by what the pointer moved, upright still', () => {
+		const [, turned = ''] = PLACEMENTS.find(([name]) => name === 'turned 30°') ?? [];
+		const { context, drawn } = drawnOn(turned, 'rectangle', CORNERS);
+		const select = tool('select');
+		select.begin(context, at(410, 265));
+		select.end(context, at(460, 285));
+		const [a, b, c, d, e, f] = onCanvas(drawn);
+		// The select tool writes an element's `transform` to four decimals.
+		[a - 1, b, c, d - 1].forEach((value) => expect(Math.abs(value)).toBeLessThan(1e-4));
+		expect(e).toBeCloseTo(50, 1);
+		expect(f).toBeCloseTo(20, 1);
 	});
 });
 
@@ -755,6 +915,92 @@ describe('the select tool', () => {
 		select.end(context, at(30, 30, { shiftKey: true }));
 		expect(context.selection.elements.map((e) => e.id)).toEqual(['a']);
 		expect(layer.querySelector('#b')?.hasAttribute('transform')).toBe(false);
+	});
+
+	describe('snapping a move', () => {
+		/** A drawing of two elements on layer 1, and a layer 2 that paints 400 to 440 across. */
+		const twoLayers = () => {
+			const drawing = createDrawing([
+				{ id: 'a', x: '0', y: '20', width: '10', height: '10' },
+				{ id: 'b', x: '200', y: '300', width: '50', height: '50' },
+			]);
+			const other = svg(drawing.owner, 'g', { id: 'layer-2' });
+			drawing.root.appendChild(other);
+			const info = layerInfo('layer-1');
+			const asked: string[] = [];
+			const extentOf: ExtentOf = () => (id) => {
+				asked.push(id);
+				return Promise.resolve(
+					id === 'layer-2' ? { x: 400, y: 100, width: 40, height: 40 } : undefined
+				);
+			};
+			const fake = createFake(drawing.root, [info, layerInfo('layer-2')], info);
+			return { ...drawing, ...fake, asked, select: createSelect(attributeBox, extentOf) };
+		};
+
+		const settle = (): Promise<void> =>
+			new Promise((resolve) => {
+				setTimeout(resolve, 0);
+			});
+
+		it('snaps the box of what moves to the other elements and the other layers, with its guide over the box', async () => {
+			const { context, layer, labels, asked, select } = twoLayers();
+			const a = layer.querySelector('#a');
+			select.begin(context, at(5, 25));
+			expect(asked).toEqual(['layer-2']);
+			await settle();
+			// Its left edge at 198, 2 short of b's.
+			select.move(context, at(203, 25));
+			expect(a?.getAttribute('transform')).toBe('matrix(1 0 0 1 200 0)');
+			const guide = context.overlay.querySelector('.snap-guide');
+			expect(['x1', 'y1', 'x2', 'y2'].map((name) => guide?.getAttribute(name))).toEqual([
+				'200',
+				'20',
+				'200',
+				'350',
+			]);
+			expect(context.overlay.lastElementChild?.hasAttribute('data-snap-guides')).toBe(true);
+			expect(context.overlay.querySelector('[data-draw-selection]')).not.toBeNull();
+			// Its right edge at 398, 2 short of layer 2's left, and not snapped with Control held.
+			select.move(context, at(393, 25, { controlKey: true }));
+			expect(a?.getAttribute('transform')).toBe('matrix(1 0 0 1 388 0)');
+			select.move(context, at(393, 25));
+			expect(a?.getAttribute('transform')).toBe('matrix(1 0 0 1 390 0)');
+			select.end(context, at(393, 25));
+			expect(labels).toEqual(['tools.select']);
+			expect(a?.getAttribute('transform')).toBe('matrix(1 0 0 1 390 0)');
+			expect(context.overlay.querySelector('.snap-guide')).toBeNull();
+		});
+
+		it('does not snap a move in the turn it began, a resize, or with Snap off', async () => {
+			const { context, layer, select } = twoLayers();
+			const a = layer.querySelector('#a');
+			select.begin(context, at(5, 25));
+			select.move(context, at(203, 25));
+			expect(a?.getAttribute('transform')).toBe('matrix(1 0 0 1 198 0)');
+			select.cancel(context);
+			expect(a?.hasAttribute('transform')).toBe(false);
+			// The east handle of b's box, at 250 by 325, dragged 2 short of layer 2's
+			// left at 400: a resize, which does not snap.
+			const b = layer.querySelector('#b');
+			select.begin(context, at(225, 325));
+			select.end(context, at(225, 325));
+			select.begin(context, at(250, 325));
+			await settle();
+			select.move(context, at(398, 325));
+			expect(b?.getAttribute('transform')).toBe('matrix(3.96 0 0 1 -592 0)');
+			expect(context.overlay.querySelector('.snap-guide')).toBeNull();
+			select.cancel(context);
+			const off = twoLayers();
+			const offContext = { ...off.context, options: { ...off.context.options, snap: false } };
+			off.select.begin(offContext, at(5, 25));
+			await settle();
+			off.select.move(offContext, at(203, 25));
+			expect(off.asked).toEqual([]);
+			expect(off.layer.querySelector('#a')?.getAttribute('transform')).toBe(
+				'matrix(1 0 0 1 198 0)'
+			);
+		});
 	});
 
 	it('moves what it drags, live, restoring the layer before the command sets the result', () => {

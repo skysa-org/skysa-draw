@@ -300,6 +300,27 @@ describe('editActionFor', () => {
 	);
 
 	it.each([true, false])(
+		'turns Snap on and off with Shift, the primary key and ;, as Photoshop does (mac: %s)',
+		(isMac) => {
+			const held = { ...primary(isMac), shiftKey: true };
+			expect(editActionFor(key(';', held), isMac)).toBe('toggleSnap');
+			// What Shift makes of the key on a US keyboard.
+			expect(editActionFor(key(':', held), isMac)).toBe('toggleSnap');
+			expect(editActionFor(key(';', primary(isMac)), isMac)).toBeUndefined();
+			expect(editActionFor(key(';'), isMac)).toBeUndefined();
+			expect(editActionFor(key(':', { shiftKey: true }), isMac)).toBeUndefined();
+			expect(editActionFor(key(';', { ...held, altKey: true }), isMac)).toBeUndefined();
+			expect(editActionFor(key(';', { ...held, target: field() }), isMac)).toBeUndefined();
+			expect(toolFor(key(':', held), isMac)).toBeUndefined();
+		}
+	);
+
+	it('turns Snap on and off with the platform’s primary key alone, not the other one', () => {
+		expect(editActionFor(key(':', { ctrlKey: true, shiftKey: true }), true)).toBeUndefined();
+		expect(editActionFor(key(':', { metaKey: true, shiftKey: true }), false)).toBeUndefined();
+	});
+
+	it.each([true, false])(
 		'reads Alt with Backspace alone, and no other Alt key (mac: %s)',
 		(isMac) => {
 			expect(editActionFor(key('Delete', { altKey: true }), isMac)).toBeUndefined();
@@ -358,6 +379,8 @@ describe('editActionFor', () => {
 			'j',
 			'F6',
 			'F5',
+			';',
+			':',
 		];
 		const seen = keys.flatMap((name) =>
 			[true, false].flatMap((isMac) =>
@@ -426,6 +449,8 @@ describe('shortcutFor', () => {
 		expect(shortcutFor('zoomIn', false)).toBe('Ctrl++');
 		expect(shortcutFor('delete', true)).toBe('⌫');
 		expect(shortcutFor('delete', false)).toBe('Delete');
+		expect(shortcutFor('toggleSnap', true)).toBe('⇧⌘;');
+		expect(shortcutFor('toggleSnap', false)).toBe('Ctrl+Shift+;');
 	});
 
 	it('shows no key a Mac in a tab cannot press, nor one for an action without one', () => {

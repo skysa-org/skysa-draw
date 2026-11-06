@@ -11,6 +11,7 @@ import {
 } from '../../src/drawing/tools/types.js';
 import { createPen } from '../../src/drawing/tools/vector/pen.js';
 import { t } from '../../src/i18n/t.js';
+import { attributesBut, expectOnCanvasAsWritten, PLACEMENTS } from './placements.js';
 
 /**
  * The pen (docs/decisions/0004-the-interface.md) against a fake editor, as
@@ -476,5 +477,44 @@ describe('the pen', () => {
 		expect(layer.firstElementChild?.getAttribute('d')).toBe('M 0 0 L 10 0');
 		expect(other.children.length).toBe(0);
 		press('Escape');
+	});
+});
+
+describe('the pen on a layer turned, flipped or scaled', () => {
+	// The path is where it was drawn and its stroke the options' width on the
+	// canvas, whatever the layer's placement (`newElementSpace`,
+	// `tools/vector/guard.ts`): the very path a layer at rest is given, in the
+	// drawing's units, under a `transform` that undoes the layer's.
+	const drawnOn = (transform: string | undefined) => {
+		const { context, labels, layer, pen } = setUp({
+			fill: 'none',
+			stroke: '#ff0000',
+			strokeWidth: 3,
+		});
+		if (transform !== undefined) layer.setAttribute('transform', transform);
+		click(pen, context, 300, 200);
+		drag(pen, context, [400, 200], [440, 230]);
+		click(pen, context, 500, 320);
+		press('Enter');
+		return { labels, path: layer.lastElementChild };
+	};
+
+	it.each(PLACEMENTS)(
+		'draws on a layer %s the path a layer at rest is given, under a transform that undoes the layer’s',
+		(_, transform) => {
+			const atRest = drawnOn(undefined).path;
+			const { labels, path } = drawnOn(transform);
+			expect(labels).toEqual(['tools.pen']);
+			expect(attributesBut(path)).toEqual(attributesBut(atRest));
+			expect(attributesBut(path)).toMatchObject({ 'stroke-width': '3' });
+			expect(path?.hasAttribute('transform')).toBe(true);
+			expectOnCanvasAsWritten(path);
+		}
+	);
+
+	it('gives a path on a layer only moved no transform, as ever', () => {
+		const { path } = drawnOn('translate(100 50)');
+		expect(path?.hasAttribute('transform')).toBe(false);
+		expect(path?.getAttribute('d')?.startsWith('M 200 150 ')).toBe(true);
 	});
 });

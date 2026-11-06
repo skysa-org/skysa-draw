@@ -4,7 +4,7 @@ import { editLayer } from '../../document/commands.js';
 import { isTyping } from '../../keys.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { constrainLine, distance, type Point } from './geometry.js';
-import { guardLayer, layerSpace, targetLayer } from './guard.js';
+import { guardLayer, newElementSpace, targetLayer } from './guard.js';
 import { mirror } from './path/edit.js';
 import { formatPath } from './path/format.js';
 import { anchorMark, handleMarks, type Mark, outlineMark, REACH_PX } from './path/marks.js';
@@ -216,8 +216,10 @@ export const createPen = (): ToolBehavior => {
 	/**
 	 * The path written to the layer it was begun on, by one command, where it
 	 * has a segment to draw. The guard of every vector tool applies then too,
-	 * and a loose layer is wrapped first (`targetLayer`); the points go into
-	 * the layer's own units (`layerSpace`).
+	 * and a loose layer is wrapped first (`targetLayer`); the points go where a
+	 * new element is drawn on the layer (`newElementSpace`), so the path is
+	 * where it was drawn and its stroke the options' width, the layer turned or
+	 * scaled or not.
 	 */
 	const finish = (current: Drawing, closed: boolean): void => {
 		stop(current);
@@ -229,10 +231,12 @@ export const createPen = (): ToolBehavior => {
 		const context: ToolContext = { ...current.context, layer: info };
 		const layer = targetLayer(context);
 		if (layer === undefined) return;
-		const anchors = mapAnchors(layerSpace(layer).into, current.anchors);
+		const { into, transform } = newElementSpace(layer);
+		const anchors = mapAnchors(into, current.anchors);
 		const attributes: Attributes = {
 			d: formatPath([{ anchors, closed }]),
 			...paintFor(context.options, closed),
+			transform,
 		};
 		context.document.execute(
 			editLayer(layer.id, 'tools.pen', (g: Element) => {

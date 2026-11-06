@@ -113,6 +113,15 @@ describe('the editor state', () => {
 		expect(state.options.stroke).toBe('#111111');
 	});
 
+	it('turns Snap off where it is on, on by default, and on again', () => {
+		expect(initialEditorState.options.snap).toBe(true);
+		const off = after({ type: 'toggleSnap' });
+		expect(off.options.snap).toBe(false);
+		expect(editorReducer(off, { type: 'toggleSnap' }).options.snap).toBe(true);
+		// Nothing else of the options moves with it.
+		expect({ ...off.options, snap: true }).toEqual(initialEditorState.options);
+	});
+
 	it('scales the size by steps and keeps it between the limits', () => {
 		expect(after({ type: 'adjustSize', steps: 1 }).options.size).toBe(10);
 		expect(after({ type: 'adjustSize', steps: -1 }).options.size).toBe(6);

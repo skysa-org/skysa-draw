@@ -1,43 +1,12 @@
-/* Fill…: the contents with their swatches, the blending, and the buttons
-   (`drawing/panels/FillDialog.tsx`), in groups as the color panel's are
-   (`ui.css`, `.field-groups`); and the line over the canvas while a
-   content-aware fill is under way (`drawing/tools/raster/areaFill.ts`). Every
-   control is a `--target` tall. */
+/* Fill…: the contents' swatches, Color…'s field and the opacity
+   (`drawing/panels/FillDialog.tsx`), in the form every dialog of the
+   frame's has, its rows and its buttons (`dialogs.css`); and the line over
+   the canvas while a content-aware fill is under way
+   (`drawing/tools/raster/areaFill.ts`). Every control is a `--target`
+   tall. */
 
-/* A whole row to press, the radio, the swatch and the words. */
-.fill-choice,
-.fill-check {
-	align-items: center;
-	border-radius: var(--radius-s);
-	cursor: pointer;
-	display: flex;
-	gap: var(--space-s);
-	min-height: var(--target);
-	padding-inline: var(--space-xs);
-	touch-action: manipulation;
-}
-
-.fill-choice:hover,
-.fill-check:hover {
-	background: var(--hover-bg);
-}
-
-.fill-choice input,
-.fill-check input {
-	accent-color: var(--accent);
-	flex: none;
-	height: 1.25rem;
-	margin: 0;
-	width: 1.25rem;
-}
-
-.fill-choice:has(:focus-visible),
-.fill-check:has(:focus-visible) {
-	outline: 2px solid var(--ring);
-	outline-offset: -2px;
-}
-
-/* In `currentColor`, as the color field's swatch is. */
+/* In `currentColor`, as the color field's swatch is; in its row between the
+   radio and the words. */
 .fill-swatch {
 	background: currentColor;
 	border: 1px solid var(--border);
@@ -54,53 +23,9 @@
 		linear-gradient(to top, var(--muted) 0 35%, var(--surface) 35%);
 }
 
-/* Color…'s field, under its row and in from its radio. */
+/* Color…'s field, under its row and in from its radio (`.radio-row`). */
 .fill-color {
 	padding-inline-start: calc(var(--space-xs) + 1.25rem + var(--space-s));
-}
-
-.fill-opacity {
-	align-items: center;
-	display: flex;
-	gap: var(--space-s);
-	min-width: 0;
-}
-
-.fill-opacity .slider {
-	flex: 1;
-}
-
-/* The number field beside the slider says the opacity, and is the one to
-   type in: the slider's own read-out would only be squeezed under it. */
-.fill-opacity .slider output {
-	display: none;
-}
-
-.fill-field {
-	background: var(--bg);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-s);
-	color: inherit;
-	flex: none;
-	font: inherit;
-	/* What Safari on a phone needs of a field, or it zooms in on focus. */
-	font-size: var(--text-field-floor);
-	min-height: var(--target);
-	padding: 0 var(--space-s);
-	width: 5.5rem;
-}
-
-.fill-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-s);
-	justify-content: flex-end;
-	margin-block-start: var(--space-s);
-}
-
-.fill-actions button {
-	min-height: var(--target);
-	min-width: 6rem;
 }
 
 /* Over the top of the canvas, in the viewport's own element, while the

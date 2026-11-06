@@ -223,8 +223,11 @@
  * tools' four modes. Icon buttons a target either way, abutting so the group
  * reads as one control, the one in force pressed as a tool is; never
  * squeezed below a target where the strip runs short, which scrolls instead.
+ * The move tool's alignment, its six buttons and its menu, is such a group
+ * of actions (`OptionsStrip.tsx`), and looks it.
  */
-.choice-buttons {
+.choice-buttons,
+.options-align {
 	align-items: center;
 	display: flex;
 	flex: none;
@@ -479,6 +482,11 @@
 	min-width: auto;
 }
 
+/* In a bar, as wide as its choice shown, never squeezed: the bar scrolls instead. */
+.toolbar .select {
+	flex: none;
+}
+
 .slider input {
 	accent-color: var(--accent);
 	cursor: pointer;
@@ -705,11 +713,14 @@ legend.field-legend {
 }
 
 /*
- * A menu at a point (`ContextMenu`), placed by its style from the window's
- * top left, in the top layer or, without the Popover API, in place; growing
- * from the point it was opened at, from no side in particular.
+ * A menu at a point (`ContextMenu`) and a submenu (`MenuItem.submenu`),
+ * placed by their style from the window's top left, in the top layer or,
+ * without the Popover API, in place; growing from the point the one was
+ * opened at, or from the side of the other that its item is on, from no
+ * side in particular.
  */
-.menu-context {
+.menu-context,
+.menu-submenu {
 	--arrive-y: 0;
 	inset: auto;
 	margin: 0;
@@ -747,6 +758,21 @@ legend.field-legend {
 
 .menu-item-danger {
 	color: var(--bad);
+}
+
+/* An item whose submenu is open: shown as the one it is open from, wherever the pointer has gone. */
+.menu-item[aria-expanded='true'] {
+	background: var(--hover-bg);
+}
+
+/* The chevron at the end of an item with a submenu, toward it, and so the other way round in a right-to-left language. */
+.menu-item-more {
+	display: flex;
+	flex: none;
+}
+
+.menu-item-more:dir(rtl) {
+	scale: -1 1;
 }
 
 /* Over the foot of what holds it, the canvas; taps go through all but the card. */

@@ -2,7 +2,7 @@ import { type LayerVia, layerViaElements } from '../../document/layerVia.js';
 import { areaPolygons, areaTouchesBox } from '../raster/area.js';
 import { areaDrag } from '../raster/region.js';
 import type { AreaMode, ToolBehavior, ToolContext } from '../types.js';
-import { type Box, transformBox, unionBox } from './geometry.js';
+import { type Box, unionBox } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
 import { elementsOf, placedBox, positionsIn } from './hit.js';
 import { measureOf } from './measure.js';
@@ -35,7 +35,7 @@ const OUTLINE_STYLE = 'stroke: var(--accent, #2563eb); fill: none';
 
 /** Where an element sits in the drawing's user units: its box, out of the layer's space. */
 const boxIn = (layer: Element, element: Element): Box =>
-	transformBox(layerSpace(layer).outOf, placedBox(measureOf, element));
+	placedBox(measureOf, element, layerSpace(layer).outOf);
 
 const clearOutlines = (overlay: SVGSVGElement): void => {
 	overlay.querySelectorAll(`[${OUTLINE}]`).forEach((element) => element.remove());

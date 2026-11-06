@@ -167,6 +167,10 @@
 	   above: a drop target is not an outcome, and green over the row under the
 	   pointer would read as "done" before anything has been. */
 	--drop: #2563eb;
+	/* Where a move snapped (`tools/common/snap.ts`): Photoshop's smart-guide
+	   magenta, a hue nothing else in the app uses and few pictures do, so a
+	   hairline of it reads over the drawing. */
+	--snap-guide: #ff00ff;
 	/* What is on: a pressed toggle, the tab in use, a mark already applied.
 	   A color of its own rather than a darker gray, because a gray that is
 	   darker than hover is only told apart from hover side by side, and a
@@ -208,6 +212,9 @@
 		--warn: #fbbf24;
 		--bad: #f87171;
 		--drop: #60a5fa;
+		/* Lifted a little, as the other hues are here, so the hairline holds
+		   against the dark ground around the canvas. */
+		--snap-guide: #ff5cff;
 		--accent: #60a5fa;
 		/* The light palette's ink is unreadable on a dark slab: every token
 		   color is the same hue lifted until it reads against `--surface`,

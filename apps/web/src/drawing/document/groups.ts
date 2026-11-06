@@ -1,5 +1,6 @@
 import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
 
+import { keepingClips } from './clip.js';
 import { compound, removeLayer } from './commands.js';
 import {
 	attributesOf,
@@ -125,8 +126,9 @@ type Ungrouped = Readonly<{
  * The group's contents in its place, and the group gone: everything it held
  * but the indentation before its first child and after its last, which go
  * with it, and its `transform`, if it has one, before each layer's own, so
- * every layer stays where it was drawn. A group with nothing in it is just
- * deleted. Nothing, costing nothing, for a group `ungroupProblem` names.
+ * every layer stays where it was drawn, a clipped one's clip kept true with
+ * it (`keepingClips`). A group with nothing in it is just deleted. Nothing,
+ * costing nothing, for a group `ungroupProblem` names.
  */
 export const ungroupLayer = (root: SVGSVGElement, id: string): Command => {
 	if (ungroupProblem(root, id) !== undefined) return compound('layers.ungroup', []);
@@ -134,7 +136,7 @@ export const ungroupLayer = (root: SVGSVGElement, id: string): Command => {
 	const holds = [...(group?.childNodes ?? [])].some((node) => !isSpace(node));
 	if (!holds) return compound('layers.ungroup', [removeLayer(id)]);
 	const done = cell<Ungrouped | undefined>(undefined);
-	return {
+	return keepingClips({
 		label: 'layers.ungroup',
 		apply: (live) => {
 			const element = layerById(live, id);
@@ -196,5 +198,5 @@ export const ungroupLayer = (root: SVGSVGElement, id: string): Command => {
 						SMALL_COMMAND_BYTES
 					);
 		},
-	};
+	});
 };

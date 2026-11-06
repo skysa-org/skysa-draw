@@ -160,6 +160,11 @@
 	border-block-start: 1px solid var(--border);
 }
 
+/* A toggle's own menu, as Auto-select's is, close by it, one option of two controls, as in Photoshop's options bar. */
+.options-strip > .toggle + .select {
+	margin-inline-start: calc(var(--space-2xs) - var(--space-l));
+}
+
 /* The canvas, and the notice over it. */
 .editor-canvas {
 	display: flex;
@@ -597,96 +602,15 @@
 	opacity: 0.4;
 }
 
-/* Modify…: the ways, the radius as a slider and a number together, and
-   the buttons. */
-.modify-form {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-s);
-}
+/* Modify…: the radius as a slider and a number together, and the ways' two
+   lines, in the form every dialog of the frame's has, its rows and its
+   buttons (`dialogs.css`). */
 
-.modify-radius {
-	align-items: center;
-	display: flex;
-	gap: var(--space-s);
-	min-width: 0;
-}
-
-.modify-radius .slider {
-	flex: 1;
-}
-
-/* The number field beside the slider says its value, and is the one to
-   type in: the slider's own read-out would only be squeezed under it. */
-.modify-radius .slider output {
-	display: none;
-}
-
-.modify-field {
-	background: var(--bg);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-s);
-	color: inherit;
-	flex: none;
-	font: inherit;
-	/* What Safari on a phone needs of a field, or it zooms in on focus. */
-	font-size: var(--text-field-floor);
-	min-height: var(--target);
-	padding: 0 var(--space-s);
-	width: 5.5rem;
-}
-
-.modify-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-s);
-	justify-content: flex-end;
-	margin-block-start: var(--space-s);
-}
-
-.modify-actions button {
-	min-height: var(--target);
-	min-width: 6rem;
-}
-
-/* Modify…'s five ways, each a whole row to press, the radio, the name and
-   its line under it, as Fill…'s contents are rows. */
-.modify-ways {
-	border: 0;
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2xs);
-	margin: 0;
-	min-width: 0;
-	padding: 0;
-}
-
+/* Modify…'s five ways, each a whole row to press (`.radio-row`), as Fill…'s
+   contents are rows: the radio, the name and its line under it, the two
+   lines a hair in from the row's edge. */
 .modify-way {
-	align-items: center;
-	border-radius: var(--radius-s);
-	cursor: pointer;
-	display: flex;
-	gap: var(--space-s);
-	min-height: var(--target);
-	padding: var(--space-2xs) var(--space-xs);
-	touch-action: manipulation;
-}
-
-.modify-way:hover {
-	background: var(--hover-bg);
-}
-
-.modify-way input {
-	accent-color: var(--accent);
-	flex: none;
-	height: 1.25rem;
-	margin: 0;
-	width: 1.25rem;
-}
-
-.modify-way:has(:focus-visible) {
-	outline: 2px solid var(--ring);
-	outline-offset: -2px;
+	padding-block: var(--space-2xs);
 }
 
 .modify-words {

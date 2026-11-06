@@ -364,6 +364,18 @@ export const parseTransform = (attribute: string | null): Mat =>
 const isIdentity = (m: Mat): boolean =>
 	m.every((value, i) => Math.abs(value - (IDENTITY[i] ?? 0)) < 1e-9);
 
+/** `matrix(a b c d e f)` to `decimals`; the empty string for the identity, which is no attribute. */
+const matrixTo = (m: Mat, decimals: number): string =>
+	isIdentity(m) ? '' : `matrix(${m.map((value) => String(roundTo(value, decimals))).join(' ')})`;
+
 /** `matrix(a b c d e f)` to four decimals; the empty string for the identity, which is no attribute. */
-export const formatTransform = (m: Mat): string =>
-	isIdentity(m) ? '' : `matrix(${m.map((value) => String(roundTo(value, 4))).join(' ')})`;
+export const formatTransform = (m: Mat): string => matrixTo(m, 4);
+
+/**
+ * `matrix(a b c d e f)` to nine decimals, as a layer's own `transform` is
+ * written (`matrixText`, `document/canvasTransform.ts`), for a matrix that
+ * undoes a layer's: past nine places a sine of a right angle is noise, and
+ * short of them the two would not meet to a hundred-thousandth of a unit on
+ * the largest canvas. The empty string for the identity.
+ */
+export const formatFineTransform = (m: Mat): string => matrixTo(m, 9);

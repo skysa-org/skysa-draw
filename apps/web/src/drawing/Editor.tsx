@@ -44,12 +44,14 @@ import { ExportDialog } from './export/ExportDialog.js';
 import { shortcutFor } from './keys.js';
 import { ColorPanel } from './panels/ColorPanel.js';
 import { FillDialog } from './panels/FillDialog.js';
+import { useImageMenu } from './panels/imageMenu.js';
 import { LayersPanel } from './panels/LayersPanel.js';
 import { ModifyDialog } from './panels/ModifyDialog.js';
 import { OptionsStrip } from './panels/OptionsStrip.js';
 import { PropertiesPanel } from './panels/PropertiesPanel.js';
 import { ToolButtons } from './panels/ToolButtons.js';
 import { SELECTION_TOOLS, selectionModeOf, useSelectionActions } from './selectionActions.js';
+import { arrangedIds, type Arrangement } from './tools/common/align.js';
 import { toolById } from './tools/index.js';
 import type { AreaModify } from './tools/raster/areaOps.js';
 import type { Region, Tool } from './tools/types.js';
@@ -174,7 +176,8 @@ type FrameProps = Readonly<{
 	dispatch: Dispatch<EditorAction>;
 	activeLayerId: string | undefined;
 	notice: string | undefined;
-	topBar: ReactNode;
+	/** The top bar, with the Image operations' items in its More. */
+	topBar: (imageItems: readonly MenuItem[]) => ReactNode;
 	viewport: RefObject<ViewportHandle | null>;
 	onScale: (scale: number) => void;
 	/** A picture dropped on the canvas is placed as a new layer. */
@@ -191,7 +194,9 @@ type FrameProps = Readonly<{
  * was opened for is the one there; Modify…'s Apply sets the area, which is
  * not part of the history, and Fill…'s is the viewport's, through its
  * handle. A Modify… that would leave nothing of the area keeps it, and says
- * so.
+ * so. The Image operations under the top bar's More open dialogs of the
+ * frame's too (`panels/imageMenu.tsx`), and are disabled while the area is
+ * being transformed.
  */
 const Frame = ({
 	sizeClass,
@@ -225,6 +230,14 @@ const Frame = ({
 		Readonly<{ region: Region | undefined; way?: AreaModify }> | undefined
 	>(undefined);
 	const [filling, setFilling] = useState<Region | undefined>(undefined);
+	// Where the frame's dialogs go: Modify…, Fill… and the Image operations'.
+	const dialogPlacement = compact ? 'sheet' : 'drawer';
+	const image = useImageMenu({
+		document,
+		placement: dialogPlacement,
+		busy: facts.transforming === true,
+		notify,
+	});
 	// Through the handle, when an item is chosen: the viewport does it.
 	const items = useSelectionActions(facts, (action) => viewport.current?.perform(action), MAC);
 	// A transform begun from the context menu shows its Apply and Cancel
@@ -252,12 +265,21 @@ const Frame = ({
 			onLayers={toggleLayers}
 		/>
 	);
+	// The move tool's alignment, for the layers it would move, done by the viewport.
+	const align =
+		tool.id === 'select'
+			? {
+					count: arrangedIds(document.root, chosen, activeLayerId).length,
+					onArrange: (arrangement: Arrangement) => viewport.current?.arrange(arrangement),
+				}
+			: undefined;
 	const options = (
 		<OptionsStrip
 			tool={tool}
 			options={state.options}
 			onChange={(key, value) => dispatch(setOption(key, value))}
 			actions={selecting ? items : []}
+			align={align}
 			transforming={facts.transforming === true}
 		/>
 	);
@@ -282,7 +304,7 @@ const Frame = ({
 	// after it on compact, so that the order read is the order seen.
 	return (
 		<main className="editor" data-size={sizeClass}>
-			{topBar}
+			{topBar(image.items)}
 			{!compact && (
 				<ToolBar
 					orientation="vertical"
@@ -352,7 +374,7 @@ const Frame = ({
 				}
 			/>
 			<ModifyDialog
-				placement={compact ? 'sheet' : 'drawer'}
+				placement={dialogPlacement}
 				open={modifying !== undefined && modifying.region === facts.region}
 				region={modifying?.region}
 				way={modifying?.way}
@@ -369,13 +391,14 @@ const Frame = ({
 				onClose={() => setModifying(undefined)}
 			/>
 			<FillDialog
-				placement={compact ? 'sheet' : 'drawer'}
+				placement={dialogPlacement}
 				open={filling !== undefined && filling === facts.region}
 				options={state.options}
 				recent={state.recentColors}
 				onApply={(spec) => viewport.current?.fillArea(spec)}
 				onClose={() => setFilling(undefined)}
 			/>
+			{image.dialogs}
 		</main>
 	);
 };
@@ -520,7 +543,7 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 			onSelect: () => viewport.current?.zoomOut(),
 		},
 	];
-	const topBar = (
+	const topBar = (imageItems: readonly MenuItem[] = []) => (
 		<TopBar
 			title={title}
 			sizeClass={sizeClass}
@@ -547,6 +570,7 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 				onBack();
 			}}
 			{...fileActions}
+			imageItems={imageItems}
 		/>
 	);
 	const libraryDrawer = sizeClass !== 'compact' && (
@@ -579,7 +603,7 @@ export const Editor = ({ id, onBack, onReplaced, library }: EditorProps) => {
 					title={title}
 					text={unreadable ? row?.text : undefined}
 					notice={unreadable ? t('editor.unreadable') : undefined}
-					topBar={topBar}
+					topBar={topBar()}
 				/>
 				{libraryDrawer}
 			</>

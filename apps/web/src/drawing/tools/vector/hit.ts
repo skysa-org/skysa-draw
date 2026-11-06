@@ -4,6 +4,9 @@ import {
 	type Box,
 	boxContains,
 	boxesIntersect,
+	IDENTITY,
+	type Mat,
+	multiply,
 	parseTransform,
 	type Point,
 	transformBox,
@@ -12,9 +15,11 @@ import type { Measure } from './measure.js';
 
 /**
  * Finding what is under the pointer on a vector layer, by boxes: an element's
- * measured box, placed by its own `transform`, in the layer's user units. A
- * box is coarser than the shape itself, which is what a user of a select tool
- * expects of a click near a thin line, and what the eraser and the fill need.
+ * measured box, placed by its own `transform`, in the layer's user units, or,
+ * given the layer's placement (`layerSpace(layer).outOf`), by that too, in
+ * the drawing's, where the pointer is. A box is coarser than the shape
+ * itself, which is what a user of a select tool expects of a click near a
+ * thin line, and what the eraser and the fill need.
  */
 
 /**
@@ -48,34 +53,47 @@ export const elementsAtPositions = (
 	return positions.flatMap((position) => own.slice(position, position + 1));
 };
 
-/** Where an element is in the layer: its measured box, after its own `transform`. */
-export const placedBox = (measure: Measure, element: Element): Box =>
-	transformBox(parseTransform(element.getAttribute('transform')), measure(element));
+/**
+ * Where an element is: its measured box after its own `transform`, in the
+ * layer's units, and after `outOf` too where it is given, the layer's
+ * placement, in the drawing's. The two matrices are boxed as one, so an
+ * element upright on the canvas, as what a tool draws on a turned layer is
+ * (`newElementSpace`, `guard.ts`), has its own box exactly, where a box of
+ * its box in the layer's units would be grown by the turn.
+ */
+export const placedBox = (measure: Measure, element: Element, outOf: Mat = IDENTITY): Box =>
+	transformBox(
+		multiply(outOf, parseTransform(element.getAttribute('transform'))),
+		measure(element)
+	);
 
-/** Every element whose box holds `point`, grown by `slop`, bottom to top. */
+/** Every element whose box holds `point`, grown by `slop`, bottom to top: in the units `outOf` places it in. */
 export const elementsAt = (
 	elements: readonly Element[],
 	point: Point,
 	measure: Measure,
-	slop = 0
+	slop = 0,
+	outOf: Mat = IDENTITY
 ): readonly Element[] =>
-	elements.filter((element) => boxContains(placedBox(measure, element), point, slop));
+	elements.filter((element) => boxContains(placedBox(measure, element, outOf), point, slop));
 
 /** The topmost element under `point`: the last painted, so the one seen. */
 export const topmostAt = (
 	elements: readonly Element[],
 	point: Point,
 	measure: Measure,
-	slop = 0
-): Element | undefined => elementsAt(elements, point, measure, slop).at(-1);
+	slop = 0,
+	outOf: Mat = IDENTITY
+): Element | undefined => elementsAt(elements, point, measure, slop, outOf).at(-1);
 
-/** Every element whose box touches `box`: what a marquee takes. */
+/** Every element whose box touches `box`: what a marquee takes, in the units `outOf` places it in. */
 export const elementsIn = (
 	elements: readonly Element[],
 	box: Box,
-	measure: Measure
+	measure: Measure,
+	outOf: Mat = IDENTITY
 ): readonly Element[] =>
-	elements.filter((element) => boxesIntersect(placedBox(measure, element), box));
+	elements.filter((element) => boxesIntersect(placedBox(measure, element, outOf), box));
 
 /**
  * A paint property as the element has it: `style` first, since CSS wins over a

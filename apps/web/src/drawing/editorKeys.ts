@@ -81,6 +81,8 @@ const EDIT_ACTIONS: Readonly<Record<EditAction, (context: KeyContext) => boolean
 	sizeDown: ({ dispatch }) => always(() => dispatch({ type: 'adjustSize', steps: -1 })),
 	swapColors: ({ dispatch }) => always(() => dispatch({ type: 'swapColors' })),
 	resetColors: ({ dispatch }) => always(() => dispatch({ type: 'resetColors' })),
+	// Snap is the frame's option, whatever the tool in hand, as Photoshop's View › Snap.
+	toggleSnap: ({ dispatch }) => always(() => dispatch({ type: 'toggleSnap' })),
 	newLayer: ({ viewport }) => viewport?.perform('newLayer') ?? false,
 };
 

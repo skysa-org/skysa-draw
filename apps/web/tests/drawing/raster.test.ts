@@ -8,7 +8,9 @@ import {
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import type { Command, EditorDocument, LayerInfo } from '../../src/drawing/document/model.js';
+import type { ExtentOf } from '../../src/drawing/tools/common/snap.js';
 import { clearArea, rasterBehaviors } from '../../src/drawing/tools/raster/index.js';
+import { createSelect } from '../../src/drawing/tools/raster/select.js';
 import { type RasterSurface, surfaceFor } from '../../src/drawing/tools/raster/surface.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
@@ -18,6 +20,7 @@ import {
 	type ToolId,
 	type ToolOptions,
 } from '../../src/drawing/tools/types.js';
+import { type Box, parseTransform, transformBox } from '../../src/drawing/tools/vector/geometry.js';
 import { t } from '../../src/i18n/t.js';
 
 /**
@@ -849,6 +852,61 @@ describe('select', () => {
 		expect(fake.layer.getAttribute('transform')).toBe('translate(10 -5) scale(2)');
 		stroke(tool('select'), fake.context, [{ x: 5, y: 5 }]);
 		expect(fake.labels).toEqual(['tools.select']);
+	});
+
+	/** What each layer paints in its own units, placed by its `transform` as it is when asked, as the browser's measure does. */
+	const PAINTED: Readonly<Record<string, Box>> = {
+		'layer-1': { x: 300, y: 200, width: 30, height: 30 },
+		'layer-2': { x: 0, y: 0, width: 100, height: 100 },
+	};
+	const measured: ExtentOf = (editor) => (id) => {
+		const element = editor.layer(id);
+		const own = PAINTED[id];
+		return Promise.resolve(
+			element === undefined || own === undefined
+				? undefined
+				: transformBox(parseTransform(element.getAttribute('transform')), own)
+		);
+	};
+
+	it('snaps the layer to the other layers and the canvas as it drags, and moves it by as much', async () => {
+		const fake = createFake();
+		const select = createSelect(measured);
+		select.begin(fake.context, at(0, 0));
+		await tick();
+		// Its left edge at 297, 3 short of layer 1's; its top at 3, 3 past the canvas's.
+		select.move(fake.context, at(297, 3));
+		expect(fake.layer.getAttribute('transform')).toBe('translate(300 0)');
+		const guides = [...fake.context.overlay.querySelectorAll('.snap-guide')].map((line) =>
+			['x1', 'y1', 'x2', 'y2'].map((name) => line.getAttribute(name))
+		);
+		expect(guides).toEqual([
+			['300', '0', '300', '230'],
+			['0', '0', '1600', '0'],
+		]);
+		select.move(fake.context, at(297, 3, { controlKey: true }));
+		expect(fake.layer.getAttribute('transform')).toBe('translate(297 3)');
+		select.end(fake.context, at(297, 3));
+		expect(fake.labels).toEqual(['tools.select']);
+		expect(fake.layer.getAttribute('transform')).toBe('translate(300 0)');
+		expect(fake.context.overlay.querySelector('.snap-guide')).toBeNull();
+	});
+
+	it('does not snap the layer with Snap off, nor a cancel leave a guide', async () => {
+		const off = createFake({ options: { snap: false } });
+		const select = createSelect(measured);
+		select.begin(off.context, at(0, 0));
+		await tick();
+		select.move(off.context, at(297, 3));
+		select.end(off.context, at(297, 3));
+		expect(off.layer.getAttribute('transform')).toBe('translate(297 3)');
+		const on = createFake();
+		select.begin(on.context, at(0, 0));
+		await tick();
+		select.move(on.context, at(297, 3));
+		select.cancel(on.context);
+		expect(on.layer.getAttribute('transform')).toBeNull();
+		expect(on.context.overlay.childElementCount).toBe(0);
 	});
 });
 

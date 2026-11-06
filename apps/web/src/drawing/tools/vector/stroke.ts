@@ -2,8 +2,8 @@ import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
 import type { PointerSample, ToolBehavior, ToolOptions } from '../types.js';
-import { apply, lengthScale, type Point } from './geometry.js';
-import { guardLayer, layerSpace, targetLayer } from './guard.js';
+import { apply, type Point } from './geometry.js';
+import { guardLayer, newElementSpace, targetLayer } from './guard.js';
 import { type Attributes, createSvg, setAttributes } from './svg.js';
 
 /**
@@ -16,10 +16,10 @@ import { type Attributes, createSvg, setAttributes } from './svg.js';
  *
  * The size is in the drawing's user units, as the brush's outline shows it
  * (`tools/common/brushOutline.ts`) and the preview draws it, on any layer: a
- * path joins the layer in the layer's units, so its width is the size through
- * the layer's `transform`, and what lands is as wide as what was previewed.
- * One factor for both ways (`lengthScale`), so a layer scaled more one way
- * than the other gets the mean of the two.
+ * path joins the layer where a new element is drawn there (`newElementSpace`),
+ * at the layer's own numbers on a layer only moved, and as the preview drew it
+ * under a `transform` that undoes the layer's on one turned or scaled, so what
+ * lands is as wide as what was previewed, every way.
  */
 type StrokeSpec<P extends Point> = Readonly<{
 	/** The command's label, a catalog key: `'tools.pencil'`. */
@@ -77,15 +77,13 @@ export const createStrokeBehavior = <P extends Point>(spec: StrokeSpec<P>): Tool
 			forget();
 			const layer = targetLayer(context);
 			if (layer === undefined) return;
-			// The samples are in the drawing's units; the path joins the layer, in its,
-			// and so does its width.
-			const { into } = layerSpace(layer);
-			const size = Number((context.options.size * lengthScale(into)).toPrecision(6));
-			const options = { ...context.options, size };
+			// The samples are in the drawing's units; the path joins the layer in a new element's.
+			const { into, transform } = newElementSpace(layer);
 			const placed = samples.map((each) => ({ ...each, ...apply(into, each) }));
 			const attributes: Attributes = {
-				...spec.attributes(options),
-				d: pathOf(placed, options),
+				...spec.attributes(context.options),
+				d: pathOf(placed, context.options),
+				transform,
 			};
 			context.document.execute(
 				editLayer(layer.id, spec.label, (g: Element) => {

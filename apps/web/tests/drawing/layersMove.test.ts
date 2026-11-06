@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
 import {
+	createLayersMove,
 	layersMove,
 	movesWith,
 	nudgeLayers,
 	translated,
 } from '../../src/drawing/tools/common/layersMove.js';
+import type { ExtentOf } from '../../src/drawing/tools/common/snap.js';
 import { behaviorFor, toolById } from '../../src/drawing/tools/index.js';
 import {
 	DEFAULT_TOOL_OPTIONS,
@@ -16,7 +18,17 @@ import {
 	type Region,
 	type Tool,
 	type ToolContext,
+	type ToolOptions,
 } from '../../src/drawing/tools/types.js';
+import {
+	type Box,
+	IDENTITY,
+	type Mat,
+	multiply,
+	parseTransform,
+	transformBox,
+	unionBox,
+} from '../../src/drawing/tools/vector/geometry.js';
 import { drawSelectionBox, hasSelectionBox } from '../../src/drawing/tools/vector/selection.js';
 import { createToolContext } from '../../src/drawing/viewport/context.js';
 import { observable } from '../../src/drawing/viewport/observable.js';
@@ -82,6 +94,7 @@ type Setup = Readonly<{
 	active: string;
 	layers?: readonly string[];
 	selected?: readonly Element[];
+	options?: Partial<ToolOptions>;
 }>;
 
 /** The viewport's context for an active layer and the layers chosen, with what it tells the user kept. */
@@ -92,7 +105,7 @@ const contextFor = (editor: EditorDocument, setup: Setup) => {
 		document: editor,
 		layer: editor.snapshot().layers.find((layer) => layer.id === setup.active),
 		...(setup.layers === undefined ? {} : { layers: setup.layers }),
-		options: DEFAULT_TOOL_OPTIONS,
+		options: { ...DEFAULT_TOOL_OPTIONS, ...setup.options },
 		overlay: document.createElementNS(SVG_NAMESPACE, 'svg'),
 		canvas: document.createElement('canvas'),
 		pixelRatio: () => 1,
@@ -122,7 +135,7 @@ const drag = (
 };
 
 describe('moving the layers chosen', () => {
-	it('moves every one by the same distance while the drag lasts, each before its own transform', () => {
+	it('moves every one by the same distance while the drag lasts, each before its own transform, folded into its translation', () => {
 		const editor = open();
 		const { context } = contextFor(editor, {
 			active: 'layer-1',
@@ -131,7 +144,7 @@ describe('moving the layers chosen', () => {
 		layersMove.begin(context, at(10, 10));
 		layersMove.move(context, at(14, 7));
 		expect(transformOf(editor, 'layer-1')).toBe('translate(4 -3)');
-		expect(transformOf(editor, 'layer-2')).toBe('translate(4 -3) translate(5 0) rotate(10)');
+		expect(transformOf(editor, 'layer-2')).toBe('translate(9 -3) rotate(10)');
 		expect(transformOf(editor, 'layer-3')).toBeNull();
 		expect(editor.snapshot().canUndo).toBe(false);
 	});
@@ -148,7 +161,7 @@ describe('moving the layers chosen', () => {
 		expect(execute).toHaveBeenCalledTimes(1);
 		expect(execute.mock.calls[0]?.[0].label).toBe('tools.select');
 		expect(transformOf(editor, 'layer-1')).toBe('translate(2.5 0)');
-		expect(transformOf(editor, 'layer-2')).toBe('translate(2.5 0) translate(5 0) rotate(10)');
+		expect(transformOf(editor, 'layer-2')).toBe('translate(7.5 0) rotate(10)');
 		expect(transformOf(editor, 'layer-3')).toBe('translate(2.5 0)');
 		// The group's layers are drawn where it puts them, and keep their own.
 		expect(transformOf(editor, 'layer-4')).toBeNull();
@@ -257,6 +270,64 @@ describe('moving the layers chosen', () => {
 		expect(translated(' scale(2) ', 0.1234, -3)).toBe('translate(0.123 -3) scale(2)');
 		expect(translated(null, 0, 0)).toBeUndefined();
 		expect(translated('scale(2)', 0, 0)).toBe('scale(2)');
+		expect(translated(null, 0.0001, -0.0004)).toBeUndefined();
+	});
+
+	it('folds a move into the translation the transform begins with', () => {
+		expect(translated('translate(10 20)', 1.5, -2)).toBe('translate(11.5 18)');
+		expect(translated('translate(0 36.8)', -448.59, 0)).toBe('translate(-448.59 36.8)');
+		// One number is an x, with a y of 0.
+		expect(translated('translate(7)', 1, 2)).toBe('translate(8 2)');
+		expect(translated('translate(0.1 0.2)', 0.2, 0.1)).toBe('translate(0.3 0.3)');
+		// Only the first is folded: a translation after another transform is in other units.
+		expect(translated('translate(1 2) translate(3 4)', 1, 1)).toBe(
+			'translate(2 3) translate(3 4)'
+		);
+		expect(translated('scale(2) translate(5 5)', 1, 1)).toBe(
+			'translate(1 1) scale(2) translate(5 5)'
+		);
+		// Not a translation: a name that only begins like one is left behind its move.
+		expect(translated('translateX(1)', 1, 0)).toBe('translate(1 0) translateX(1)');
+	});
+
+	it('folds a move back to no transform, or to the rest of it alone', () => {
+		expect(translated('translate(4 -3)', -4, 3)).toBeUndefined();
+		expect(translated(' translate(1e1, -2.5) ', -10, 2.5)).toBeUndefined();
+		expect(translated('translate(5 0) rotate(10)', -5, 0)).toBe('rotate(10)');
+		expect(translated('translate(5,0),rotate(10)', -5, 0)).toBe('rotate(10)');
+	});
+
+	it('folds a translation followed by more, keeping the rest as it was written', () => {
+		expect(translated('translate(5 0) rotate(10)', 4, -3)).toBe('translate(9 -3) rotate(10)');
+		expect(translated('translate(5 0)rotate(10) scale(2,3)', 1, 0)).toBe(
+			'translate(6 0) rotate(10) scale(2,3)'
+		);
+		expect(translated('translate( 5 , 6 ) , matrix(1 0 0 1 2 3)', 1, 1)).toBe(
+			'translate(6 7) matrix(1 0 0 1 2 3)'
+		);
+	});
+
+	it('folds a translation written with a comma, or with a sign for a separator', () => {
+		expect(translated('translate(10,20)', 1, 1)).toBe('translate(11 21)');
+		expect(translated('translate(10, 20) scale(2)', -10, 0)).toBe('translate(0 20) scale(2)');
+		expect(translated('translate(10-20)', 0, 20)).toBe('translate(10 0)');
+		expect(translated('translate(.5.5)', 0.5, 0.5)).toBe('translate(1 1)');
+	});
+
+	it('folds repeated moves into one translation, through the drag and the arrows alike', () => {
+		const editor = open();
+		const { context } = contextFor(editor, {
+			active: 'layer-1',
+			layers: ['layer-1', 'layer-2'],
+		});
+		drag(context, [10, 10], [12, 10]);
+		drag(context, [10, 10], [10, 13]);
+		expect(nudgeLayers(context, -1, 0)).toBe(true);
+		expect(transformOf(editor, 'layer-1')).toBe('translate(1 3)');
+		expect(transformOf(editor, 'layer-2')).toBe('translate(6 3) rotate(10)');
+		drag(context, [0, 0], [-1, -3]);
+		expect(transformOf(editor, 'layer-1')).toBeNull();
+		expect(transformOf(editor, 'layer-2')).toBe('translate(5 0) rotate(10)');
 	});
 });
 
@@ -271,8 +342,8 @@ describe('the arrows’ nudge of the layers chosen', () => {
 		expect(nudgeLayers(context, 10, 0)).toBe(true);
 		expect(nudgeLayers(context, 0, -1)).toBe(true);
 		expect(execute).toHaveBeenCalledTimes(2);
-		expect(transformOf(editor, 'layer-1')).toBe('translate(0 -1) translate(10 0)');
-		expect(transformOf(editor, 'layer-3')).toBe('translate(0 -1) translate(10 0)');
+		expect(transformOf(editor, 'layer-1')).toBe('translate(10 -1)');
+		expect(transformOf(editor, 'layer-3')).toBe('translate(10 -1)');
 		editor.undo();
 		expect(transformOf(editor, 'layer-1')).toBe('translate(10 0)');
 	});
@@ -309,5 +380,187 @@ describe('the layers that move with the chosen', () => {
 		expect(movesWith(layers, ['layer-1', 'layer-3'], 'layer-6')).toBe(true);
 		expect(movesWith(layers, ['layer-1', 'layer-3'], 'layer-2')).toBe(false);
 		expect(movesWith(layers, ['layer-1', 'layer-4'], 'layer-3')).toBe(false);
+	});
+});
+
+/**
+ * Bottom to top: a square, a hidden speck that would pull nearer than
+ * anything, and a group of a vector square and a raster one, which paint
+ * 50 to 80 each way together.
+ */
+const SNAP_SCENE = [
+	'<g id="layer-1" draw:kind="vector"><rect x="10" y="10" width="20" height="20"/></g>',
+	'<g id="layer-2" draw:kind="vector" display="none"><rect x="97" y="40" width="1" height="1"/></g>',
+	'<g id="layer-3" draw:kind="group">',
+	'<g id="layer-4" draw:kind="vector"><rect x="50" y="50" width="10" height="10"/></g>',
+	`<g id="layer-5" draw:kind="raster"><image href="${PICTURE}" x="70" y="70" width="10" height="10" preserveAspectRatio="none"/></g>`,
+	'</g>',
+].join('\n');
+
+/** What each layer that is not a group paints, in its own units. */
+const PAINTED: Readonly<Record<string, Box>> = {
+	'layer-1': { x: 10, y: 10, width: 20, height: 20 },
+	'layer-2': { x: 97, y: 40, width: 1, height: 1 },
+	'layer-4': { x: 50, y: 50, width: 10, height: 10 },
+	'layer-5': { x: 70, y: 70, width: 10, height: 10 },
+};
+
+/** Where the user units of `element` are in the root's: its `transform` after every one above it. */
+const placementOf = (element: Element | null): Mat =>
+	element === null || element.localName === 'svg'
+		? IDENTITY
+		: multiply(
+				placementOf(element.parentElement),
+				parseTransform(element.getAttribute('transform'))
+			);
+
+/**
+ * A measure in the browser's place: what each layer paints, placed where its
+ * `transform` and its groups' put it when the measure answers, once `gate`
+ * opens, and a group by the layers in it; each asked for is kept in `asked`.
+ */
+const liveExtent =
+	(asked: string[] = [], gate: Promise<void> = Promise.resolve()): ExtentOf =>
+	(editor) => {
+		const extentOf = (id: string): Box | undefined => {
+			const element = editor.layer(id);
+			if (element === undefined) return undefined;
+			const own = PAINTED[id];
+			if (own !== undefined) return transformBox(placementOf(element), own);
+			return unionBox([...element.children].flatMap((child) => extentOf(child.id) ?? []));
+		};
+		return async (id) => {
+			asked.push(id);
+			await gate;
+			return extentOf(id);
+		};
+	};
+
+/** A macrotask, past every measure that has answered. */
+const settle = (): Promise<void> =>
+	new Promise((resolve) => {
+		setTimeout(resolve, 0);
+	});
+
+const guidesOn = (context: ToolContext): Record<string, string | null>[] =>
+	[...context.overlay.querySelectorAll('.snap-guide')].map((line) => ({
+		x1: line.getAttribute('x1'),
+		y1: line.getAttribute('y1'),
+		x2: line.getAttribute('x2'),
+		y2: line.getAttribute('y2'),
+	}));
+
+describe('snapping the layers as they drag', () => {
+	// The group's right edge at 98, 2 short of the canvas's; its top at 53, 3 past the canvas's middle.
+	const NEAR = [18, 3] as const;
+
+	it('snaps what they paint to the canvas and to the other layers, and the command moves them by as much', async () => {
+		const editor = open(SNAP_SCENE);
+		const { context } = contextFor(editor, { active: 'layer-3' });
+		const asked: string[] = [];
+		const move = createLayersMove(liveExtent(asked));
+		move.begin(context, at(0, 0));
+		// What moves, then what it may snap to: not the hidden layer, nor the group's own.
+		expect(asked).toEqual(['layer-3', 'layer-1']);
+		await settle();
+		move.move(context, at(...NEAR));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(20 0)');
+		expect(guidesOn(context)).toEqual([
+			{ x1: '100', y1: '0', x2: '100', y2: '100' },
+			{ x1: '0', y1: '50', x2: '100', y2: '50' },
+		]);
+		move.end(context, at(...NEAR));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(20 0)');
+		expect(guidesOn(context)).toEqual([]);
+		editor.undo();
+		expect(transformOf(editor, 'layer-3')).toBeNull();
+	});
+
+	it('does not snap before what moves is measured, while Control is held, or with Snap off', async () => {
+		const editor = open(SNAP_SCENE);
+		const { context } = contextFor(editor, { active: 'layer-3' });
+		const move = createLayersMove(liveExtent());
+		move.begin(context, at(0, 0));
+		move.move(context, at(...NEAR));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(18 3)');
+		await settle();
+		move.move(context, { ...at(...NEAR), controlKey: true });
+		expect(transformOf(editor, 'layer-3')).toBe('translate(18 3)');
+		expect(guidesOn(context)).toEqual([]);
+		move.move(context, at(...NEAR));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(20 0)');
+		move.end(context, { ...at(...NEAR), controlKey: true });
+		expect(transformOf(editor, 'layer-3')).toBe('translate(18 3)');
+
+		const off = contextFor(open(SNAP_SCENE), { active: 'layer-3', options: { snap: false } });
+		const asked: string[] = [];
+		const still = createLayersMove(liveExtent(asked));
+		still.begin(off.context, at(0, 0));
+		await settle();
+		still.move(off.context, at(...NEAR));
+		still.end(off.context, at(...NEAR));
+		expect(asked).toEqual([]);
+		expect(transformOf(off.context.document, 'layer-3')).toBe('translate(18 3)');
+	});
+
+	it('takes what moves where it was as the drag began, though its measure came in after the drag moved it', async () => {
+		const editor = open(SNAP_SCENE);
+		const { context } = contextFor(editor, { active: 'layer-3' });
+		const gate: { open?: () => void } = {};
+		const opened = new Promise<void>((resolve) => {
+			gate.open = resolve;
+		});
+		const move = createLayersMove(liveExtent([], opened));
+		move.begin(context, at(0, 0));
+		move.move(context, at(13, 0));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(13 0)');
+		gate.open?.();
+		await settle();
+		move.move(context, at(...NEAR));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(20 0)');
+		move.cancel(context);
+		expect(transformOf(editor, 'layer-3')).toBeNull();
+		expect(guidesOn(context)).toEqual([]);
+	});
+
+	it('snaps the layers chosen to one beside them in a group, not to the group that holds one of them', async () => {
+		const editor = open(SNAP_SCENE);
+		const { context } = contextFor(editor, {
+			active: 'layer-1',
+			layers: ['layer-1', 'layer-4'],
+		});
+		const asked: string[] = [];
+		const move = createLayersMove(liveExtent(asked));
+		move.begin(context, at(0, 0));
+		expect(asked).toEqual(['layer-1', 'layer-4', 'layer-5']);
+		await settle();
+		// The two paint 10 to 60 across: their right edge at 68, 2 short of layer 5's left.
+		move.move(context, at(8, 0));
+		move.end(context, at(8, 0));
+		expect(transformOf(editor, 'layer-1')).toBe('translate(10 0)');
+		expect(transformOf(editor, 'layer-4')).toBe('translate(10 0)');
+	});
+
+	it('moves the layers as far as a click’s tremor took them, unsnapped', async () => {
+		const editor = open(SNAP_SCENE);
+		const { context } = contextFor(editor, { active: 'layer-3' });
+		const move = createLayersMove(liveExtent());
+		move.begin(context, at(0, 0));
+		await settle();
+		// The group's left edge at 51, a unit past the canvas's middle.
+		move.move(context, at(1, 0));
+		move.end(context, at(1, 0));
+		expect(transformOf(editor, 'layer-3')).toBe('translate(1 0)');
+	});
+
+	it('leaves the arrows’ nudge unsnapped, a unit from the canvas’s middle a unit from it', async () => {
+		const editor = open(SNAP_SCENE);
+		const { context } = contextFor(editor, { active: 'layer-3' });
+		const move = createLayersMove(liveExtent());
+		move.begin(context, at(0, 0));
+		await settle();
+		move.end(context, at(0, 0));
+		expect(nudgeLayers(context, 0, 1)).toBe(true);
+		expect(transformOf(editor, 'layer-3')).toBe('translate(0 1)');
 	});
 });

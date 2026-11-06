@@ -1,10 +1,12 @@
 import { cell } from '@skysa/draw-core';
 
 import { editLayer } from '../../document/commands.js';
+import { layerExtentIn } from '../../viewport/layerExtent.js';
+import type { Offset } from '../common/align.js';
+import { createDragSnap, type ExtentOf, raiseGuides } from '../common/snap.js';
 import type { Handover, PointerSample, ToolBehavior, ToolContext, ToolId } from '../types.js';
 import { isDoublePress, near, type Press, pressOf } from './doublePress.js';
 import {
-	apply,
 	type Box,
 	formatTransform,
 	type Mat,
@@ -12,7 +14,6 @@ import {
 	parseTransform,
 	type Point,
 	rectFrom,
-	transformBox,
 	translate,
 	unionBox,
 } from './geometry.js';
@@ -56,7 +57,8 @@ import { CHROME_STYLE, createSvg, setAttributes } from './svg.js';
  * originals are put back and one command sets the final ones, so the layer is
  * as the command's snapshot expects it (docs/ARCHITECTURE.md §7, "Commands and
  * history"). Shift adds to a selection, keeps a resize to the ratio and snaps
- * a rotation to 15°.
+ * a rotation to 15°. A move snaps the box of what is selected to the canvas,
+ * to the other layers and to the layer's other elements (`snap.ts`).
  *
  * A double press edits what it is on, in the tool that edits it, as a
  * double-click does in Illustrator, Figma and Inkscape (`doublePress.ts`): a
@@ -103,12 +105,7 @@ export const elementAt = (
 	point: Point,
 	scale: number
 ): Element | undefined =>
-	topmostAt(
-		elementsOf(layer),
-		apply(layerSpace(layer).into, point),
-		measure,
-		HIT_SLOP_PX / scale
-	);
+	topmostAt(elementsOf(layer), point, measure, HIT_SLOP_PX / scale, layerSpace(layer).outOf);
 
 const itemsOf = (layer: Element, elements: readonly Element[]): readonly Item[] => {
 	const own = elementsOf(layer);
@@ -164,10 +161,7 @@ const selectionBox = (
 	measure: Measure,
 	elements: readonly Element[],
 	space: LayerSpace
-): Box | undefined => {
-	const box = unionBox(elements.map((element) => placedBox(measure, element)));
-	return box === undefined ? undefined : transformBox(space.outOf, box);
-};
+): Box | undefined => unionBox(elements.map((element) => placedBox(measure, element, space.outOf)));
 
 /**
  * Whether a press at `point`, in the drawing's units, is on a handle of the
@@ -208,6 +202,23 @@ const handingOf = (
 };
 
 /**
+ * The boxes, in the drawing's units, of the elements of `layer` other than
+ * `elements`, as the select tool measures them: what else is on the layer,
+ * which a move of those snaps to. One with no size at all, which is not drawn
+ * yet, is left out.
+ */
+const besideBoxes = (
+	measure: Measure,
+	layer: Element,
+	elements: readonly Element[],
+	space: LayerSpace
+): readonly Box[] =>
+	elementsOf(layer)
+		.filter((element) => !elements.includes(element))
+		.map((element) => placedBox(measure, element, space.outOf))
+		.filter((box) => box.width > 0 || box.height > 0);
+
+/**
  * An element's own `transform` once `delta`, in the drawing's units, has moved
  * it where `space` places it: into the layer, after the delta, after where the
  * element was in the drawing.
@@ -215,8 +226,17 @@ const handingOf = (
 const movedBy = (delta: Mat, space: LayerSpace, matrix: Mat): string =>
 	formatTransform(multiply(space.into, multiply(delta, multiply(space.outOf, matrix))));
 
-export const createSelect = (measure: Measure): ToolBehavior => {
+/**
+ * The select tool, measuring elements by `measure` and, for a move's
+ * snapping, the other layers by `extentOf`, by the same `measure` where none
+ * is given.
+ */
+export const createSelect = (
+	measure: Measure,
+	extentOf: ExtentOf = (document) => layerExtentIn(document, { measure })
+): ToolBehavior => {
 	const drag = cell<Drag | undefined>(undefined);
+	const snap = createDragSnap(extentOf);
 	/** The last press on an element, which the next may make a double press of. */
 	const lastPress = cell<Press | undefined>(undefined);
 	/** A double press, to hand over as the pointer lifts. */
@@ -224,6 +244,25 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 
 	const boxOf = (elements: readonly Element[], space: LayerSpace): Box | undefined =>
 		selectionBox(measure, elements, space);
+
+	/**
+	 * What the drag does so far, in the drawing's units: a move snapped where
+	 * it may be, for its `last` step with the guides gone; a resize or a turn
+	 * as the handle has it.
+	 */
+	const dragDelta = (
+		context: ToolContext,
+		sample: PointerSample,
+		current: TransformDrag,
+		last: boolean
+	): Mat => {
+		if (current.kind !== 'move') return deltaOf(current, sample);
+		const proposed: Offset = [sample.x - current.from.x, sample.y - current.from.y];
+		const [dx, dy] = last
+			? snap.end(context, sample, proposed)
+			: snap.move(context, sample, proposed);
+		return translate(dx, dy);
+	};
 
 	/** The box around `elements`, drawn over the active layer; none while it is out of sight. */
 	const redraw = (context: ToolContext, elements: readonly Element[]): void => {
@@ -290,13 +329,20 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 			return;
 		}
 		const chosen = selected.includes(hit) ? selected : [hit];
+		const space = layerSpace(layer);
 		context.selection.set(chosen);
 		drag.current = {
 			kind: 'move',
 			from: pointOf(sample),
 			items: itemsOf(layer, chosen),
-			space: layerSpace(layer),
+			space,
 		};
+		snap.beginBox(
+			context,
+			boxOf(chosen, space),
+			layer.id,
+			besideBoxes(measure, layer, chosen, space)
+		);
 		redraw(context, chosen);
 	};
 
@@ -308,11 +354,12 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 		current.preview.remove();
 		const layer = activeLayerElement(context);
 		if (layer === undefined) return;
-		const region = transformBox(
-			layerSpace(layer).into,
-			rectFrom(current.from, pointOf(sample))
+		const found = elementsIn(
+			elementsOf(layer),
+			rectFrom(current.from, pointOf(sample)),
+			measure,
+			layerSpace(layer).outOf
 		);
-		const found = elementsIn(elementsOf(layer), region, measure);
 		const next = sample.shiftKey
 			? [...new Set([...selectedOn(layer, context), ...found])]
 			: found;
@@ -325,7 +372,7 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 		sample: PointerSample,
 		current: TransformDrag
 	): void => {
-		const delta = deltaOf(current, sample);
+		const delta = dragDelta(context, sample, current, true);
 		const elements = current.items.map((item) => item.element);
 		// The layer goes back to how it was before the drag, so the command's
 		// snapshot of it is the state before the change.
@@ -397,6 +444,7 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 			current.preview.remove();
 			return;
 		}
+		snap.cancel(context);
 		current.items.forEach(restore);
 		redraw(
 			context,
@@ -445,7 +493,7 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 				setAttributes(current.preview, rectFrom(current.from, pointOf(sample)));
 				return;
 			}
-			const delta = deltaOf(current, sample);
+			const delta = dragDelta(context, sample, current, false);
 			current.items.forEach((item) =>
 				setTransform(item.element, movedBy(delta, current.space, item.matrix))
 			);
@@ -453,6 +501,7 @@ export const createSelect = (measure: Measure): ToolBehavior => {
 				context,
 				current.items.map((item) => item.element)
 			);
+			raiseGuides(context.overlay);
 		},
 
 		end: (context, sample) => {

@@ -119,3 +119,18 @@
 .viewport:not([data-tool-cursor]) .brush-outline {
 	display: none;
 }
+
+/* The smart guides of a move that snapped (`tools/common/snap.ts`), as
+   Photoshop's: a magenta hairline along each line the box snapped to, the
+   same width on the screen at any zoom, on the pixel grid so it stays one
+   pixel wide. */
+.snap-guides {
+	fill: none;
+	pointer-events: none;
+}
+
+.snap-guide {
+	stroke: var(--snap-guide);
+	stroke-width: 1px;
+	shape-rendering: crispEdges;
+}

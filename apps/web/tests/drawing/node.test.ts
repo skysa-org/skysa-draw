@@ -9,7 +9,9 @@ import {
 	type ToolContext,
 } from '../../src/drawing/tools/types.js';
 import { createNode } from '../../src/drawing/tools/vector/node.js';
+import { createShape } from '../../src/drawing/tools/vector/shapes.js';
 import { t } from '../../src/i18n/t.js';
+import { expectOnCanvasAsWritten, PLACEMENTS } from './placements.js';
 
 /**
  * The node tool (docs/decisions/0004-the-interface.md) against a fake editor,
@@ -486,4 +488,41 @@ describe('the node tool handed an element to edit', () => {
 		expect(fake.notices).toEqual([t('layers.locked', { name: 'Layer 1' })]);
 		expect(notices).toEqual([]);
 	});
+});
+
+describe('the node tool on what is drawn on a layer turned, flipped or scaled', () => {
+	// What a tool draws there has a `transform` that undoes the layer's
+	// (`newElementSpace`, `tools/vector/guard.ts`): its anchors are shown and
+	// moved where they are seen, and it keeps its `transform`.
+	const editedOn = (transform: string | undefined) => {
+		const { context, labels, layer, node } = setUp([]);
+		if (transform !== undefined) layer.setAttribute('transform', transform);
+		const rectangle = createShape('rectangle');
+		rectangle.begin(context, at(300, 200));
+		rectangle.end(context, at(500, 320));
+		const written = layer.lastElementChild?.getAttribute('transform') ?? null;
+		click(node, context, 400, 201);
+		const shown = anchorsShown(context);
+		drag(node, context, [300, 200], [280, 190]);
+		return { labels, path: layer.lastElementChild, written, shown };
+	};
+
+	it.each(PLACEMENTS)(
+		'moves a corner of a rectangle drawn on a layer %s where it is seen',
+		(_, transform) => {
+			const atRest = editedOn(undefined);
+			const edited = editedOn(transform);
+			expect(edited.labels).toEqual(['tools.rectangle', 'tools.node']);
+			expect(edited.shown).toBeGreaterThan(0);
+			expect(edited.shown).toBe(atRest.shown);
+			expect(atRest.path?.getAttribute('d')).toBe(
+				'M 280 190 L 500 200 L 500 320 L 300 320 Z'
+			);
+			expect(edited.path?.localName).toBe('path');
+			expect(edited.path?.getAttribute('d')).toBe(atRest.path?.getAttribute('d'));
+			expect(edited.written).not.toBeNull();
+			expect(edited.path?.getAttribute('transform')).toBe(edited.written);
+			expectOnCanvasAsWritten(edited.path);
+		}
+	);
 });

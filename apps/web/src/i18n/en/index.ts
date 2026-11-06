@@ -9,6 +9,7 @@ import { editor } from './editor.js';
 import { exporting } from './exporting.js';
 import { firstImport } from './firstImport.js';
 import { folders } from './folders.js';
+import { image } from './image.js';
 import { layers } from './layers.js';
 import { paths } from './paths.js';
 import { raster } from './raster.js';
@@ -47,6 +48,7 @@ export const en = {
 	redEye,
 	selection,
 	exporting,
+	image,
 	connection,
 	scheduler,
 	account,

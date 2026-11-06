@@ -252,6 +252,94 @@ const AreaIntersectIcon = (props: IconProps) => (
 	</Icon>
 );
 
+// ---- The move tool's alignment ------------------------------------------------
+// Photoshop's and Figma's: an alignment is a guide with two bars of different
+// lengths set against it; a distribution is three bars with the edges or the
+// centers it spaces evenly marked, or, for the spacing, one bar midway between
+// two guides. A center's guide or marks stop at the bars rather than cross
+// them, so each bar reads whole.
+
+/** What lines the bars up, a guide or the marks of their edges or centers, and the bars, outlined. */
+const Arranged = ({
+	guide,
+	bars,
+	...props
+}: IconProps & Readonly<{ guide: string; bars: string }>) => (
+	<Icon {...props}>
+		<path d={guide} />
+		<path d={bars} />
+	</Icon>
+);
+
+/** Three bars standing side by side, of different heights, 7 apart edge to edge and center to center. */
+const BARS_ACROSS = 'M3 7h4v10h-4zM10 9h4v6h-4zM17 6h4v12h-4z';
+/** The same three lying down, one over another. */
+const BARS_DOWN = 'M7 3h10v4h-10zM9 10h6v4h-6zM6 17h12v4h-12z';
+
+const AlignLeftIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3.5 3v18" bars="M6.5 5.5h14v5h-14zM6.5 13.5h8v5h-8z" />
+);
+
+const AlignCenterXIcon = (props: IconProps) => (
+	<Arranged
+		{...props}
+		guide="M12 2.5v3M12 10.5v3M12 18.5v3"
+		bars="M4.5 5.5h15v5h-15zM7.5 13.5h9v5h-9z"
+	/>
+);
+
+const AlignRightIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M20.5 3v18" bars="M3.5 5.5h14v5h-14zM9.5 13.5h8v5h-8z" />
+);
+
+const AlignTopIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 3.5h18" bars="M5.5 6.5h5v14h-5zM13.5 6.5h5v8h-5z" />
+);
+
+const AlignCenterYIcon = (props: IconProps) => (
+	<Arranged
+		{...props}
+		guide="M2.5 12h3M10.5 12h3M18.5 12h3"
+		bars="M5.5 4.5h5v15h-5zM13.5 7.5h5v9h-5z"
+	/>
+);
+
+const AlignBottomIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 20.5h18" bars="M5.5 3.5h5v14h-5zM13.5 9.5h5v8h-5z" />
+);
+
+const DistributeTopIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 3h18M3 10h18M3 17h18" bars={BARS_DOWN} />
+);
+
+const DistributeCenterYIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 5h4M17 5h4M3 12h6M15 12h6M3 19h3M18 19h3" bars={BARS_DOWN} />
+);
+
+const DistributeBottomIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 7h18M3 14h18M3 21h18" bars={BARS_DOWN} />
+);
+
+const DistributeLeftIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 3v18M10 3v18M17 3v18" bars={BARS_ACROSS} />
+);
+
+const DistributeCenterXIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M5 3v4M5 17v4M12 3v6M12 15v6M19 3v3M19 18v3" bars={BARS_ACROSS} />
+);
+
+const DistributeRightIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M7 3v18M14 3v18M21 3v18" bars={BARS_ACROSS} />
+);
+
+const DistributeSpaceYIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3 3.5h18M3 20.5h18" bars="M6 9.5h12v5h-12z" />
+);
+
+const DistributeSpaceXIcon = (props: IconProps) => (
+	<Arranged {...props} guide="M3.5 3v18M20.5 3v18" bars="M9.5 6h5v12h-5z" />
+);
+
 // ---- Panels and the top bar ---------------------------------------------------
 
 export const LayersIcon = (props: IconProps) => (
@@ -542,6 +630,20 @@ export const ICONS = {
 	areaAdd: AreaAddIcon,
 	areaSubtract: AreaSubtractIcon,
 	areaIntersect: AreaIntersectIcon,
+	alignLeft: AlignLeftIcon,
+	alignCenterX: AlignCenterXIcon,
+	alignRight: AlignRightIcon,
+	alignTop: AlignTopIcon,
+	alignCenterY: AlignCenterYIcon,
+	alignBottom: AlignBottomIcon,
+	distributeTop: DistributeTopIcon,
+	distributeCenterY: DistributeCenterYIcon,
+	distributeBottom: DistributeBottomIcon,
+	distributeLeft: DistributeLeftIcon,
+	distributeCenterX: DistributeCenterXIcon,
+	distributeRight: DistributeRightIcon,
+	distributeSpaceY: DistributeSpaceYIcon,
+	distributeSpaceX: DistributeSpaceXIcon,
 	layers: LayersIcon,
 	color: ColorIcon,
 	undo: UndoIcon,

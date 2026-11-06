@@ -57,6 +57,7 @@ export const EDIT_ACTIONS = [
 	'fillAreaStroke',
 	'fillDialog',
 	'commit',
+	'toggleSnap',
 ] as const;
 
 export type EditAction = (typeof EDIT_ACTIONS)[number];
@@ -232,6 +233,14 @@ const PRIMARY_ACTIONS: Readonly<Record<string, EditAction>> = {
  * on Windows and Linux keeps Ctrl+Shift+I for its developer tools, so there
  * the context menu and the selection bar are the way to it, as the layers
  * panel is to a new layer on a Mac.
+ *
+ * Snap is Photoshop's Shift with the primary key and `;`, View › Snap, with
+ * any tool in hand. Shift makes the key a `:` on a US keyboard, as it makes
+ * `=` a `+`, so both are read; where `;` is itself a shifted key, as on a
+ * German one, it is read as it comes. Chrome lists no such key of its own
+ * (https://support.google.com/chrome/answer/157179); on a Mac the chord is
+ * ⌘:, the Edit menu's Show Spelling and Grammar, which the frame keeps from
+ * the browser as it keeps ⌘A.
  */
 const PRIMARY_SHIFT_ACTIONS: Readonly<Record<string, EditAction>> = {
 	z: 'redo',
@@ -240,6 +249,8 @@ const PRIMARY_SHIFT_ACTIONS: Readonly<Record<string, EditAction>> = {
 	'+': 'zoomIn',
 	i: 'selectInverse',
 	j: 'layerViaCut',
+	';': 'toggleSnap',
+	':': 'toggleSnap',
 };
 
 /**
@@ -348,6 +359,7 @@ const SHORTCUTS: Readonly<Partial<Record<EditAction, Chord>>> = {
 	resetColors: { key: 'D' },
 	commit: { key: 'Enter' },
 	escape: { key: 'Escape' },
+	toggleSnap: { key: ';', primary: true, shift: true },
 };
 
 /** The keys a Mac's keyboard prints as a glyph; its delete key is Backspace, which deletes here too. */

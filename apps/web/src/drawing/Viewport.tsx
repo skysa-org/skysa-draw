@@ -21,6 +21,7 @@ import {
 	selectionActions,
 	selectionModeOf,
 } from './selectionActions.js';
+import { arrangeLayers } from './tools/common/align.js';
 import { handBehavior } from './tools/common/hand.js';
 import { layersMove } from './tools/common/layersMove.js';
 import { behaviorFor, notAvailableMessage } from './tools/index.js';
@@ -37,6 +38,7 @@ import {
 	type GestureState,
 	INITIAL_GESTURE,
 } from './viewport/gestures.js';
+import { layerExtentIn } from './viewport/layerExtent.js';
 import { LiveCanvas } from './viewport/LiveCanvas.js';
 import { observable } from './viewport/observable.js';
 import { isMac, pointerTypeOf, sampleFrom } from './viewport/pointer.js';
@@ -458,6 +460,14 @@ export const Viewport = ({
 		fillArea: commands.fillWith,
 		undo: transform.undo,
 		redo: transform.redo,
+		// The options strip's alignment, in the context the arrows' nudge has: never
+		// while a press is under way, nor while Transform selection's box is up.
+		arrange: (arrangement) => {
+			const context =
+				stroke.current === undefined && !transform.active() ? toolContext() : undefined;
+			if (context === undefined) return;
+			void arrangeLayers(context, arrangement, options.alignTo, layerExtentIn(document));
+		},
 	}));
 
 	/**

@@ -4,47 +4,88 @@ import { coverageAt } from '../raster/probe.js';
 import type { PointerSample, Tool, ToolContext } from '../types.js';
 import type { Measure } from '../vector/measure.js';
 import { elementAt, onSelectionHandle } from '../vector/select.js';
+import { movesWith } from './layersMove.js';
 
 /**
  * The move tool's Auto-Select (docs/decisions/0004-the-interface.md), as
- * Photoshop's in its Layer mode: with it on, a press picks the topmost layer
- * that has something under the pointer, the viewport makes it the active
- * layer, and the press goes on as the move tool's on that layer
- * (`Tool.pick`). Ctrl or ⌘ held as the press begins does the other, so with
- * it off they pick for that press, and with it on they keep the active
- * layer, as Photoshop's Ctrl and ⌘ do.
+ * Photoshop's, in either of the modes of the menu beside it
+ * (`ToolOptions.autoSelectMode`): with it on, a press picks the topmost layer
+ * that has something under the pointer, or in Group mode the outermost group
+ * that layer is in, the viewport makes it the active layer, and the press
+ * goes on as the move tool's on that layer (`Tool.pick`), which for a group
+ * moves it whole (`layersMove.ts`). Ctrl or ⌘ held as the press begins does
+ * the other, so with it off they pick for that press, in the mode chosen,
+ * and with it on they keep the active layer, as Photoshop's Ctrl and ⌘ do.
  *
  * The walk is the paint order from the top down, into every group, a group
- * itself never picked, since Layer mode picks the layer; a group is moved
- * whole by choosing it in the panel (`layersMove.ts`). A hidden layer is passed over, and so is every
- * layer of a hidden group. A layer has something under the pointer where it
- * is more than half opaque there, as seen: Photoshop's line, under which its
- * move tool sees through a pixel to the layer below. A vector layer has it
- * where the select tool's own hit finds an element (`elementAt`), a raster
- * layer by the alpha of its pixel there (`coverageAt`); either is times the
- * layer's opacity and its groups', and a layer clipped to the one below
- * (`LayerInfo.clipped`), or in a group clipped so, has paint only where that
- * one has. A mask or a filter of the file's own is not read: a blur that
- * spreads a layer's paint does not spread where it is found.
+ * itself never found, since what is under the pointer is a layer's paint; a
+ * group is picked only in Group mode, for the layer found in it, and is
+ * otherwise moved whole by choosing it in the panel. A hidden layer is passed
+ * over, and so is every layer of a hidden group. A layer has something under
+ * the pointer where it is more than half opaque there, as seen: Photoshop's
+ * line, under which its move tool sees through a pixel to the layer below. A
+ * vector layer has it where the select tool's own hit finds an element
+ * (`elementAt`), a raster layer by the alpha of its pixel there
+ * (`coverageAt`); either is times the layer's opacity and its groups', and a
+ * layer clipped to the one below (`LayerInfo.clipped`), or in a group
+ * clipped so, has paint only where that one has. A mask or a filter of the
+ * file's own is not read: a blur that spreads a layer's paint does not
+ * spread where it is found.
  *
  * A locked layer is passed over, and so is every layer of a locked group, as
  * a click goes through a locked object in Illustrator and Figma: the press
  * finds what lies under it, which it may move. Photoshop picks a locked layer
  * and then refuses the move, so a locked layer took every press meant for
- * what lay on it or under it. A press over nothing keeps the active layer,
- * and the tool does with it what it does; so does a press on a handle of the
- * box around what is selected, which resizes or rotates that, but for one
- * with several layers chosen, where no box is shown and the press moves the
+ * what lay on it or under it. Group mode keeps to that: a group with a locked
+ * layer in it may not move whole (`layersMove.ts`), so the press picks the
+ * outermost group the layer found is in that may, or the layer itself where
+ * none may, rather than a group that would refuse every press on its other
+ * layers. A hidden layer in a group does not keep it from moving.
+ *
+ * A press over nothing keeps the active layer, and the tool does with it
+ * what it does; so does a press on a handle of the box around what is
+ * selected, in either mode, which resizes or rotates that, but for one with
+ * several layers chosen, where no box is shown and the press moves the
  * layers (`layersMove.ts`). The viewport keeps the choice where the layer
- * picked is one of them or inside one (`viewport/chosenLayers.ts`).
+ * picked is one of them or inside one (`viewport/chosenLayers.ts`), and so
+ * Group mode picks the layer found itself where it moves with them: a press
+ * on what is chosen moves what is chosen, in either mode.
  */
 
 /** How opaque a layer must be under the pointer, above which it is picked: half, as in Photoshop. */
 const SEEN = 0.5;
 
 /**
+ * What Group mode picks for the layer a press found, as Photoshop's: the
+ * outermost group it is in, or the layer itself where it is in none. Where
+ * that group has a locked layer in it, and so may not move whole
+ * (`layersMove.ts`), the pick is the outermost of the groups inside it,
+ * toward the layer found, that may; the layer itself where even the group it
+ * is directly in may not. A group with a locked layer in it has one in every
+ * group it is in, so the groups that may move are the nearest ones, and the
+ * pick is the last of them.
+ */
+const groupPick = (layers: readonly LayerInfo[], found: LayerInfo): LayerInfo => {
+	const byId = new Map(layers.map((layer) => [layer.id, layer]));
+	/** The groups a layer is in, the nearest first. */
+	const groupsOf = (layer: LayerInfo): readonly LayerInfo[] => {
+		const parent = layer.parentId === undefined ? undefined : byId.get(layer.parentId);
+		return parent === undefined ? [] : [parent, ...groupsOf(parent)];
+	};
+	const holdsLocked = (group: LayerInfo): boolean =>
+		layers.some(
+			(each) => each.locked && groupsOf(each).some((around) => around.id === group.id)
+		);
+	const groups = groupsOf(found);
+	const blocked = groups.findIndex(holdsLocked);
+	const free = blocked === -1 ? groups : groups.slice(0, blocked);
+	return free.at(-1) ?? found;
+};
+
+/**
  * The layer a press with the move tool acts on, where Auto-Select picks one:
- * on with no Ctrl or ⌘, or off with one. `measure` is the select tool's.
+ * on with no Ctrl or ⌘, or off with one; a group in Group mode. `measure` is
+ * the select tool's.
  */
 export const autoSelect =
 	(measure: Measure): NonNullable<Tool['pick']> =>
@@ -121,7 +162,7 @@ export const autoSelect =
 			return paint <= SEEN ? paint : paint * clipsAbove(layer);
 		};
 
-		return [...layers]
+		const found = [...layers]
 			.reverse()
 			.find(
 				(layer) =>
@@ -130,4 +171,9 @@ export const autoSelect =
 					!isLocked(layer) &&
 					seen(layer) > SEEN
 			);
+		if (found === undefined || context.options.autoSelectMode === 'layer') return found;
+		// A press on what moves with the layers chosen keeps them, in either mode.
+		return several && movesWith(layers, context.layers ?? [], found.id)
+			? found
+			: groupPick(layers, found);
 	};

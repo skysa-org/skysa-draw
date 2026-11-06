@@ -9,10 +9,11 @@ import {
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
 import { Editor } from '../../src/drawing/Editor.js';
+import * as align from '../../src/drawing/tools/common/align.js';
 import { rectPath } from '../../src/drawing/tools/raster/area.js';
 import * as areaOps from '../../src/drawing/tools/raster/areaOps.js';
 import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
@@ -111,6 +112,44 @@ vi.mock('../../src/drawing/tools/raster/areaOps.js', async (importOriginal) => {
 	const real = await importOriginal<typeof areaOps>();
 	return { ...real, modifyArea: vi.fn(real.modifyArea) };
 });
+
+// The real one, but for what an alignment does to the layers, which is
+// `align.test.ts`'s: here it is only seen to be asked.
+vi.mock('../../src/drawing/tools/common/align.js', async (importOriginal) => {
+	const real = await importOriginal<typeof align>();
+	return { ...real, arrangeLayers: vi.fn(() => Promise.resolve(true)) };
+});
+
+/**
+ * The Image operations' own, mocked to what the frame asks of them, which
+ * `imageMenu.test.tsx` says more of: Canvas size's command sets the canvas's
+ * `viewBox`, so the view is seen to fit the new canvas, and Image size has
+ * nothing to do.
+ */
+const image = vi.hoisted(() => ({
+	resizeCanvas: vi.fn(
+		(_root: Element, _opened: unknown, size: Readonly<{ width: number; height: number }>) => ({
+			label: 'image.undo.canvasSize',
+			apply: (live: SVGSVGElement) => {
+				live.setAttribute('viewBox', `0 0 ${String(size.width)} ${String(size.height)}`);
+			},
+			revert: (live: SVGSVGElement) => {
+				live.removeAttribute('viewBox');
+			},
+			bytes: 1,
+		})
+	),
+	resizeImage: vi.fn(() => Promise.resolve('nothing')),
+}));
+
+vi.mock('../../src/drawing/document/canvasOps.js', () => ({
+	turnCanvas: vi.fn(),
+	rotateCanvas: vi.fn(),
+	resizeCanvas: image.resizeCanvas,
+	resizeImage: image.resizeImage,
+	trimCanvas: vi.fn(() => Promise.resolve('nothing')),
+	revealAll: vi.fn(() => Promise.resolve('nothing')),
+}));
 
 /** The export module's, mocked to what the frame asks of it: placing a picture, and the dialog. */
 const exporting = vi.hoisted(() => ({ placePicture: vi.fn() }));
@@ -437,6 +476,34 @@ describe('the editor frame', () => {
 		);
 	});
 
+	it('turns Snap on and off with Shift, Ctrl or ⌘ and ;, with any tool in hand, as the strip shows', async () => {
+		await renderEditor('expanded');
+		const snap = () => screen.getByRole('button', { name: 'Snap' });
+		const chord = (key: string) =>
+			new KeyboardEvent('keydown', {
+				key,
+				ctrlKey: true,
+				metaKey: true,
+				shiftKey: true,
+				cancelable: true,
+			});
+		expect(snap().getAttribute('aria-pressed')).toBe('true');
+		const first = chord(':');
+		act(() => {
+			window.dispatchEvent(first);
+		});
+		expect(first.defaultPrevented).toBe(true);
+		await waitFor(() => expect(snap().getAttribute('aria-pressed')).toBe('false'));
+		// With the brush in hand, which has no Snap to show, and back.
+		fireEvent.keyDown(window, { key: 'b' });
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Snap' })).toBeNull());
+		act(() => {
+			window.dispatchEvent(chord(';'));
+		});
+		fireEvent.keyDown(window, { key: 'v' });
+		await waitFor(() => expect(snap().getAttribute('aria-pressed')).toBe('true'));
+	});
+
 	it('closes a sheet with Escape, and it stays closed', async () => {
 		const user = userEvent.setup();
 		await renderEditor('compact');
@@ -671,6 +738,72 @@ describe('the selection bar', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Layer via copy' }));
 		expect(execute).toHaveBeenCalledTimes(1);
 		await waitFor(() => expect(bar()).toBeNull());
+	});
+});
+
+describe('the move tool’s alignment', () => {
+	beforeEach(() => {
+		fake.settings.kind = 'vector';
+		vi.mocked(align.arrangeLayers).mockClear();
+	});
+
+	/** The drawing's one layer put in its root, which the fake leaves empty, and the move tool taken up again to see it. */
+	const withLayer = async () => {
+		const layer = window.document.createElementNS('http://www.w3.org/2000/svg', 'g');
+		layer.setAttribute('id', 'layer-1');
+		lastOpened().root.appendChild(layer);
+		fireEvent.keyDown(window, { key: 'b' });
+		await waitFor(() => expect(screen.queryByRole('group', { name: 'Align' })).toBeNull());
+		fireEvent.keyDown(window, { key: 'v' });
+		await screen.findByRole('group', { name: 'Align' });
+	};
+
+	it.each(['compact', 'medium', 'expanded'] as const)(
+		'aligns the active layer from the options through the viewport, to what the menu chose (%s)',
+		async (width) => {
+			const user = userEvent.setup();
+			await renderEditor(width);
+			const options = screen.getByRole('toolbar', { name: 'Tool options' });
+			const group = within(options).getByRole('group', { name: 'Align' });
+			// Nothing in the drawing to move yet.
+			expect(within(group).getByRole('button', { name: 'Align left edges' })).toHaveProperty(
+				'disabled',
+				true
+			);
+			await withLayer();
+			await user.click(screen.getByRole('button', { name: 'Align left edges' }));
+			expect(align.arrangeLayers).toHaveBeenCalledTimes(1);
+			const [context, arrangement, alignTo] =
+				vi.mocked(align.arrangeLayers).mock.calls[0] ?? [];
+			expect(context?.document).toBe(lastOpened());
+			expect(context?.layer?.id).toBe('layer-1');
+			expect(arrangement).toEqual({ kind: 'align', edge: 'left' });
+			expect(alignTo).toBe('selection');
+
+			// One layer: nothing to distribute, to the selection or the canvas.
+			await user.click(screen.getByRole('button', { name: 'More alignment' }));
+			expect(screen.queryByRole('menuitem', { name: /^Distribute/ })).toBeNull();
+			await user.click(screen.getByRole('menuitemradio', { name: 'Align to canvas' }));
+			await user.click(screen.getByRole('button', { name: 'Align bottom edges' }));
+			expect(vi.mocked(align.arrangeLayers).mock.calls[1]?.slice(1, 3)).toEqual([
+				{ kind: 'align', edge: 'bottom' },
+				'canvas',
+			]);
+			await user.click(screen.getByRole('button', { name: 'More alignment' }));
+			expect(
+				screen
+					.getByRole('menuitemradio', { name: 'Align to canvas' })
+					.getAttribute('aria-checked')
+			).toBe('true');
+		}
+	);
+
+	it('is the move tool’s alone', async () => {
+		await renderEditor('expanded');
+		expect(screen.getByRole('group', { name: 'Align' })).toBeDefined();
+		fireEvent.keyDown(window, { key: 'm' });
+		await waitFor(() => expect(screen.queryByRole('group', { name: 'Align' })).toBeNull());
+		expect(screen.queryByRole('button', { name: 'More alignment' })).toBeNull();
 	});
 });
 
@@ -1144,5 +1277,141 @@ describe('placing a picture and exporting', () => {
 		expect(within(dialog).getByText('Harbor')).toBeDefined();
 		await user.click(within(dialog).getByRole('button', { name: 'Close the export' }));
 		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Export' })).toBeNull());
+	});
+});
+
+describe('the Image operations under More', () => {
+	beforeEach(() => {
+		fake.settings.kind = 'vector';
+		image.resizeCanvas.mockClear();
+		image.resizeImage.mockClear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	/** What More lists, by name, a rule between its groups as `—`. */
+	const moreEntries = async (user: ReturnType<typeof userEvent.setup>) => {
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		const menu = await screen.findByRole('menu');
+		return [...menu.children].map((child) =>
+			child.getAttribute('role') === 'separator'
+				? '—'
+				: child.querySelector('.menu-item-label')?.textContent
+		);
+	};
+
+	it('lists them in Photoshop’s order, between Export and Rename, each kind a group of its own', async () => {
+		const user = userEvent.setup();
+		await renderEditor('expanded');
+		expect(await moreEntries(user)).toEqual([
+			'Place picture…',
+			'Export…',
+			'—',
+			'Image size…',
+			'Canvas size…',
+			'Image rotation',
+			'Trim…',
+			'Reveal all',
+			'—',
+			'Rename',
+			'Delete',
+		]);
+	});
+
+	it('on compact, has the zoom after them, a group of its own', async () => {
+		const user = userEvent.setup();
+		await renderEditor('compact');
+		expect((await moreEntries(user)).slice(-6)).toEqual([
+			'Delete',
+			'—',
+			'Fit to window',
+			'Actual size',
+			'Zoom in',
+			'Zoom out',
+		]);
+	});
+
+	it('opens Image size… in a sheet on compact, and says when the image is that size already', async () => {
+		const user = userEvent.setup();
+		await renderEditor('compact');
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Image size…' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Image size' });
+		expect(sheet.classList.contains('panel-sheet')).toBe(true);
+		expect(within(sheet).getByRole('spinbutton', { name: 'Width' })).toHaveProperty(
+			'value',
+			'1600'
+		);
+		await user.click(within(sheet).getByRole('button', { name: 'Apply' }));
+		expect(image.resizeImage).toHaveBeenCalledWith(lastOpened(), {
+			width: 1600,
+			height: 1000,
+			resample: true,
+		});
+		expect(await screen.findByText('The image is already that size.')).toBeDefined();
+		expect(screen.queryByRole('dialog', { name: 'Image size' })).toBeNull();
+	});
+
+	it('opens Canvas size… in a drawer on medium, and Escape closes it', async () => {
+		const user = userEvent.setup();
+		await renderEditor('medium');
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Canvas size…' }));
+		const drawer = await screen.findByRole('dialog', { name: 'Canvas size' });
+		expect(drawer.classList.contains('panel-drawer-end')).toBe(true);
+		await user.keyboard('{Escape}');
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
+	it('fits the view to the canvas Canvas size… makes, as after a crop', async () => {
+		const user = userEvent.setup();
+		vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(800);
+		vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(600);
+		await renderEditor('expanded');
+		const document = lastOpened();
+		vi.spyOn(document, 'execute').mockImplementation((command) => {
+			command.apply(document.root);
+			document.edit('<svg/>');
+		});
+		// 736 × 536 of room inside the margin: 1600 × 1000 is fitted by its width.
+		expect(await screen.findByRole('button', { name: '46%' })).toBeDefined();
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Canvas size…' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Canvas size' });
+		fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Width' }), {
+			target: { value: '1000' },
+		});
+		fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Height' }), {
+			target: { value: '1600' },
+		});
+		await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+		expect(image.resizeCanvas).toHaveBeenCalledWith(
+			document.root,
+			document.size,
+			{ width: 1000, height: 1600 },
+			'center'
+		);
+		// 1000 × 1600 is fitted by its height.
+		expect(await screen.findByRole('button', { name: '34%' })).toBeDefined();
+	});
+
+	it('disables them while the area is being transformed', async () => {
+		const user = userEvent.setup();
+		fake.settings.kind = 'raster';
+		await renderEditor('expanded');
+		fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
+		fireEvent.keyDown(window, { key: 'm' });
+		await user.click(await screen.findByRole('button', { name: 'Transform selection' }));
+		await screen.findByRole('button', { name: 'Apply' });
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		for (const name of ['Image size…', 'Canvas size…', 'Image rotation', 'Trim…', 'Reveal all'])
+			expect(
+				(await screen.findByRole('menuitem', { name })).getAttribute('aria-disabled')
+			).toBe('true');
+		expect(
+			screen.getByRole('menuitem', { name: 'Export…' }).getAttribute('aria-disabled')
+		).toBeNull();
 	});
 });

@@ -3,6 +3,7 @@ import type { Ref } from 'react';
 import type { EditorDocument } from './document/model.js';
 import type { LayerSelection } from './layerSelection.js';
 import type { SelectionActionId } from './selectionActions.js';
+import type { Arrangement } from './tools/common/align.js';
 import type { FillSpec } from './tools/raster/areaFill.js';
 import type { AreaModify } from './tools/raster/areaOps.js';
 import type { Tool, ToolId, ToolOptions } from './tools/types.js';
@@ -37,6 +38,12 @@ export interface ViewportHandle {
 	 */
 	readonly undo: () => boolean;
 	readonly redo: () => boolean;
+	/**
+	 * One of the move tool's alignments or distributions, from the options
+	 * bar, to the layers the move tool moves, aligned to `ToolOptions.alignTo`
+	 * (`tools/common/align.ts`).
+	 */
+	readonly arrange: (arrangement: Arrangement) => void;
 }
 
 export interface ViewportProps {

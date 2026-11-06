@@ -4,7 +4,13 @@ import { toHex } from '../../../components/ui/color.js';
 import { editLayer } from '../../document/commands.js';
 import type { ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { apply, type Mat, multiply, parseTransform, type Point } from './geometry.js';
-import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
+import {
+	activeLayerElement,
+	guardLayer,
+	layerSpace,
+	newElementSpace,
+	targetLayer,
+} from './guard.js';
 import {
 	elementsAt,
 	elementsAtPositions,
@@ -46,9 +52,11 @@ import {
  * which has no Escape, says done, and a field it opened would be one more to
  * close.
  * Finishing writes what was typed in one command (`tools.text`): a new text
- * of the font size and the fill color in the options, or the edited text's
- * words in place of its old ones, its own attributes kept. Nothing typed
- * writes nothing; an edited text emptied is removed.
+ * of the font size and the fill color in the options, upright and of that
+ * size on the canvas whatever the layer's placement (`newElementSpace`), or
+ * the edited text's words in place of its old ones, its own attributes, its
+ * `transform` among them, kept. Nothing typed writes nothing; an edited text
+ * emptied is removed.
  *
  * The options may change while the field is open, from the options strip or
  * the color panel, which the focus goes to and comes back from without
@@ -56,7 +64,10 @@ import {
  * once, a new text is written in them, and an edited one has its
  * `font-size` or `fill` rewritten in the same one command as its words,
  * whichever of the two was changed while it was open and differs from its
- * own. The size is the whole text's, since a `<text>` here has one size.
+ * own. The size is the whole text's, since a `<text>` here has one size, and
+ * in the options it is the size seen on the canvas, through the text's own
+ * `transform` and its layer's, as Photoshop's options show a text that was
+ * scaled: a new text is written in it, and an edited one reads back in it.
  * As the field opens on a text, its size and, where it is a plain color, its
  * fill are put in the options (`ToolContext.setOptions`), so the strip shows
  * the text's own, as Photoshop's options bar does, and the first move of the
@@ -91,20 +102,11 @@ const DEFAULT_INK = '#000000';
 /**
  * What the field is for: a text to add at a point of the drawing, or one of
  * the layer's, with its words, its size in its own units, the color it is
- * seen in and the fill it declares, as they were, and how many of the
- * layer's units one of its own is, by its own `transform`: the options are in
- * the layer's units, as a new text is written.
+ * seen in and the fill it declares, as they were.
  */
 type Target =
 	| Readonly<{ kind: 'new'; at: Point }>
-	| Readonly<{
-			kind: 'edit';
-			before: string;
-			size: number;
-			color: string;
-			fill: string;
-			scale: number;
-	  }>;
+	| Readonly<{ kind: 'edit'; before: string; size: number; color: string; fill: string }>;
 
 /** Which of the text's size and color the options changed while the field was open. */
 type Touched = Readonly<{ size: boolean; fill: boolean }>;
@@ -113,7 +115,11 @@ type Editing = Readonly<{
 	/** The latest context, whose options are the ones to write. */
 	context: ToolContext;
 	target: Target;
-	/** How many of the drawing's units one of the text's own is, to size the field by. */
+	/**
+	 * How many of the drawing's units one of the text's own is, by its own
+	 * `transform` and its layer's: the options are in the drawing's units, as
+	 * the text is seen, and the field is sized and the text written by it.
+	 */
 	unit: number;
 	touched: Touched;
 	field: TextField;
@@ -206,29 +212,31 @@ const textMeasure =
 		};
 	};
 
-/** The topmost text of the layer under `point`, in the layer's units. */
+/** The topmost text of the layer under `point`, in the drawing's units, where it is seen. */
 const textAt = (context: ToolContext, layer: Element, point: Point): Element | undefined => {
 	const texts = elementsOf(layer).filter((element) => element.localName === 'text');
 	const measure = textMeasure((element) => fontSizeOf(context, element));
-	return elementsAt(texts, point, measure, HIT_SLOP_PX / context.viewport.scale).at(-1);
+	const slop = HIT_SLOP_PX / context.viewport.scale;
+	return elementsAt(texts, point, measure, slop, layerSpace(layer).outOf).at(-1);
 };
 
-/** A new text at `at`, in the drawing's units, in the options' size and color, scaled as the layer is. */
-const newText = (context: ToolContext, layer: Element, at: Point): Opening => {
-	const unit = scaleOf(layerSpace(layer).outOf);
-	return {
-		target: { kind: 'new', at },
-		unit,
-		edited: undefined,
-		spec: {
-			at,
-			size: context.options.fontSize * unit,
-			color: inkOf(context.options, 'fill'),
-			family: familyOf(context, layer),
-			initial: '',
-		},
-	};
-};
+/**
+ * A new text at `at`, in the drawing's units, in the options' size and color
+ * as it will be seen: one of its units is one of the drawing's, however the
+ * layer is placed (`newElementSpace`).
+ */
+const newText = (context: ToolContext, layer: Element, at: Point): Opening => ({
+	target: { kind: 'new', at },
+	unit: 1,
+	edited: undefined,
+	spec: {
+		at,
+		size: context.options.fontSize,
+		color: inkOf(context.options, 'fill'),
+		family: familyOf(context, layer),
+		initial: '',
+	},
+});
 
 /** The text `text`, at its first baseline, in its own size, color and face, as placed in the drawing. */
 const existingText = (context: ToolContext, layer: Element, text: Element): Opening | undefined => {
@@ -253,7 +261,6 @@ const existingText = (context: ToolContext, layer: Element, text: Element): Open
 			size,
 			color,
 			fill: paintedColor(text, 'fill', root, DEFAULT_INK),
-			scale: scaleOf(parseTransform(text.getAttribute('transform'))),
 		},
 		unit,
 		edited: { layer, element: text },
@@ -298,16 +305,16 @@ const refound = (context: ToolContext, last: Edited): Edited | undefined => {
 };
 
 /**
- * The size, in the text's own units, and the color the field shows: the
- * options' for a new text, and for an edited one wherever they were changed
- * while it was open; the text's own otherwise.
+ * The size, as it is seen in the drawing's units, and the color the field
+ * shows: the options' for a new text, and for an edited one wherever they
+ * were changed while it was open; the text's own otherwise.
  */
 const lookOf = (editing: Editing): FieldLook => {
 	const { context, target, touched, unit } = editing;
 	const ink = inkOf(context.options, 'fill');
-	if (target.kind === 'new') return { size: context.options.fontSize * unit, color: ink };
+	if (target.kind === 'new') return { size: context.options.fontSize, color: ink };
 	return {
-		size: (touched.size ? context.options.fontSize / target.scale : target.size) * unit,
+		size: touched.size ? context.options.fontSize : target.size * unit,
 		color: touched.fill ? ink : target.color,
 	};
 };
@@ -343,11 +350,12 @@ const setThroughout = (text: Element, property: string, value: string): void => 
 	text.setAttribute(property, value);
 };
 
-/** A new `<text>` of `lines`, at `at` in the drawing's units, added to the active layer. */
+/** A new `<text>` of `lines`, at `at` in the drawing's units, added to the active layer upright. */
 const writeNew = (context: ToolContext, at: Point, lines: readonly string[]): void => {
 	const layer = targetLayer(context);
 	if (layer === undefined) return;
-	const point = apply(layerSpace(layer).into, at);
+	const { into, transform } = newElementSpace(layer);
+	const point = apply(into, at);
 	const attributes = {
 		x: rounded(point.x),
 		y: rounded(point.y),
@@ -356,6 +364,7 @@ const writeNew = (context: ToolContext, at: Point, lines: readonly string[]): vo
 		// another tool; inherited, it would be the app's font here and a serif there.
 		'font-family': 'sans-serif',
 		fill: inkOf(context.options, 'fill'),
+		transform,
 	};
 	context.document.execute(
 		editLayer(layer.id, 'tools.text', (g: Element) => {
@@ -406,7 +415,7 @@ const rewrite = (
  * it was open, the size or the fill, or for one whose text is gone.
  */
 const write = (editing: Editing, value: string): void => {
-	const { context, target, touched, edited } = editing;
+	const { context, target, touched, edited, unit } = editing;
 	const lines = linesOf(value);
 	if (target.kind === 'new') {
 		if (!isBlank(lines)) writeNew(context, target.at, lines);
@@ -415,7 +424,7 @@ const write = (editing: Editing, value: string): void => {
 	const found = edited === undefined ? undefined : refound(context, edited);
 	const [position] = found === undefined ? [] : positionsIn(found.layer, [found.element]);
 	if (position === undefined) return;
-	const size = rounded(context.options.fontSize / target.scale);
+	const size = rounded(context.options.fontSize / unit);
 	const ink = inkOf(context.options, 'fill');
 	const restyle = {
 		size: touched.size && size !== rounded(target.size) ? size : undefined,
@@ -429,15 +438,15 @@ const write = (editing: Editing, value: string): void => {
 const UNTOUCHED: Touched = { size: false, fill: false };
 
 /**
- * An edited text's own size and fill as options: the size in the layer's
- * units, to two decimals as a coordinate is written, and the fill where it
- * is a plain color, as `#rrggbb`; none for a new text.
+ * An edited text's own size and fill as options: the size as it is seen, in
+ * the drawing's units by `unit`, to two decimals as a coordinate is written,
+ * and the fill where it is a plain color, as `#rrggbb`; none for a new text.
  */
-const optionsOf = (target: Target): Partial<ToolOptions> => {
+const optionsOf = (target: Target, unit: number): Partial<ToolOptions> => {
 	if (target.kind === 'new') return {};
 	const fill = toHex(target.fill);
 	return {
-		fontSize: rounded(target.size * target.scale),
+		fontSize: rounded(target.size * unit),
 		...(fill === undefined ? {} : { fill }),
 	};
 };
@@ -475,7 +484,7 @@ export const createText = (): ToolBehavior => {
 	 * which they bring, finds nothing touched.
 	 */
 	const open = (context: ToolContext, opening: Opening, caretAt?: Point): void => {
-		const own = context.setOptions === undefined ? {} : optionsOf(opening.target);
+		const own = context.setOptions === undefined ? {} : optionsOf(opening.target, opening.unit);
 		const field = openTextField(context, opening.spec, finish, caretAt);
 		const mine = (): Editing | undefined =>
 			editing.current?.field === field ? editing.current : undefined;
@@ -515,7 +524,7 @@ export const createText = (): ToolBehavior => {
 			const layer = activeLayerElement(context);
 			if (layer === undefined) return;
 			const at = { x: sample.x, y: sample.y };
-			const hit = textAt(context, layer, apply(layerSpace(layer).into, at));
+			const hit = textAt(context, layer, at);
 			pressed.current =
 				hit === undefined ? newText(context, layer, at) : existingText(context, layer, hit);
 		},

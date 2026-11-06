@@ -1,6 +1,5 @@
 import { editLayer } from '../../document/commands.js';
 import type { ToolBehavior } from '../types.js';
-import { apply } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace, targetLayer } from './guard.js';
 import {
 	elementsAtPositions,
@@ -16,16 +15,17 @@ const nothing = (): undefined => undefined;
 /**
  * The fill tool on a vector layer (docs/decisions/0004-the-interface.md): a
  * click sets the fill color of the element under the pointer, the topmost
- * where several overlap. A `fill` in the element's `style` is taken out, since
- * it would win over the attribute and the click would seem to do nothing.
+ * where several overlap, by its box where it is seen, in the drawing's units.
+ * A `fill` in the element's `style` is taken out, since it would win over the
+ * attribute and the click would seem to do nothing.
  */
 export const createFill = (measure: Measure): ToolBehavior => ({
 	begin: (context, sample) => {
 		if (guardLayer(context) === undefined) return;
 		const layer = activeLayerElement(context);
 		if (layer === undefined) return;
-		const point = apply(layerSpace(layer).into, { x: sample.x, y: sample.y });
-		const hit = topmostAt(elementsOf(layer), point, measure);
+		const point = { x: sample.x, y: sample.y };
+		const hit = topmostAt(elementsOf(layer), point, measure, 0, layerSpace(layer).outOf);
 		if (hit === undefined) return;
 		// Where it is, read before a loose layer is wrapped, for the command to find it by.
 		const positions = positionsIn(layer, [hit]);

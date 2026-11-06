@@ -1,8 +1,8 @@
 import { slugify } from '@skysa/draw-core';
-import { type SyntheticEvent, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { ColorField } from '../../components/ui/ColorField.js';
-import { Panel } from '../../components/ui/Panel.js';
+import { DialogForm } from '../../components/ui/DialogForm.js';
 import { PanelHost } from '../../components/ui/PanelHost.js';
 import { Select } from '../../components/ui/Select.js';
 import { useSizeClass } from '../../components/ui/sizeClass.js';
@@ -22,7 +22,10 @@ import {
  * The export dialog (docs/ARCHITECTURE.md §7, "Export"): the format, the
  * scale with the pixels it makes, a JPEG's background and the file's name,
  * in a sheet on a compact window and a drawer elsewhere. The file is made on
- * this device and saved to it; nothing of it reaches the API.
+ * this device and saved to it; nothing of it reaches the API. The form is
+ * every dialog's (`DialogForm`), busy while it renders, and closed once the
+ * file is saved rather than on the press, so a render that fails says so
+ * with the choices still there.
  */
 
 const FORMAT_KEYS = {
@@ -100,9 +103,7 @@ const ExportForm = ({
 		onClose();
 	};
 
-	const onSubmit = (event: SyntheticEvent) => {
-		event.preventDefault();
-		if (busy) return;
+	const start = () => {
 		setBusy(true);
 		setFailed(false);
 		const behind = format === 'jpeg' ? background : undefined;
@@ -112,71 +113,68 @@ const ExportForm = ({
 	};
 
 	return (
-		<Panel title={t('exporting.title')} onClose={onClose} className="export-panel">
-			<form className="export-form" onSubmit={onSubmit} aria-busy={busy}>
-				<Select
-					label={t('exporting.format')}
-					value={format}
-					options={FORMAT_OPTIONS}
-					onChange={(next) => onChoose({ ...choices, format: next })}
-				/>
-				{format === 'svg' ? (
-					<p className="export-note">{t('exporting.svgNote')}</p>
-				) : (
-					<>
-						<Select
-							label={t('exporting.scale')}
-							value={scale}
-							options={SCALE_OPTIONS}
-							onChange={(next) => onChoose({ ...choices, scale: next })}
-						/>
-						<p className="export-size">
-							{t('exporting.size', { width: size.width, height: size.height })}
-						</p>
-						{size.capped && (
-							<p className="export-note">
-								{t('exporting.capped', { max: EXPORT_MAX_SIDE })}
-							</p>
-						)}
-					</>
-				)}
-				{format === 'jpeg' && (
-					<ColorField
-						label={t('exporting.background')}
-						value={background}
-						onChange={(next) => onChoose({ ...choices, background: next })}
+		<DialogForm
+			title={t('exporting.title')}
+			applyLabel={busy ? t('exporting.busy') : t('exporting.export')}
+			busy={busy}
+			closesOnApply={false}
+			onApply={start}
+			onClose={onClose}
+		>
+			<Select
+				label={t('exporting.format')}
+				value={format}
+				options={FORMAT_OPTIONS}
+				onChange={(next) => onChoose({ ...choices, format: next })}
+			/>
+			{format === 'svg' ? (
+				<p className="export-note">{t('exporting.svgNote')}</p>
+			) : (
+				<>
+					<Select
+						label={t('exporting.scale')}
+						value={scale}
+						options={SCALE_OPTIONS}
+						onChange={(next) => onChoose({ ...choices, scale: next })}
 					/>
-				)}
-				<div className="export-name">
-					<label htmlFor={nameId} className="field-label">
-						{t('exporting.name')}
-					</label>
-					<input
-						id={nameId}
-						type="text"
-						value={name}
-						autoCapitalize="off"
-						autoCorrect="off"
-						spellCheck={false}
-						onChange={(event) => setName(event.target.value)}
-					/>
-					<span className="export-extension">.{EXTENSIONS[format]}</span>
-				</div>
-				{failed && (
-					<p role="alert" className="form-error">
-						{t('exporting.failed')}
+					<p className="export-size">
+						{t('exporting.size', { width: size.width, height: size.height })}
 					</p>
-				)}
-				<div className="export-actions">
-					<button type="button" onClick={onClose}>
-						{t('common.cancel')}
-					</button>
-					<button type="submit" className="primary" disabled={busy}>
-						{busy ? t('exporting.busy') : t('exporting.export')}
-					</button>
-				</div>
-			</form>
-		</Panel>
+					{size.capped && (
+						<p className="export-note">
+							{t('exporting.capped', { max: EXPORT_MAX_SIDE })}
+						</p>
+					)}
+				</>
+			)}
+			{format === 'jpeg' && (
+				<ColorField
+					label={t('exporting.background')}
+					value={background}
+					onChange={(next) => onChoose({ ...choices, background: next })}
+				/>
+			)}
+			<div className="export-name">
+				<label htmlFor={nameId} className="field-label">
+					{t('exporting.name')}
+				</label>
+				<input
+					id={nameId}
+					type="text"
+					value={name}
+					autoCapitalize="off"
+					autoCorrect="off"
+					spellCheck={false}
+					onChange={(event) => setName(event.target.value)}
+				/>
+				<span className="export-extension">.{EXTENSIONS[format]}</span>
+			</div>
+			{failed && (
+				<p role="alert" className="form-error">
+					{t('exporting.failed')}
+				</p>
+			)}
+		</DialogForm>
 	);
 };
 

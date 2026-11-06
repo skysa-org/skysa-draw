@@ -102,6 +102,8 @@ const ON: ToolOptions = { ...DEFAULT_TOOL_OPTIONS, autoSelect: true };
 
 type ContextSetup = Readonly<{
 	active?: string;
+	/** The layers chosen in the panel, outermost, as the viewport gives them. */
+	chosen?: readonly string[];
 	options?: ToolOptions;
 	scale?: number;
 	selected?: readonly Element[];
@@ -112,6 +114,7 @@ const contextFor = (editor: EditorDocument, setup: ContextSetup = {}): ToolConte
 	createToolContext({
 		document: editor,
 		layer: editor.snapshot().layers.find((layer) => layer.id === (setup.active ?? 'layer-1')),
+		...(setup.chosen === undefined ? {} : { layers: setup.chosen }),
 		options: setup.options ?? ON,
 		overlay: document.createElementNS(SVG_NAMESPACE, 'svg'),
 		canvas: document.createElement('canvas'),
@@ -344,6 +347,109 @@ describe('Auto-Select’s pick', () => {
 	});
 });
 
+/** Auto-select on, in Photoshop's Group mode. */
+const GROUP_ON: ToolOptions = { ...ON, autoSelectMode: 'group' };
+
+describe('Auto-Select’s pick in Group mode', () => {
+	/**
+	 * A ground at the root, a group in a group over it, the inner one holding
+	 * a square, and a card at the root on top; `outer` and `inner` are the
+	 * groups' attributes, and `more` and `moreInner` what else each holds.
+	 */
+	const nested = (
+		setup: Readonly<{ outer?: string; inner?: string; more?: string; moreInner?: string }> = {}
+	) =>
+		open(
+			[
+				'<g id="layer-1" draw:kind="vector"><rect x="0" y="0" width="100" height="100"/></g>',
+				`<g id="layer-2" draw:kind="group"${setup.outer ?? ''}>`,
+				`<g id="layer-3" draw:kind="group"${setup.inner ?? ''}>`,
+				'<g id="layer-4" draw:kind="vector"><rect x="10" y="10" width="20" height="20"/></g>',
+				setup.moreInner ?? '',
+				'</g>',
+				setup.more ?? '',
+				'</g>',
+				'<g id="layer-5" draw:kind="vector"><rect x="60" y="60" width="20" height="20"/></g>',
+			].join('\n')
+		);
+
+	const group = { options: GROUP_ON };
+
+	it('is Layer mode by default, and in Group mode picks the outermost group of the layer it finds', () => {
+		const editor = nested();
+		expect(DEFAULT_TOOL_OPTIONS.autoSelectMode).toBe('layer');
+		expect(pickedAt(editor, 20, 20)).toBe('layer-4');
+		expect(pickedAt(editor, 20, 20, group)).toBe('layer-2');
+		// The group active already is picked too, and the viewport keeps it.
+		expect(pickedAt(editor, 20, 20, { ...group, active: 'layer-2' })).toBe('layer-2');
+		expect(pickedAt(editor, 20, 20, { ...group, active: 'layer-4' })).toBe('layer-2');
+	});
+
+	it('picks a layer in no group itself, and none over nothing', () => {
+		const editor = nested();
+		expect(pickedAt(editor, 70, 70, group)).toBe('layer-5');
+		expect(pickedAt(editor, 90, 90, group)).toBe('layer-1');
+		const bare = open(
+			'<g id="layer-1" draw:kind="group"><g id="layer-2" draw:kind="vector"/></g>'
+		);
+		expect(pickedAt(bare, 20, 20, group)).toBeUndefined();
+	});
+
+	it('does the other with Ctrl or ⌘, which pick in Group mode with Auto-select off', () => {
+		const editor = nested();
+		const off = { options: { ...DEFAULT_TOOL_OPTIONS, autoSelectMode: 'group' as const } };
+		expect(pickedAt(editor, 20, 20, off)).toBeUndefined();
+		expect(pickedAt(editor, 20, 20, off, { primaryKey: true })).toBe('layer-2');
+		expect(pickedAt(editor, 20, 20, group, { primaryKey: true })).toBeUndefined();
+	});
+
+	it('passes over the layers of a hidden or a locked group, at any depth, to what lies under them', () => {
+		expect(pickedAt(nested({ outer: ' display="none"' }), 20, 20, group)).toBe('layer-1');
+		expect(pickedAt(nested({ inner: ' style="display:none"' }), 20, 20, group)).toBe('layer-1');
+		expect(pickedAt(nested({ outer: ' draw:locked="true"' }), 20, 20, group)).toBe('layer-1');
+		expect(pickedAt(nested({ inner: ' draw:locked="true"' }), 20, 20, group)).toBe('layer-1');
+	});
+
+	it('picks the outermost group that may move whole where a locked layer keeps the one round it, else the layer', () => {
+		const locked = '<g id="layer-6" draw:kind="vector" draw:locked="true"/>';
+		expect(pickedAt(nested({ more: locked }), 20, 20, group)).toBe('layer-3');
+		expect(pickedAt(nested({ moreInner: locked }), 20, 20, group)).toBe('layer-4');
+		// A hidden layer moves with its group, and does not keep it.
+		const hidden = '<g id="layer-6" draw:kind="vector" display="none"/>';
+		expect(pickedAt(nested({ more: hidden }), 20, 20, group)).toBe('layer-2');
+	});
+
+	it('picks the layer it finds where that moves with the layers chosen, so the choice is kept', () => {
+		const editor = nested();
+		const chosen = (ids: readonly string[]) => ({ ...group, active: ids[0], chosen: ids });
+		expect(pickedAt(editor, 20, 20, chosen(['layer-4', 'layer-5']))).toBe('layer-4');
+		expect(pickedAt(editor, 20, 20, chosen(['layer-3', 'layer-5']))).toBe('layer-4');
+		expect(pickedAt(editor, 20, 20, chosen(['layer-2', 'layer-5']))).toBe('layer-4');
+		// Chosen without it, or chosen alone, which is no choice to keep: the group.
+		expect(pickedAt(editor, 20, 20, chosen(['layer-1', 'layer-5']))).toBe('layer-2');
+		expect(pickedAt(editor, 20, 20, chosen(['layer-4']))).toBe('layer-2');
+	});
+
+	it('leaves a press on a handle of the box around what is selected to resize it, and picks the group inside it', () => {
+		const editor = open(
+			[
+				'<g id="layer-1" draw:kind="group">',
+				'<g id="layer-2" draw:kind="vector"><rect id="small" x="10" y="10" width="20" height="20"/></g>',
+				'</g>',
+				'<g id="layer-3" draw:kind="vector"><rect x="25" y="25" width="30" height="30"/></g>',
+			].join('\n')
+		);
+		const small = editor.root.querySelector('#small');
+		if (small === null) throw new Error('the drawing has its rect');
+		const selected = { ...group, active: 'layer-2', selected: [small] };
+		// The south-east corner of the selection's box.
+		expect(pickedAt(editor, 30, 30, selected)).toBeUndefined();
+		expect(pickedAt(editor, 30, 30, group)).toBe('layer-3');
+		// Inside the box, on what is selected: its group, which moves whole.
+		expect(pickedAt(editor, 20, 20, selected)).toBe('layer-1');
+	});
+});
+
 /**
  * The viewport in a frame of its own, which makes active the layer it is
  * asked to and puts in hand the tool. The layers chosen are `chosen`, top
@@ -482,7 +588,7 @@ const setup = (
 
 describe('Auto-Select in the viewport', () => {
 	it('shows the option in the move tool’s strip, and nowhere else', () => {
-		expect(toolById('select')?.options).toEqual(['autoSelect']);
+		expect(toolById('select')?.options).toEqual(['autoSelect', 'autoSelectMode', 'snap']);
 		expect(toolById('select')?.pick).toBeDefined();
 		expect(toolById('node')?.pick).toBeUndefined();
 		expect(t('tools.options.autoSelect')).toBe('Auto-select');
@@ -669,6 +775,137 @@ describe('Auto-Select in the viewport', () => {
 		expect(onActivate.mock.calls).toEqual([['layer-3']]);
 		const field = container.querySelector('textarea');
 		expect(field?.value).toBe('Hi');
+	});
+});
+
+/**
+ * Two groups, one in the other, the inner holding a square and the outer a
+ * second one beside it, over a ground, and a card at the root on top.
+ */
+const NESTED = (more = '') =>
+	[
+		'<g id="layer-1" draw:kind="vector"><rect id="ground" x="0" y="0" width="100" height="90"/></g>',
+		'<g id="layer-2" draw:kind="group">',
+		'<g id="layer-3" draw:kind="group">',
+		'<g id="layer-4" draw:kind="vector"><rect id="inner" x="10" y="10" width="20" height="20"/></g>',
+		'</g>',
+		'<g id="layer-5" draw:kind="vector"><rect id="beside" x="40" y="10" width="10" height="10"/></g>',
+		more,
+		'</g>',
+		'<g id="layer-6" draw:kind="vector"><rect id="card" x="60" y="60" width="20" height="20"/></g>',
+	].join('\n');
+
+describe('Auto-Select in Group mode in the viewport', () => {
+	type Grouped = Readonly<{
+		options?: ToolOptions;
+		initial?: string;
+		chosen?: readonly string[];
+		more?: string;
+	}>;
+
+	const grouped = (setupOptions: Grouped = {}) => {
+		const editor = open(NESTED(setupOptions.more));
+		const original = editor.text();
+		const selection = createViewportSelection();
+		const onActivate = vi.fn<(id: string) => void>();
+		const onNotify = vi.fn<(message: string) => void>();
+		const utils = render(
+			<Frame
+				editor={editor}
+				options={setupOptions.options ?? GROUP_ON}
+				initial={setupOptions.initial ?? 'layer-1'}
+				{...(setupOptions.chosen === undefined ? {} : { chosen: setupOptions.chosen })}
+				selection={selection}
+				onActivate={onActivate}
+				onNotify={onNotify}
+			/>
+		);
+		const region = utils.getByRole('region', { name: t('editor.panes.canvas') });
+		const transformOf = (id: string): string | null =>
+			editor.root.querySelector(`[id="${id}"]`)?.getAttribute('transform') ?? null;
+		return { ...utils, editor, original, selection, onActivate, onNotify, region, transformOf };
+	};
+
+	it('makes the outermost group of the layer under the press active, and the same press moves it whole', () => {
+		const { editor, original, onActivate, onNotify, region, transformOf } = grouped();
+		drag(region, [20, 20], [24, 23]);
+		expect(onActivate.mock.calls).toEqual([['layer-2']]);
+		expect(transformOf('layer-2')).toBe('translate(4 3)');
+		expect(['layer-3', 'layer-4', 'inner', 'ground'].map(transformOf)).toEqual([
+			null,
+			null,
+			null,
+			null,
+		]);
+		expect(onNotify).not.toHaveBeenCalled();
+		// One step of the history, which undoes to the bytes.
+		act(() => {
+			editor.undo();
+		});
+		expect(editor.snapshot().canUndo).toBe(false);
+		expect(editor.text()).toBe(original);
+		// The group active now: a press on its other layer moves it again, and makes nothing else active.
+		drag(region, [45, 15], [47, 15], { at: 1000 });
+		expect(onActivate.mock.calls).toEqual([['layer-2']]);
+		expect(transformOf('layer-2')).toBe('translate(2 0)');
+	});
+
+	it('moves a layer in no group as Layer mode does', () => {
+		const { onActivate, region, transformOf } = grouped();
+		drag(region, [70, 70], [75, 72]);
+		expect(onActivate.mock.calls).toEqual([['layer-6']]);
+		expect(transformOf('card')).toBe('matrix(1 0 0 1 5 2)');
+		expect(transformOf('layer-2')).toBeNull();
+	});
+
+	it('picks the group with Ctrl or ⌘ held where Auto-select is off', () => {
+		const { onActivate, region, transformOf } = grouped({
+			options: { ...DEFAULT_TOOL_OPTIONS, autoSelectMode: 'group' },
+		});
+		drag(region, [20, 20], [22, 20], { primary: true });
+		expect(onActivate.mock.calls).toEqual([['layer-2']]);
+		expect(transformOf('layer-2')).toBe('translate(2 0)');
+	});
+
+	it('keeps the layers chosen where the press is on one of them inside a group, and moves them all', () => {
+		// The card's layer active, and the square's chosen with it.
+		const { onActivate, region, transformOf } = grouped({
+			initial: 'layer-6',
+			chosen: ['layer-6', 'layer-4'],
+		});
+		drag(region, [20, 20], [24, 20]);
+		expect(onActivate).not.toHaveBeenCalled();
+		expect(transformOf('layer-4')).toBe('translate(4 0)');
+		expect(transformOf('layer-6')).toBe('translate(4 0)');
+		expect(transformOf('layer-2')).toBeNull();
+	});
+
+	it('moves the group under it that may move where a locked layer keeps the outer one, and says nothing', () => {
+		const { onActivate, onNotify, region, transformOf } = grouped({
+			more: '<g id="layer-7" draw:kind="vector" draw:name="Sketch" draw:locked="true"/>',
+		});
+		drag(region, [20, 20], [24, 20]);
+		expect(onActivate.mock.calls).toEqual([['layer-3']]);
+		expect(transformOf('layer-3')).toBe('translate(4 0)');
+		expect(transformOf('layer-2')).toBeNull();
+		expect(onNotify).not.toHaveBeenCalled();
+	});
+
+	it('resizes what is selected from a handle of its box, and keeps the active layer', () => {
+		const { editor, selection, onActivate, region, transformOf } = grouped({
+			initial: 'layer-4',
+		});
+		const inner = editor.root.querySelector('#inner');
+		if (inner === null) throw new Error('the drawing has its rect');
+		act(() => {
+			selection.elements.set([inner]);
+		});
+		// From the south-east corner of the box, outward.
+		drag(region, [30, 30], [40, 40]);
+		expect(onActivate).not.toHaveBeenCalled();
+		expect(transformOf('layer-2')).toBeNull();
+		expect(transformOf('inner')).not.toBeNull();
+		expect(selection.elements.get()).toEqual([inner]);
 	});
 });
 
@@ -1019,8 +1256,8 @@ describe('The move tool with several layers chosen', () => {
 		fire(window, right);
 		expect(right.defaultPrevented).toBe(true);
 		fire(window, arrow('ArrowDown', true));
-		expect(transformOf('layer-1')).toBe('translate(0 10) translate(1 0)');
-		expect(transformOf('layer-3')).toBe('translate(0 10) translate(1 0)');
+		expect(transformOf('layer-1')).toBe('translate(1 10)');
+		expect(transformOf('layer-3')).toBe('translate(1 10)');
 		expect(transformOf('layer-2')).toBeNull();
 		act(() => {
 			editor.undo();

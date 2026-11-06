@@ -7,8 +7,10 @@ import { PanelHost } from '../../src/components/ui/PanelHost.js';
 import { SIZE_MAX, SIZE_MIN } from '../../src/drawing/editorState.js';
 import { ColorPanel } from '../../src/drawing/panels/ColorPanel.js';
 import { OptionsStrip } from '../../src/drawing/panels/OptionsStrip.js';
+import type { Arrangement } from '../../src/drawing/tools/common/align.js';
+import { toolById, TOOLS } from '../../src/drawing/tools/index.js';
 import { inToolOptions } from '../../src/drawing/tools/optionsRegion.js';
-import { DEFAULT_TOOL_OPTIONS, type Tool } from '../../src/drawing/tools/types.js';
+import { type AlignTo, DEFAULT_TOOL_OPTIONS, type Tool } from '../../src/drawing/tools/types.js';
 
 /**
  * The strip of options for the tool in hand (docs/ARCHITECTURE.md §7, "The
@@ -309,6 +311,329 @@ describe('the options strip', () => {
 	it('shows no selection bar with no actions', () => {
 		render(<OptionsStrip tool={brushLike} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />);
 		expect(screen.queryByRole('group', { name: 'Selection' })).toBeNull();
+	});
+});
+
+describe('the move tool’s Auto-select mode and Snap', () => {
+	/** The move tool as the registry has it, with its options in its order. */
+	const move = toolById('select') as Tool;
+
+	it('names Auto-select, what it picks, and Snap, in that order, for the move tool', () => {
+		expect(move.options).toEqual(['autoSelect', 'autoSelectMode', 'snap']);
+		render(<OptionsStrip tool={move} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />);
+		const controls = [
+			screen.getByRole('button', { name: 'Auto-select' }),
+			screen.getByRole('combobox', { name: 'Auto-select picks' }),
+			screen.getByRole('button', { name: 'Snap' }),
+		];
+		const inPageOrder = [...controls].sort((a, b) =>
+			a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+		);
+		expect(inPageOrder).toEqual(controls);
+	});
+
+	it('shows what Auto-select picks as a menu of Layer and Group, its name for a screen reader alone', async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+		render(<OptionsStrip tool={move} options={DEFAULT_TOOL_OPTIONS} onChange={onChange} />);
+		const mode = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Auto-select picks' });
+		expect(mode.value).toBe('layer');
+		expect([...mode.options].map((option) => option.textContent)).toEqual(['Layer', 'Group']);
+		// Auto-select's name is beside it already, as in Photoshop's options bar.
+		expect(mode.labels[0]?.querySelector('.visually-hidden')?.textContent).toBe(
+			'Auto-select picks'
+		);
+		await user.selectOptions(mode, 'Group');
+		expect(onChange).toHaveBeenCalledExactlyOnceWith('autoSelectMode', 'group');
+	});
+
+	it('shows the mode in force, whether Auto-select is on or off, since Ctrl or ⌘ picks in it', () => {
+		render(
+			<OptionsStrip
+				tool={move}
+				options={{ ...DEFAULT_TOOL_OPTIONS, autoSelectMode: 'group' }}
+				onChange={vi.fn()}
+			/>
+		);
+		const mode = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Auto-select picks' });
+		expect(mode.value).toBe('group');
+		expect(mode.disabled).toBe(false);
+	});
+
+	it('shows Snap as a toggle, on by default, with its key in its tooltip as each platform writes it', async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+		const { unmount } = render(
+			<OptionsStrip
+				tool={move}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={onChange}
+				mac={false}
+			/>
+		);
+		const snap = screen.getByRole('button', { name: 'Snap' });
+		expect(snap.textContent).toBe('Snap');
+		expect(snap.getAttribute('aria-pressed')).toBe('true');
+		expect(snap.title).toBe('Snap (Ctrl+Shift+;)');
+		// A toggle no key turns on and off has no tooltip: its name is shown.
+		expect(screen.getByRole('button', { name: 'Auto-select' }).hasAttribute('title')).toBe(
+			false
+		);
+		await user.click(snap);
+		expect(onChange).toHaveBeenCalledExactlyOnceWith('snap', false);
+		unmount();
+		render(<OptionsStrip tool={move} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} mac />);
+		expect(screen.getByRole('button', { name: 'Snap' }).title).toBe('Snap (⇧⌘;)');
+	});
+
+	it('is no other tool’s', () => {
+		const others = TOOLS.filter((tool) => tool.id !== 'select');
+		others.forEach((tool) => {
+			expect(tool.options).not.toContain('autoSelectMode');
+			expect(tool.options).not.toContain('snap');
+		});
+		render(<OptionsStrip tool={brushLike} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />);
+		expect(screen.queryByRole('combobox')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Snap' })).toBeNull();
+	});
+
+	it('comes before the alignment, which follows Snap, ruled off from it', () => {
+		render(
+			<OptionsStrip
+				tool={move}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+				align={{ count: 1, onArrange: vi.fn() }}
+			/>
+		);
+		const snap = screen.getByRole('button', { name: 'Snap' });
+		const rule = snap.nextElementSibling;
+		expect(rule?.getAttribute('role')).toBe('separator');
+		expect(rule?.nextElementSibling).toBe(screen.getByRole('group', { name: 'Align' }));
+	});
+});
+
+describe('the move tool’s alignment', () => {
+	const moveLike: Tool = { id: 'select', options: ['autoSelect'], behaviors: {} };
+
+	const SIX = [
+		'Align left edges',
+		'Align horizontal centers',
+		'Align right edges',
+		'Align top edges',
+		'Align vertical centers',
+		'Align bottom edges',
+	];
+
+	const DISTRIBUTIONS = [
+		'Distribute top edges',
+		'Distribute vertical centers',
+		'Distribute bottom edges',
+		'Distribute left edges',
+		'Distribute horizontal centers',
+		'Distribute right edges',
+		'Distribute vertical spacing',
+		'Distribute horizontal spacing',
+	];
+
+	const TO = ['Align to selection', 'Align to canvas'];
+
+	/** The strip with the move tool in hand, `count` layers to move, aligned to `alignTo`. */
+	const strip = (
+		count: number,
+		alignTo: AlignTo = 'selection',
+		more: Partial<Parameters<typeof OptionsStrip>[0]> = {}
+	) => {
+		const onArrange = vi.fn<(arrangement: Arrangement) => void>();
+		const onChange = vi.fn();
+		render(
+			<OptionsStrip
+				tool={moveLike}
+				options={{ ...DEFAULT_TOOL_OPTIONS, alignTo }}
+				onChange={onChange}
+				align={{ count, onArrange }}
+				{...more}
+			/>
+		);
+		return { onArrange, onChange };
+	};
+
+	const group = () => screen.queryByRole('group', { name: 'Align' });
+
+	/** The menu after the six, opened: each item's name, and the radios' checks. */
+	const openMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+		await user.click(screen.getByRole('button', { name: 'More alignment' }));
+		const menu = screen.getByRole('menu', { name: 'More alignment' });
+		const items = [...menu.querySelectorAll('[role^="menuitem"]')];
+		return {
+			menu,
+			names: items.map((item) => item.textContent),
+			checked: items
+				.filter((item) => item.getAttribute('role') === 'menuitemradio')
+				.map((item) => item.getAttribute('aria-checked')),
+			rules: menu.querySelectorAll('[role="separator"]').length,
+		};
+	};
+
+	it('comes after Auto-select, ruled off from it, as a group of the six named in words, each by its icon, then its menu', () => {
+		strip(1);
+		const bar = group();
+		expect(bar).not.toBeNull();
+		const buttons = [...(bar?.querySelectorAll('button') ?? [])];
+		expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+			...SIX,
+			'More alignment',
+		]);
+		expect(buttons.map((button) => button.title)).toEqual([...SIX, 'More alignment']);
+		buttons.forEach((button) => {
+			expect(button.querySelector('svg')).not.toBeNull();
+		});
+		expect(buttons.at(-1)?.getAttribute('aria-haspopup')).toBe('menu');
+		const autoSelect = screen.getByRole('button', { name: 'Auto-select' });
+		const rule = screen
+			.getByRole('toolbar', { name: 'Tool options' })
+			.querySelector(':scope > [role="separator"]');
+		expect(rule).not.toBeNull();
+		expect(autoSelect.compareDocumentPosition(rule as Element)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect((rule as Element).nextElementSibling).toBe(bar);
+	});
+
+	it('comes before the selection bar, which is the selection’s and not the tool’s', () => {
+		strip(1, 'selection', {
+			actions: [{ id: 'deselect', label: 'Deselect', onSelect: vi.fn() }],
+		});
+		const selectionBar = screen.getByRole('group', { name: 'Selection' });
+		expect(group()?.compareDocumentPosition(selectionBar)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+	});
+
+	it('is not there for another tool, without the frame’s say, or while Transform selection is on', () => {
+		const onArrange = vi.fn();
+		const { unmount } = render(
+			<OptionsStrip
+				tool={brushLike}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+				align={{ count: 2, onArrange }}
+			/>
+		);
+		expect(group()).toBeNull();
+		unmount();
+		const without = render(
+			<OptionsStrip tool={moveLike} options={DEFAULT_TOOL_OPTIONS} onChange={vi.fn()} />
+		);
+		expect(group()).toBeNull();
+		expect(screen.queryByRole('button', { name: 'More alignment' })).toBeNull();
+		without.unmount();
+		strip(2, 'selection', {
+			transforming: true,
+			actions: [{ id: 'applyTransform', label: 'Apply', onSelect: vi.fn() }],
+		});
+		expect(group()).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Auto-select' })).toBeNull();
+		expect(
+			screen
+				.getByRole('toolbar', { name: 'Tool options' })
+				.querySelector('[role="separator"]')
+		).toBeNull();
+	});
+
+	it('disables the six with no layer to move, and keeps in the menu the choice of what to align to', async () => {
+		const user = userEvent.setup();
+		strip(0);
+		SIX.forEach((name) => {
+			expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true);
+		});
+		expect(screen.getByRole('button', { name: 'More alignment' })).toHaveProperty(
+			'disabled',
+			false
+		);
+		const { names, checked, rules } = await openMenu(user);
+		expect(names).toEqual(TO);
+		expect(checked).toEqual(['true', 'false']);
+		expect(rules).toBe(0);
+	});
+
+	it.each([
+		[1, 'selection', false],
+		[1, 'canvas', false],
+		[2, 'selection', false],
+		[2, 'canvas', true],
+		[3, 'selection', true],
+		[3, 'canvas', true],
+	] as const)(
+		'with %i layers aligned to the %s, lists the distributions only where they apply (%s)',
+		async (count, alignTo, distributes) => {
+			const user = userEvent.setup();
+			strip(count, alignTo);
+			SIX.forEach((name) => {
+				expect(screen.getByRole('button', { name })).toHaveProperty('disabled', false);
+			});
+			const { names, checked, rules } = await openMenu(user);
+			expect(names).toEqual(distributes ? [...DISTRIBUTIONS, ...TO] : TO);
+			expect(checked).toEqual(
+				alignTo === 'selection' ? ['true', 'false'] : ['false', 'true']
+			);
+			// By edge across, by edge down, the spacing, then what to align to.
+			expect(rules).toBe(distributes ? 3 : 0);
+		}
+	);
+
+	it('draws each distribution by its icon, and the choice of what to align to by none', async () => {
+		const user = userEvent.setup();
+		strip(3);
+		const { menu } = await openMenu(user);
+		const icons = [...menu.querySelectorAll('[role^="menuitem"]')].map(
+			(item) => item.querySelector('.menu-item-icon svg') !== null
+		);
+		expect(icons).toEqual([...DISTRIBUTIONS.map(() => true), false, false]);
+	});
+
+	it('arranges by the button or the item pressed', async () => {
+		const user = userEvent.setup();
+		const { onArrange, onChange } = strip(3);
+		await user.click(screen.getByRole('button', { name: 'Align vertical centers' }));
+		expect(onArrange).toHaveBeenLastCalledWith({ kind: 'align', edge: 'centerY' });
+		await user.click(screen.getByRole('button', { name: 'Align left edges' }));
+		expect(onArrange).toHaveBeenLastCalledWith({ kind: 'align', edge: 'left' });
+		await openMenu(user);
+		await user.click(screen.getByRole('menuitem', { name: 'Distribute horizontal spacing' }));
+		expect(onArrange).toHaveBeenLastCalledWith({ kind: 'distribute', how: 'spaceX' });
+		await openMenu(user);
+		await user.click(screen.getByRole('menuitem', { name: 'Distribute top edges' }));
+		expect(onArrange).toHaveBeenLastCalledWith({ kind: 'distribute', how: 'top' });
+		expect(onArrange).toHaveBeenCalledTimes(4);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it('arranges nothing from a button disabled', async () => {
+		const user = userEvent.setup();
+		const { onArrange } = strip(0);
+		await user.click(screen.getByRole('button', { name: 'Align top edges' }));
+		expect(onArrange).not.toHaveBeenCalled();
+	});
+
+	it('sets what to align to from the menu’s radios, and changes nothing choosing the one in force', async () => {
+		const user = userEvent.setup();
+		const { onChange, onArrange } = strip(2, 'selection');
+		await openMenu(user);
+		await user.click(screen.getByRole('menuitemradio', { name: 'Align to canvas' }));
+		expect(onChange).toHaveBeenCalledExactlyOnceWith('alignTo', 'canvas');
+		// Choosing closes the menu, as any item does.
+		expect(screen.queryByRole('menu')).toBeNull();
+		await openMenu(user);
+		await user.click(screen.getByRole('menuitemradio', { name: 'Align to selection' }));
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(onArrange).not.toHaveBeenCalled();
+	});
+
+	it('is where the tool’s options are set, its menu’s button too', () => {
+		strip(1);
+		expect(inToolOptions(screen.getByRole('button', { name: 'Align left edges' }))).toBe(true);
+		expect(inToolOptions(screen.getByRole('button', { name: 'More alignment' }))).toBe(true);
 	});
 });
 

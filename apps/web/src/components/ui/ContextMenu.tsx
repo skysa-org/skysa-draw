@@ -10,19 +10,16 @@ import {
 
 import {
 	type Closing,
-	enabledItems,
+	focusFirst,
 	MARGIN,
 	type MenuItem,
 	MenuList,
-	type Place,
 	raise,
+	type Spot,
 } from './MenuList.js';
 
 /** Where a context menu opens: a point in the window, in CSS pixels from its top left. */
 export type MenuPoint = Readonly<{ x: number; y: number }>;
-
-/** Where a context menu sits, and the point in it that it grows from: the one it was opened at. */
-type Spot = Place & Readonly<{ position: 'fixed'; transformOrigin: string }>;
 
 /** The element with the focus, inside the shadow roots it is in: the canvas keeps one. */
 const focused = (root: DocumentOrShadowRoot): Element | null => {
@@ -97,7 +94,8 @@ const spotFor = (at: MenuPoint, list: HTMLElement): Spot => {
  * `onClose`, then the item's `onSelect`, as a button's menu does it: what the
  * item does, the focus it takes or another menu it opens, is the last word.
  * Tab is spent closing it, since a menu at a point has no place in the tab
- * order to go on from.
+ * order to go on from. An item's submenu is inside the menu, so a press, a
+ * scroll or a wheel in it, or the focus in it, are in the menu as well.
  */
 export const ContextMenu = ({
 	label,
@@ -139,7 +137,7 @@ export const ContextMenu = ({
 	// that Escape still closes it.
 	useEffect(() => {
 		if (x === undefined || y === undefined || list.current === null) return;
-		(enabledItems(list.current)[0] ?? list.current).focus();
+		focusFirst(list.current);
 	}, [x, y]);
 
 	// Placed once, at its point: when what is under it moves, or the window

@@ -50,6 +50,12 @@ export interface PointerSample {
 	readonly altKey: boolean;
 	/** Ctrl, or ⌘ on a Mac. */
 	readonly primaryKey: boolean;
+	/**
+	 * Control itself, on every platform: held during a move, it keeps the
+	 * move from snapping for as long as it is held, as Photoshop's does.
+	 * Absent where a caller made the sample without it, which is not held.
+	 */
+	readonly controlKey?: boolean;
 }
 
 /** The options the strip shows for the active tool, and every tool reads. */
@@ -82,11 +88,24 @@ export interface ToolOptions {
 	readonly contiguous: boolean;
 	/**
 	 * Whether a press with the move tool first makes the topmost layer with
-	 * something under it the active one, as Photoshop's Auto-Select does in
-	 * its Layer mode (`tools/common/autoSelect.ts`); Ctrl or ⌘ held at the
-	 * press does the other.
+	 * something under it the active one, or its outermost group in Group mode
+	 * (`autoSelectMode`), as Photoshop's Auto-Select does
+	 * (`tools/common/autoSelect.ts`); Ctrl or ⌘ held at the press does the
+	 * other.
 	 */
 	readonly autoSelect: boolean;
+	/**
+	 * What Auto-Select picks, as Photoshop's menu beside it: the layer under
+	 * the press, or the outermost group it is in, which then moves whole; a
+	 * layer in no group is picked itself either way.
+	 */
+	readonly autoSelectMode: AutoSelectMode;
+	/**
+	 * Whether a move snaps what it moves to the canvas's edges and center and
+	 * to the other layers' edges and centers, showing a guide where it does,
+	 * as Photoshop's View › Snap; on by default as there.
+	 */
+	readonly snap: boolean;
 	/**
 	 * How the marquee, the lasso and the magic wand meet what is selected, as
 	 * the four buttons of Photoshop's options bar: a new selection, added to
@@ -103,10 +122,19 @@ export interface ToolOptions {
 	readonly pupilSize: number;
 	/** The red eye tool's Darken Amount, as Photoshop's: how dark the pupil it corrects is made, 0 to 1. */
 	readonly darken: number;
+	/**
+	 * What the move tool's alignment lines the layers up with, as Photoshop's
+	 * Align To (`tools/common/align.ts`): the selection, which is the area
+	 * where one is selected, else the layers' own box together, else, for one
+	 * layer alone, the canvas; or the canvas always.
+	 */
+	readonly alignTo: AlignTo;
 }
 
 /** How a selection tool's new outline meets what is selected (`ToolOptions.areaMode`). */
 export type AreaMode = 'new' | 'add' | 'subtract' | 'intersect';
+export type AlignTo = 'selection' | 'canvas';
+export type AutoSelectMode = 'layer' | 'group';
 
 export type ToolOptionKey = keyof ToolOptions;
 
@@ -129,6 +157,9 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
 	areaMode: 'new',
 	pupilSize: 0.5,
 	darken: 0.5,
+	alignTo: 'selection',
+	autoSelectMode: 'layer',
+	snap: true,
 };
 
 /** The viewport, as a tool may move it. */
@@ -293,7 +324,8 @@ export interface Tool {
 	/**
 	 * The layer a press acts on where it may be other than the active one:
 	 * the move tool's Auto-Select, the topmost layer with something under the
-	 * press (`tools/common/autoSelect.ts`). The viewport makes it the active
+	 * press, or in its Group mode the outermost group that layer is in
+	 * (`tools/common/autoSelect.ts`). The viewport makes it the active
 	 * layer, through the frame, and gives the press a context of that layer
 	 * from its first sample, with the behavior for its kind; none keeps the
 	 * active layer. A viewport with no frame to tell asks for none.

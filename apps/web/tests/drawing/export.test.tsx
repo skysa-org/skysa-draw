@@ -1,5 +1,5 @@
 import { emptyDrawing } from '@skysa/draw-core';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -171,6 +171,22 @@ describe('ExportDialog', () => {
 		const [blob, saved] = vi.mocked(download).mock.calls[0] ?? [];
 		expect(saved).toBe('Site plan.png');
 		expect(blob?.type).toBe('image/png');
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it('starts the focus on the format, and exports on Enter from it, busy while it renders', async () => {
+		const { onClose } = show();
+		const format = within(dialog()).getByRole('combobox', { name: t('exporting.format') });
+		await waitFor(() => expect(document.activeElement).toBe(format));
+		fireEvent.keyDown(format, { key: 'Enter' });
+		expect(within(dialog()).getByRole('button', { name: t('exporting.busy') })).toHaveProperty(
+			'disabled',
+			true
+		);
+		expect(dialog().querySelector('form')?.getAttribute('aria-busy')).toBe('true');
+		expect(onClose).not.toHaveBeenCalled();
+		await decodeNow();
+		await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 

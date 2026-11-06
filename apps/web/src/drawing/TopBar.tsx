@@ -14,7 +14,8 @@ import type { SavingState } from './useOpenDrawing.js';
  * saved as well, which on compact are under More and nowhere, so that back,
  * title, undo, redo and More fit a phone. Renaming and deleting happen here,
  * in the bar, where the title is; placing a picture and exporting are under
- * More, as a File menu has them.
+ * More, as a File menu has them, then the Image operations, as Photoshop's
+ * Image menu has them (`panels/imageMenu.tsx`), each kind a group of its own.
  */
 
 type TopBarProps = Readonly<{
@@ -40,6 +41,8 @@ type TopBarProps = Readonly<{
 	onExport?: () => void;
 	/** Asks for a picture to place as a new layer; absent while there is no drawing to place it in. */
 	onPlacePicture?: () => void;
+	/** Image size…, Canvas size… and the rest, between Export and Rename; none while there is no drawing to change. */
+	imageItems?: readonly MenuItem[];
 }>;
 
 type Asking = 'nothing' | 'rename' | 'delete';
@@ -73,6 +76,10 @@ const TitleField = ({
 		</label>
 	);
 };
+
+/** `items` as a group of their own in a menu: a rule before the first. */
+const group = (items: readonly MenuItem[]): readonly MenuItem[] =>
+	items.map((item, index) => (index === 0 ? { ...item, separatorBefore: true } : item));
 
 const statusText = (saving: SavingState): string => {
 	if (saving === 'saving') return t('editor.saving');
@@ -153,6 +160,7 @@ export const TopBar = ({
 	onDelete,
 	onExport,
 	onPlacePicture,
+	imageItems = [],
 }: TopBarProps) => {
 	const [asking, setAsking] = useState<Asking>('nothing');
 	const compact = sizeClass === 'compact';
@@ -171,14 +179,17 @@ export const TopBar = ({
 			disabled: onExport === undefined,
 			onSelect: () => onExport?.(),
 		},
-		{ id: 'rename', label: t('drawings.rename'), onSelect: () => setAsking('rename') },
-		{
-			id: 'delete',
-			label: t('drawings.delete'),
-			onSelect: () => setAsking('delete'),
-			danger: true,
-		},
-		...(compact ? zoomItems : []),
+		...group(imageItems),
+		...group([
+			{ id: 'rename', label: t('drawings.rename'), onSelect: () => setAsking('rename') },
+			{
+				id: 'delete',
+				label: t('drawings.delete'),
+				onSelect: () => setAsking('delete'),
+				danger: true,
+			},
+		]),
+		...group(compact ? zoomItems : []),
 	];
 	const zoomLabel = t('editor.zoom.level', { percent: zoomPercent });
 

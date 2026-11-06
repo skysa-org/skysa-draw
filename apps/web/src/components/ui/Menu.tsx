@@ -79,7 +79,8 @@ const placeFor = (button: HTMLElement, list: HTMLElement, align: Align): Place =
  * keeps it in the window. Open, it is in the top layer (`raise`), so a panel
  * that clips what overflows it, as the dock does, does not cut it off. The
  * list itself, its items and its keys, is `MenuList`, which `ContextMenu`
- * shares.
+ * shares, and so is an item's submenu, which is inside the menu for the press
+ * that closes it.
  */
 export const Menu = ({
 	label,

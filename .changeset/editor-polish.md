@@ -36,3 +36,11 @@ Layers can be dragged to another place in the layers panel, into and out of grou
 Groups in the layers panel collapse by their folder icon, whose caret turns, and an empty group's folder has none; an unnamed group is called "Group n".
 The panel's New menu makes a vector layer, a raster layer or an empty group; Move up and Move down moved from the panel's head into its actions menu, since dragging a row moves a layer.
 A right-click on a layer opens the layer actions menu, which now lists only what applies to the layers chosen.
+The move tool's options bar aligns and distributes the layers chosen, as Photoshop's does: by their edges or centers, or with even spacing, to the selection or to the canvas.
+The move tool's Auto-select can pick the layer or its outermost group, as Photoshop's Layer and Group modes do.
+A move with the move tool snaps to the canvas and to the other layers' edges and centers, showing a guide, as Photoshop's smart guides do; Snap turns it off, Ctrl or ⌘ Shift ; toggles it, and Control held during a move suspends it.
+The editor's More menu has Photoshop's Image menu: Image size…, Canvas size…, Image rotation (180°, 90° either way, any angle, and flips), Trim… and Reveal all, each one step of undo.
+A menu item can now open a submenu beside it, by the arrow keys, Enter, a press or the pointer resting on it.
+Export, Fill… and Modify… now share one dialog form with the Image dialogs, so Enter applies from any control but a button or a text field in each, and Export opens with the focus on its format.
+A clipped layer keeps its clip where the layer below is when it is dragged, nudged, aligned, carried into or out of a group, ungrouped, or turned, flipped or resized with the canvas, and a clip made on a moved or turned layer no longer shows the layer below moved twice.
+What a vector tool draws after Image rotation, a flip, Image size or a Free Transform of its layer is upright, unmirrored and at the sizes the options say, and the move tool, the marquee and the pickers find it by its own box rather than a larger one.

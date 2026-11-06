@@ -108,7 +108,7 @@ describe('TOOLS', () => {
 			'smoothing',
 			'fill',
 		]);
-		expect(toolById('select')?.options).toEqual(['autoSelect']);
+		expect(toolById('select')?.options).toEqual(['autoSelect', 'autoSelectMode', 'snap']);
 	});
 
 	it('gives the marquee, the lasso and the magic wand the selection mode, first, as Photoshop’s options bar does', () => {

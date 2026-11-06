@@ -79,6 +79,8 @@ export type EditorAction =
 	| Readonly<{ type: 'swapColors' }>
 	/** The fill and the stroke a new drawing starts with, put back: D, and the color panel's reset. */
 	| Readonly<{ type: 'resetColors' }>
+	/** Snap turned on where it is off, and off where it is on: Shift with Ctrl or ⌘ and `;`. */
+	| Readonly<{ type: 'toggleSnap' }>
 	/** One layer active and chosen alone, as a plain click on it in the panel does. */
 	| Readonly<{ type: 'setActiveLayer'; id: string | undefined }>
 	/** The layers chosen with the keys users know, Ctrl or ⌘ and Shift (`layerSelection.ts`). */
@@ -254,6 +256,8 @@ export const editorReducer = (state: EditorState, action: EditorAction): EditorS
 					stroke: DEFAULT_TOOL_OPTIONS.stroke,
 				},
 			};
+		case 'toggleSnap':
+			return { ...state, options: withOption(state.options, 'snap', !state.options.snap) };
 		case 'togglePanel':
 			return { ...state, panel: state.panel === action.panel ? undefined : action.panel };
 		case 'closePanel':

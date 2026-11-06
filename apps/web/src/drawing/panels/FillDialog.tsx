@@ -1,23 +1,15 @@
 import '../../styles/fillDialog.css';
 
 import { BLEND_MODES, type BlendMode, cell } from '@skysa/draw-core';
-import {
-	Fragment,
-	type RefObject,
-	type SyntheticEvent,
-	useEffect,
-	useId,
-	useRef,
-	useState,
-} from 'react';
+import { Fragment, useId, useState } from 'react';
 
 import { classes } from '../../components/ui/classes.js';
 import { toHex } from '../../components/ui/color.js';
 import { ColorField } from '../../components/ui/ColorField.js';
-import { Panel } from '../../components/ui/Panel.js';
+import { DialogForm } from '../../components/ui/DialogForm.js';
 import { PanelHost } from '../../components/ui/PanelHost.js';
 import { Select } from '../../components/ui/Select.js';
-import { Slider } from '../../components/ui/Slider.js';
+import { SliderField } from '../../components/ui/SliderField.js';
 import { t } from '../../i18n/t.js';
 import type { FillContents, FillSpec } from '../tools/raster/areaFill.js';
 import type { ToolOptions } from '../tools/types.js';
@@ -32,7 +24,9 @@ import { blendKey } from './blendKey.js';
  * Preserve transparency. Each color shows its swatch, the one the fill pours
  * (`fillAreaWith`), so a stroke of none shows the fill color it falls back to.
  * Apply, or Enter, fills the area and closes; Cancel, Escape or a tap beside
- * it leave the layer as it was. The focus starts on the contents chosen.
+ * it leave the layer as it was. The focus starts on the contents chosen. The
+ * form is every dialog's (`DialogForm`), whose Enter is not the color
+ * field's hex's or its picker's.
  *
  * It starts each time at what was last applied, for the page's life, in any
  * drawing, as Photoshop's does: the memory is this module's (`lastApplied`),
@@ -77,9 +71,6 @@ const FIRST_CHOICES: FillChoices = {
 const lastApplied = cell<FillChoices>(FIRST_CHOICES);
 
 /** A value typed or dragged, kept to 0 to 100; a field left empty or unreadable keeps the last. */
-const clampPercent = (value: number, fallback: number): number =>
-	Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback;
-
 const percentText = (n: number): string => t('editor.units.percent', { n });
 
 /** The spec the choices make, with the color Color… shows. */
@@ -90,38 +81,6 @@ const specOf = (choices: FillChoices, color: string): FillSpec => ({
 	opacity: choices.percent / 100,
 	preserveTransparency: choices.preserveTransparency,
 });
-
-/** An Enter that is the control's own: a button's press, the color field's hex or its picker. */
-const keepsEnter = (target: EventTarget | null): boolean =>
-	target instanceof HTMLButtonElement ||
-	target instanceof HTMLTextAreaElement ||
-	(target instanceof HTMLInputElement && (target.type === 'text' || target.type === 'color'));
-
-/**
- * Enter applies from any control but a button, a text field and the color
- * picker, whose Enter is their own, and the focus goes to the contents
- * chosen once the sheet or the drawer has taken it as it opens, which it
- * does after the form's own effects have run. Native listeners, since the
- * form itself is not a control to hang a key handler on.
- */
-const useFormKeys = (form: RefObject<HTMLFormElement | null>): void => {
-	useEffect(() => {
-		const element = form.current;
-		if (element === null) return undefined;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing) return;
-			if (keepsEnter(event.target)) return;
-			event.preventDefault();
-			element.requestSubmit();
-		};
-		element.addEventListener('keydown', onKeyDown);
-		queueMicrotask(() => {
-			if (!element.isConnected) return;
-			element.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.focus();
-		});
-		return () => element.removeEventListener('keydown', onKeyDown);
-	}, [form]);
-};
 
 /** The form, mounted while the dialog is open, so each opening starts from what was last applied. */
 const FillForm = ({
@@ -136,10 +95,8 @@ const FillForm = ({
 	onClose: () => void;
 }>) => {
 	const group = useId();
-	const form = useRef<HTMLFormElement>(null);
 	const [choices, setChoices] = useState(() => lastApplied.current);
 	const set = (change: Partial<FillChoices>) => setChoices((was) => ({ ...was, ...change }));
-	useFormKeys(form);
 
 	const fillInk = inkOf(options, 'fill');
 	const color = choices.color ?? toHex(fillInk) ?? '#000000';
@@ -150,112 +107,82 @@ const FillForm = ({
 		contentAware: undefined,
 	};
 
-	const onSubmit = (event: SyntheticEvent) => {
-		event.preventDefault();
-		lastApplied.current = choices;
-		onApply(specOf(choices, color));
-		onClose();
-	};
-
 	return (
-		<Panel title={t('selection.fill.title')} onClose={onClose} className="fill-panel">
-			<form ref={form} className="field-groups" onSubmit={onSubmit}>
-				<fieldset className="field-group">
-					<legend className="field-legend">{t('selection.fill.contents')}</legend>
-					{CONTENTS.map((contents) => (
-						<Fragment key={contents}>
-							<label className="fill-choice">
-								<input
-									type="radio"
-									name={group}
-									value={contents}
-									checked={choices.contents === contents}
-									onChange={() => set({ contents })}
+		<DialogForm
+			title={t('selection.fill.title')}
+			applyLabel={t('selection.fill.apply')}
+			onApply={() => {
+				lastApplied.current = choices;
+				onApply(specOf(choices, color));
+			}}
+			onClose={onClose}
+		>
+			<fieldset className="field-group">
+				<legend className="field-legend">{t('selection.fill.contents')}</legend>
+				{CONTENTS.map((contents) => (
+					<Fragment key={contents}>
+						<label className="radio-row">
+							<input
+								type="radio"
+								name={group}
+								value={contents}
+								checked={choices.contents === contents}
+								onChange={() => set({ contents })}
+							/>
+							{/* Drawn in `currentColor`, as the color field's swatch is. */}
+							<span
+								className={classes(
+									'fill-swatch',
+									contents === 'contentAware' && 'is-picture'
+								)}
+								style={{ color: swatches[contents] }}
+								aria-hidden="true"
+							/>
+							<span>{t(CONTENT_WORDS[contents])}</span>
+						</label>
+						{contents === 'color' && choices.contents === 'color' && (
+							<div className="fill-color">
+								<ColorField
+									layout="stacked"
+									label={t('selection.fill.colorValue')}
+									hideLabel
+									value={color}
+									recent={recent}
+									onChange={(value) => set({ color: value })}
 								/>
-								{/* Drawn in `currentColor`, as the color field's swatch is. */}
-								<span
-									className={classes(
-										'fill-swatch',
-										contents === 'contentAware' && 'is-picture'
-									)}
-									style={{ color: swatches[contents] }}
-									aria-hidden="true"
-								/>
-								<span>{t(CONTENT_WORDS[contents])}</span>
-							</label>
-							{contents === 'color' && choices.contents === 'color' && (
-								<div className="fill-color">
-									<ColorField
-										layout="stacked"
-										label={t('selection.fill.colorValue')}
-										hideLabel
-										value={color}
-										recent={recent}
-										onChange={(value) => set({ color: value })}
-									/>
-								</div>
-							)}
-						</Fragment>
-					))}
-				</fieldset>
-				<fieldset className="field-group">
-					<legend className="field-legend">{t('selection.fill.blending')}</legend>
-					<Select
-						label={t('selection.fill.mode')}
-						value={choices.mode}
-						options={BLEND_OPTIONS}
-						onChange={(mode) => set({ mode })}
+							</div>
+						)}
+					</Fragment>
+				))}
+			</fieldset>
+			<fieldset className="field-group">
+				<legend className="field-legend">{t('selection.fill.blending')}</legend>
+				<Select
+					label={t('selection.fill.mode')}
+					value={choices.mode}
+					options={BLEND_OPTIONS}
+					onChange={(mode) => set({ mode })}
+				/>
+				<SliderField
+					label={t('selection.fill.opacity')}
+					fieldLabel={t('selection.fill.opacityValue')}
+					value={choices.percent}
+					min={0}
+					max={100}
+					step={1}
+					format={percentText}
+					onChange={(percent) => set({ percent })}
+				/>
+				<label className="check-row">
+					<input
+						type="checkbox"
+						checked={choices.preserveTransparency}
+						onChange={(event) => set({ preserveTransparency: event.target.checked })}
 					/>
-					<div className="fill-opacity">
-						<Slider
-							label={t('selection.fill.opacity')}
-							value={choices.percent}
-							min={0}
-							max={100}
-							step={1}
-							format={percentText}
-							onChange={(percent) => set({ percent })}
-						/>
-						<input
-							type="number"
-							inputMode="decimal"
-							className="fill-field"
-							aria-label={t('selection.fill.opacityValue')}
-							min={0}
-							max={100}
-							step="any"
-							value={choices.percent}
-							onChange={(event) =>
-								set({
-									percent: clampPercent(
-										event.target.valueAsNumber,
-										choices.percent
-									),
-								})
-							}
-						/>
-					</div>
-					<label className="fill-check">
-						<input
-							type="checkbox"
-							checked={choices.preserveTransparency}
-							onChange={(event) =>
-								set({ preserveTransparency: event.target.checked })
-							}
-						/>
-						<span>{t('selection.fill.preserveTransparency')}</span>
-					</label>
-				</fieldset>
-				<div className="fill-actions">
-					<button type="button" onClick={onClose}>
-						{t('common.cancel')}
-					</button>
-					<button type="submit" className="primary">
-						{t('selection.fill.apply')}
-					</button>
-				</div>
-			</form>
-		</Panel>
+					<span>{t('selection.fill.preserveTransparency')}</span>
+				</label>
+			</fieldset>
+		</DialogForm>
 	);
 };
 

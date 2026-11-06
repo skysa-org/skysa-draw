@@ -66,6 +66,7 @@ export const sampleFrom = (
 		shiftKey: event.shiftKey,
 		altKey: event.altKey,
 		primaryKey: isMac ? event.metaKey : event.ctrlKey,
+		controlKey: event.ctrlKey,
 	};
 };
 

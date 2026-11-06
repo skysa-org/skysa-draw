@@ -2,7 +2,6 @@ import { areaModeOf } from '../../keys.js';
 import { colorDistance, parseColor, type Rgba } from '../raster/pixels.js';
 import { onRelease } from '../raster/wand.js';
 import type { ToolBehavior } from '../types.js';
-import { apply } from './geometry.js';
 import { activeLayerElement, guardLayer, layerSpace } from './guard.js';
 import { elementsOf, paintedColor, topmostAt } from './hit.js';
 import type { Measure } from './measure.js';
@@ -85,8 +84,8 @@ export const createWand = (measure: Measure): ToolBehavior =>
 		if (layer === undefined) return;
 		context.region.set(undefined);
 		const elements = elementsOf(layer);
-		const point = apply(layerSpace(layer).into, { x: sample.x, y: sample.y });
-		const hit = topmostAt(elements, point, measure);
+		const point = { x: sample.x, y: sample.y };
+		const hit = topmostAt(elements, point, measure, 0, layerSpace(layer).outOf);
 		const tolerance = Math.max(0, context.options.tolerance);
 		const found =
 			hit === undefined
