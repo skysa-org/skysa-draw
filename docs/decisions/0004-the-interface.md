@@ -149,6 +149,15 @@ The tool bar shows only the tools that act on the active layer's kind (`availabl
 The tool in hand stays, faded and still pressed, where the layer made active has no use for it, so a change of layer never takes the tool from under the hand; it goes once another is chosen, and its key still picks it.
 Rejected: switching to another tool when the layer changes, which loses the tool the user meant to come back to, and Photoshop's every tool always shown, which on a phone's one row is a row of tools that do nothing there.
 
+**The layers panel's menu.**
+The layer actions are one menu (`drawing/panels/layerMenu.ts`), the same under the panel's ⋯ button and over a row, where a right-click opens it at the pointer, as do a long press where the browser makes a `contextmenu` of one and the Menu key, and Shift F10 under the row, opened on the keydown as the canvas's is.
+A row not among the chosen is chosen alone first, and a row among them keeps the choice, as in Photoshop and every file manager.
+The rename field keeps the browser's menu, for its text, and the grip opens none, since a finger held there is a drag about to begin.
+The menu lists only what applies to the layers chosen, a rule between its kinds (grouping, a step up or down, and what acts on the active layer alone), and the ⋯ button is disabled when nothing does; an item that applies but will not be done, a merge of a hidden layer, is listed and says why.
+This is the opposite of the canvas's menu, which shows disabled what cannot be done: the canvas's list is one for every selection, learned once, where the layer menu is about the layers chosen, which already say what applies, and a list of disabled merges and clips for a group of several is noise.
+The panel's head is New, a menu of a vector layer, a raster layer and a group; Duplicate; Delete; and the ⋯ menu.
+Move up and Move down left the head on 2026-11-06, once a row could be dragged, and stay in the menu so a layer can be moved without a drag (WCAG 2.5.7).
+
 **The brush's outline.**
 Every tool with a size shows it as its pointer over the canvas, as Photoshop's Normal Brush Tip does: a circle as big on the screen as what the tool will paint, which grows and shrinks with the zoom and follows `[`, `]` and the Size slider at once, with a small crosshair at its middle, and the crosshair alone where the circle would be too small to see.
 It is drawn as a light halo under a dark hairline, so it reads on any picture, and shows the whole size whatever the pressure, as Photoshop's does.

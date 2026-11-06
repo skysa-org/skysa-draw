@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type MouseEvent, type PointerEvent, useEffect, useRef } from 'react';
 
+import type { MenuPoint } from '../../components/ui/ContextMenu.js';
 import { IconButton } from '../../components/ui/IconButton.js';
 import {
 	EyeIcon,
@@ -36,6 +37,11 @@ import type { Row } from './LayerTree.js';
  * `aria-current`, and while more than one is chosen each chosen row says
  * "Selected" after its name, as the clipped mark is said, since a button has
  * no selected state of its own and the row is not a listbox's option.
+ *
+ * A right-click on the row, a long press where the browser makes a menu of
+ * one, or the Menu key on it opens the layer actions menu at it (`onMenu`);
+ * the rename field keeps the browser's menu, for its text, and the grip none,
+ * since a finger held on it is a drag about to begin.
  *
  * The row carries what a drop is read from (`layerDrop.ts`) on itself, its
  * id, depth, parent, whether it is a group and collapsed, and a collapsed
@@ -74,6 +80,32 @@ type PointerHandlers = Readonly<{
 	onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
 	onLostPointerCapture: (event: PointerEvent<HTMLElement>) => void;
 }>;
+
+/**
+ * Where a row's menu opens: at the pointer, or under the row's button for the
+ * keyboard's Menu key, whose `contextmenu` has no point of its own. The
+ * keyboard's is told by its `pointerType`, empty (Pointer Events 3), or, where
+ * a browser still sends a plain `MouseEvent`, by its point being none.
+ */
+const rowMenuPoint = (event: MouseEvent<HTMLElement>, button: HTMLElement | null): MenuPoint => {
+	const { pointerType } = event.nativeEvent as Partial<
+		Pick<globalThis.PointerEvent, 'pointerType'>
+	>;
+	const keyboard =
+		typeof pointerType === 'string'
+			? pointerType === ''
+			: event.clientX === 0 && event.clientY === 0;
+	return keyboard
+		? underButton(button ?? event.currentTarget)
+		: { x: event.clientX, y: event.clientY };
+};
+
+/** Under a row's button, from its start: where the keyboard opens the row's menu. */
+export const underButton = (button: Element): MenuPoint => {
+	const box = button.getBoundingClientRect();
+	const rtl = getComputedStyle(button).direction === 'rtl';
+	return { x: rtl ? box.right : box.left, y: box.bottom };
+};
 
 /** A data attribute that is there or not, as the row's CSS reads it. */
 const flag = (on: boolean): '' | undefined => (on ? '' : undefined);
@@ -150,6 +182,7 @@ export const LayerRow = ({
 	onRename,
 	onRenamed,
 	onKeyDown,
+	onMenu,
 	pickDrag,
 	gripDrag,
 }: Readonly<{
@@ -168,6 +201,8 @@ export const LayerRow = ({
 	onRename: () => void;
 	onRenamed: () => void;
 	onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+	/** The layer actions menu, opened at this row. */
+	onMenu: (at: MenuPoint) => void;
 	pickDrag: PointerHandlers;
 	gripDrag: PointerHandlers;
 }>) => {
@@ -197,6 +232,13 @@ export const LayerRow = ({
 			data-dragged={flag(dragged)}
 			data-drop={drop?.at === 'into' ? 'into' : undefined}
 			style={{ paddingInlineStart: `calc(${layer.depth} * var(--space-l))` }}
+			onContextMenu={(event) => {
+				if (renaming) return;
+				event.preventDefault();
+				if (event.target instanceof Element && event.target.closest('.layer-grip') !== null)
+					return;
+				onMenu(rowMenuPoint(event, pick.current));
+			}}
 		>
 			<IconButton
 				icon={layer.hidden ? <EyeOffIcon /> : <EyeIcon />}

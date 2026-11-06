@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
 
+import type { MenuPoint } from '../../components/ui/ContextMenu.js';
 import { Panel } from '../../components/ui/Panel.js';
 import { t } from '../../i18n/t.js';
 import { canPlaceLayers, placeLayers, removeLayers } from '../document/arrange.js';
@@ -16,7 +17,7 @@ import { isMac } from '../viewport/pointer.js';
 import { LayerActions } from './LayerActions.js';
 import { type DropTarget, nextPlace } from './layerDrop.js';
 import { LayerProperties } from './LayerProperties.js';
-import { type Disclosure, focusPick, LayerRow, type RowDrop } from './LayerRow.js';
+import { type Disclosure, focusPick, LayerRow, type RowDrop, underButton } from './LayerRow.js';
 import {
 	ancestorsOf,
 	dropRowsOf,
@@ -33,7 +34,7 @@ import { useLayerDrag } from './useLayerDrag.js';
  * The layers panel (docs/ARCHITECTURE.md §3, "Layers"; §7, "The interface"):
  * the layers top first, as every layers panel shows them, each with its eye
  * and its lock, a group's layers under it and a clipped layer marked, and the
- * actions on the layers chosen, the rarer of them in a menu (`LayerMenu`).
+ * actions on the layers chosen, the rarer of them in a menu (`layerMenu.ts`).
  * Every change is a command on the document, so it is undone the same way as
  * a stroke; the panel reads the snapshot the frame gives it and re-renders
  * through it.
@@ -120,6 +121,8 @@ export const LayersPanel = ({
 	onNotify?: (message: string) => void;
 }>) => {
 	const [renaming, setRenaming] = useState<string | undefined>(undefined);
+	/** Where the layer actions menu is open over a row, or none. */
+	const [menuAt, setMenuAt] = useState<MenuPoint | undefined>(undefined);
 	const list = useRef<HTMLUListElement>(null);
 	/** The row whose button has the focus back once a change has rendered. */
 	const refocus = useRef<string | undefined>(undefined);
@@ -177,6 +180,15 @@ export const LayersPanel = ({
 		if (ids.some((id) => collapsed.has(id))) {
 			collapse(collapsedGroupIds.filter((each) => !ids.includes(each)));
 		}
+	};
+
+	/**
+	 * The layer actions menu over a row, for the layers chosen: the row's among
+	 * them, or the row's alone where it was not, as a file manager does it.
+	 */
+	const openMenu = (id: string, at: MenuPoint) => {
+		if (!chosen.includes(id)) onActivate(id);
+		setMenuAt(at);
 	};
 
 	/** The same layers chosen, top first again in the order a move left them in. */
@@ -288,6 +300,13 @@ export const LayersPanel = ({
 			!event.altKey &&
 			event.key.toLowerCase() === 'a';
 		const remove = event.key === 'Delete' || event.key === 'Backspace';
+		// Shift F10 on the keydown, since a Mac's browsers make no `contextmenu`
+		// of it; spent, so the others make no second one.
+		if (event.key === 'F10' && event.shiftKey && !event.altKey) {
+			event.preventDefault();
+			openMenu(id, underButton(event.currentTarget));
+			return;
+		}
 		if (!all && !remove && event.key !== 'F2') return;
 		event.preventDefault();
 		if (all) chooseAll();
@@ -341,6 +360,8 @@ export const LayersPanel = ({
 					active={active}
 					chosen={chosen}
 					order={everyId}
+					menuAt={menuAt}
+					onMenuClosed={() => setMenuAt(undefined)}
 					onActivate={onActivate}
 					onSelectLayers={onSelectLayers}
 					onShowGroups={showGroups}
@@ -372,6 +393,7 @@ export const LayersPanel = ({
 						onRename={() => setRenaming(row.layer.id)}
 						onRenamed={() => setRenaming(undefined)}
 						onKeyDown={(event) => onRowKeyDown(event, at)}
+						onMenu={(point) => openMenu(row.layer.id, point)}
 						pickDrag={drag.handlers(row.layer.id, 'pick')}
 						gripDrag={drag.handlers(row.layer.id, 'grip')}
 					/>

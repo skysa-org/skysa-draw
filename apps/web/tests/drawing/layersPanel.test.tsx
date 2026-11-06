@@ -1,5 +1,13 @@
 import { BLEND_MODES, emptyDrawing } from '@skysa/draw-core';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+	act,
+	createEvent,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useReducer } from 'react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -92,12 +100,15 @@ const chooseIn = async (user: ReturnType<typeof userEvent.setup>, menu: string, 
 	await user.click(await screen.findByRole('menuitem', { name }));
 };
 
-/** An item of one of the panel's menus, seen and left, as for whether it is disabled. */
-const itemIn = async (user: ReturnType<typeof userEvent.setup>, menu: string, name: string) => {
-	await user.click(screen.getByRole('button', { name: menu }));
-	const found = await screen.findByRole('menuitem', { name });
+/** The items of the layer actions menu, opened from its button and closed again: those that apply. */
+const offered = async (user: ReturnType<typeof userEvent.setup>) => {
+	await user.click(screen.getByRole('button', { name: 'Layer actions' }));
+	const menu = await screen.findByRole('menu', { name: 'Layer actions' });
+	const items = within(menu)
+		.getAllByRole('menuitem')
+		.map((each) => each.textContent);
 	await user.keyboard('{Escape}');
-	return found;
+	return items;
 };
 
 /** Something new from the panel's New menu, a vector layer unless it says. */
@@ -277,17 +288,14 @@ describe('the layers panel', () => {
 		await add(user);
 		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
 		// The top layer is active: it can only go down.
-		expect((await itemIn(user, 'Layer actions', 'Move up')).getAttribute('aria-disabled')).toBe(
-			'true'
-		);
+		expect(await offered(user)).not.toContain('Move up');
+		expect(await offered(user)).toContain('Move down');
 
 		await chooseIn(user, 'Layer actions', 'Move down');
 		await waitFor(() => expect(rows()).toEqual(['Layer 1', 'Layer 2']));
 		const text = document.text();
 		expect(text.indexOf('id="layer-2"')).toBeLessThan(text.indexOf('id="layer-1"'));
-		expect(
-			(await itemIn(user, 'Layer actions', 'Move down')).getAttribute('aria-disabled')
-		).toBe('true');
+		expect(await offered(user)).not.toContain('Move down');
 
 		await chooseIn(user, 'Layer actions', 'Move up');
 		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
@@ -337,18 +345,11 @@ describe('the layer actions menu', () => {
 		await user.click(await screen.findByRole('menuitem', { name }));
 	};
 
-	const item = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
-		await user.click(screen.getByRole('button', { name: 'Layer actions' }));
-		const found = await screen.findByRole('menuitem', { name });
-		await user.keyboard('{Escape}');
-		return found;
-	};
-
 	it('groups the active layer and ungroups it again', async () => {
 		const user = userEvent.setup();
 		const document = open();
 		render(<Harness document={document} />);
-		expect((await item(user, 'Ungroup')).getAttribute('aria-disabled')).toBe('true');
+		expect(await offered(user)).not.toContain('Ungroup');
 
 		await choose(user, 'Group layers');
 		await waitFor(() => expect(rows()).toEqual(['Group 2', 'Layer 1']));
@@ -364,7 +365,7 @@ describe('the layer actions menu', () => {
 		const user = userEvent.setup();
 		const document = open();
 		render(<Harness document={document} />);
-		expect((await item(user, 'Merge down')).getAttribute('aria-disabled')).toBe('true');
+		expect(await offered(user)).not.toContain('Merge down');
 
 		await add(user);
 		await waitFor(() => expect(rows()).toEqual(['Layer 2', 'Layer 1']));
@@ -588,9 +589,7 @@ describe('the actions on the layers chosen', () => {
 
 		await waitFor(() => expect(names()).toEqual(['Layer 1', 'Layer 3', 'Layer 2']));
 		expect(chosen()).toEqual(['Layer 3', 'Layer 2']);
-		expect(
-			(await itemIn(user, 'Layer actions', 'Move down')).getAttribute('aria-disabled')
-		).toBe('true');
+		expect(await offered(user)).not.toContain('Move down');
 		act(() => document.undo());
 		await waitFor(() => expect(names()).toEqual(['Layer 3', 'Layer 2', 'Layer 1']));
 	});
@@ -627,13 +626,6 @@ describe('the layer actions menu, with layers chosen', () => {
 	const choose = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
 		await user.click(screen.getByRole('button', { name: 'Layer actions' }));
 		await user.click(await screen.findByRole('menuitem', { name }));
-	};
-
-	const disabled = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
-		await user.click(screen.getByRole('button', { name: 'Layer actions' }));
-		const found = await screen.findByRole('menuitem', { name });
-		await user.keyboard('{Escape}');
-		return found.getAttribute('aria-disabled') === 'true';
 	};
 
 	it('groups the chosen into one new group where the topmost was, and makes it active alone', async () => {
@@ -694,17 +686,132 @@ describe('the layer actions menu, with layers chosen', () => {
 		);
 	});
 
-	it('keeps merge down, rasterize and clip to one layer: disabled while several are chosen', async () => {
+	it('keeps merge down, rasterize and clip to one layer: not offered while several are chosen', async () => {
 		const user = userEvent.setup();
 		render(<Harness document={stacked()} />);
-		expect(await disabled(user, 'Merge down')).toBe(false);
+		expect(await offered(user)).toEqual([
+			'Group layers',
+			'Move down',
+			'Merge down',
+			'Rasterize layer',
+			'Clip to layer below',
+		]);
 
 		click('Layer 1', { ctrlKey: true });
 
-		expect(await disabled(user, 'Merge down')).toBe(true);
-		expect(await disabled(user, 'Rasterize layer')).toBe(true);
-		expect(await disabled(user, 'Clip to layer below')).toBe(true);
-		expect(await disabled(user, 'Group layers')).toBe(false);
+		expect(await offered(user)).toEqual(['Group layers', 'Move up', 'Move down']);
+	});
+});
+
+describe('the layer actions menu, applying only where it can', () => {
+	it('lists only what applies to the layers chosen, with a rule between the kinds', async () => {
+		const user = userEvent.setup();
+		render(<Harness document={open()} />);
+		// One vector layer: nothing to ungroup, move, merge into or clip to.
+		expect(await offered(user)).toEqual(['Group layers', 'Rasterize layer']);
+		await user.click(screen.getByRole('button', { name: 'Layer actions' }));
+		const menu = await screen.findByRole('menu', { name: 'Layer actions' });
+		// A rule begins the second kind, none above the first.
+		expect([...menu.children].map((each) => each.getAttribute('role'))).toEqual([
+			'menuitem',
+			'separator',
+			'menuitem',
+		]);
+	});
+
+	it('is disabled where nothing applies, with no layer at all', async () => {
+		const user = userEvent.setup();
+		const document = open();
+		render(<Harness document={document} />);
+		await user.click(screen.getByRole('button', { name: 'Delete layer' }));
+		await waitFor(() => expect(within(list()).queryAllByRole('listitem')).toHaveLength(0));
+		expect(screen.getByRole('button', { name: 'Layer actions' })).toHaveProperty(
+			'disabled',
+			true
+		);
+	});
+});
+
+describe('the layer actions menu over a row', () => {
+	const rowOf = (name: string) => {
+		const found = row(name).closest('li');
+		if (found === null) throw new Error(`a row for ${name}`);
+		return found;
+	};
+
+	const shownItems = () =>
+		within(screen.getByRole('menu', { name: 'Layer actions' }))
+			.getAllByRole('menuitem')
+			.map((each) => each.textContent);
+
+	it('opens on a right-click, at the pointer, with what the head’s menu has, and acts', async () => {
+		const user = userEvent.setup();
+		const document = stacked();
+		render(<Harness document={document} />);
+		click('Layer 1');
+		const event = createEvent.contextMenu(rowOf('Layer 1'), { clientX: 120, clientY: 300 });
+		fireEvent(rowOf('Layer 1'), event);
+
+		expect(event.defaultPrevented).toBe(true);
+		const menu = await screen.findByRole('menu', { name: 'Layer actions' });
+		expect(menu.style.top).not.toBe('');
+		expect(shownItems()).toEqual(['Group layers', 'Move up', 'Rasterize layer']);
+
+		await user.click(within(menu).getByRole('menuitem', { name: 'Move up' }));
+		// Past Group 2 whole, not into it.
+		await waitFor(() => expect(names()).toEqual(['Layer 4', 'Layer 1', 'Group 2', 'Layer 3']));
+		expect(depthOf('Layer 1')).toBe('0');
+		expect(screen.queryByRole('menu', { name: 'Layer actions' })).toBeNull();
+	});
+
+	it('chooses a row not among the chosen alone first, and keeps a choice the row is in', async () => {
+		render(<Harness document={stacked()} />);
+		click('Layer 4');
+		click('Layer 1', { ctrlKey: true });
+
+		fireEvent.contextMenu(rowOf('Layer 1'), { clientX: 100, clientY: 100 });
+		expect(chosen()).toEqual(['Layer 4', 'Layer 1']);
+		await screen.findByRole('menu', { name: 'Layer actions' });
+		expect(shownItems()).toEqual(['Group layers', 'Move up', 'Move down']);
+		fireEvent.keyDown(screen.getByRole('menu', { name: 'Layer actions' }), { key: 'Escape' });
+
+		fireEvent.contextMenu(rowOf('Group 2'), { clientX: 100, clientY: 100 });
+		expect(chosen()).toEqual(['Group 2']);
+		expect(activeName()).toBe('Group 2');
+		await waitFor(() => expect(shownItems()).toContain('Ungroup'));
+	});
+
+	it('opens on Shift F10 under the row, and gives the focus back to it on Escape', async () => {
+		const user = userEvent.setup();
+		render(<Harness document={stacked()} />);
+		row('Layer 4').focus();
+
+		await user.keyboard('{Shift>}{F10}{/Shift}');
+
+		const menu = await screen.findByRole('menu', { name: 'Layer actions' });
+		await waitFor(() => expect(menu.contains(window.document.activeElement)).toBe(true));
+		await user.keyboard('{Escape}');
+		expect(screen.queryByRole('menu', { name: 'Layer actions' })).toBeNull();
+		expect(window.document.activeElement).toBe(row('Layer 4'));
+	});
+
+	it('leaves the browser its own menu in the rename field, and opens none from the grip', () => {
+		render(<Harness document={stacked()} />);
+		fireEvent.doubleClick(row('Layer 4'));
+		// The row's button is the field while it is renamed.
+		const field = list().querySelector('[data-layer-id="layer-4"] input');
+		if (field === null) throw new Error('a rename field');
+		const inField = createEvent.contextMenu(field);
+		fireEvent(field, inField);
+		expect(inField.defaultPrevented).toBe(false);
+		fireEvent.keyDown(field, { key: 'Escape' });
+
+		const grip = rowOf('Layer 1').querySelector('.layer-grip');
+		if (grip === null) throw new Error('a grip');
+		const onGrip = createEvent.contextMenu(grip);
+		fireEvent(grip, onGrip);
+		expect(onGrip.defaultPrevented).toBe(true);
+		expect(screen.queryByRole('menu', { name: 'Layer actions' })).toBeNull();
 	});
 });
 

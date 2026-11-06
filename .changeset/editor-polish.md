@@ -35,3 +35,4 @@ Several layers can be chosen in the layers panel with Ctrl or ⌘ and Shift, as 
 Layers can be dragged to another place in the layers panel, into and out of groups, keeping where they are drawn, and moved a step with Alt and an arrow.
 Groups in the layers panel collapse by their folder icon, whose caret turns, and an empty group's folder has none; an unnamed group is called "Group n".
 The panel's New menu makes a vector layer, a raster layer or an empty group; Move up and Move down moved from the panel's head into its actions menu, since dragging a row moves a layer.
+A right-click on a layer opens the layer actions menu, which now lists only what applies to the layers chosen.

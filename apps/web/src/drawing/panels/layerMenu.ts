@@ -1,5 +1,4 @@
-import { MoreIcon } from '../../components/ui/icons.js';
-import { Menu, type MenuItem } from '../../components/ui/Menu.js';
+import type { MenuItem } from '../../components/ui/Menu.js';
 import { t } from '../../i18n/t.js';
 import { canStepLayers, groupLayers, outermostLayers, stepLayers } from '../document/arrange.js';
 import { clipStateOf, clipToBelow, layerBelow, releaseClip } from '../document/clip.js';
@@ -18,15 +17,18 @@ import type { LayerSelection } from '../layerSelection.js';
 
 /**
  * What else can be done to the layers chosen (docs/ARCHITECTURE.md §3,
- * "Layers"; docs/decisions/0003-layers.md), in a menu at the layers panel's
- * head: put them in a group together, undo every group among them; move
- * them a step up or down among their siblings, the way to reorder them
- * without a drag; and, to the active layer alone, merge it with the layer
- * below, make it pixels, clip it to the layer below, which are disabled while
- * more than one layer is
- * chosen, since each acts on one layer and the one below it. An item that
- * cannot apply at all is there and disabled; one that could but will not, a
- * merge of a hidden layer, says why when it is chosen.
+ * "Layers"; docs/decisions/0003-layers.md): the layer actions menu, at the
+ * layers panel's head and on a right-click on a row. Put them in a group
+ * together, undo every group among them; move them a step up or down among
+ * their siblings, the way to reorder them without a drag; and, to the active
+ * layer alone, merge it with the layer below, make it pixels, clip it to the
+ * layer below, which are not offered while more than one layer is chosen,
+ * since each acts on one layer and the one below it.
+ *
+ * Only what applies to the layers chosen is listed; what does not is left
+ * out, not shown disabled (docs/decisions/0004-the-interface.md, "The layers
+ * panel's menu"). One that applies but will not be done, a merge of a hidden
+ * layer, is listed, and says why when it is chosen.
  */
 
 /** What a merge or a rasterize that did nothing tells the user. */
@@ -37,17 +39,7 @@ const JOB_NOTICES: Readonly<Record<LayerJob, (() => string) | undefined>> = {
 	changed: () => t('layers.renderChanged'),
 };
 
-export const LayerMenu = ({
-	document,
-	snapshot,
-	active,
-	chosen,
-	order,
-	onActivate,
-	onSelectLayers,
-	onShowGroups,
-	onNotify,
-}: Readonly<{
+export type LayerMenuContext = Readonly<{
 	document: EditorDocument;
 	snapshot: DocumentSnapshot;
 	active: LayerInfo | undefined;
@@ -60,7 +52,28 @@ export const LayerMenu = ({
 	/** A group just made, shown expanded, so what went into it is seen. */
 	onShowGroups: (ids: readonly string[]) => void;
 	onNotify: (message: string) => void;
-}>) => {
+}>;
+
+/** An item, where it applies; none where it does not. */
+const where = (applies: boolean, item: MenuItem): readonly MenuItem[] => (applies ? [item] : []);
+
+/** The sections of the menu, each after a rule, those with nothing in them left out. */
+const sectioned = (sections: readonly (readonly MenuItem[])[]): readonly MenuItem[] =>
+	sections.flatMap((section) =>
+		section.map((item, at) => (at === 0 ? { ...item, separatorBefore: true } : item))
+	);
+
+export const layerMenuItems = ({
+	document,
+	snapshot,
+	active,
+	chosen,
+	order,
+	onActivate,
+	onSelectLayers,
+	onShowGroups,
+	onNotify,
+}: LayerMenuContext): readonly MenuItem[] => {
 	const root = document.root;
 	const id = active?.id;
 	const element = id === undefined ? undefined : layerById(root, id);
@@ -146,44 +159,43 @@ export const LayerMenu = ({
 
 	const clipped = active?.clipped === true;
 	const hasBelow = id !== undefined && layerBelow(root, id) !== undefined;
-	const items: readonly MenuItem[] = [
-		{ id: 'group', label: t('layers.group'), disabled: chosen.length === 0, onSelect: group },
-		{
-			id: 'ungroup',
-			label: t('layers.ungroup'),
-			disabled: groups.length === 0,
-			onSelect: ungroup,
-		},
-		{
-			id: 'up',
-			label: t('layers.moveUp'),
-			disabled: !canStepLayers(root, chosen, 'up'),
-			onSelect: () => document.execute(stepLayers(root, chosen, 'up')),
-		},
-		{
-			id: 'down',
-			label: t('layers.moveDown'),
-			disabled: !canStepLayers(root, chosen, 'down'),
-			onSelect: () => document.execute(stepLayers(root, chosen, 'down')),
-		},
-		{
-			id: 'merge',
-			label: t('layers.mergeDown'),
-			disabled: several || id === undefined || mergeProblem(root, id) === 'bottom',
-			onSelect: merge,
-		},
-		{
-			id: 'rasterize',
-			label: t('layers.rasterize'),
-			disabled: several || id === undefined || rasterizeProblem(root, id) === 'raster',
-			onSelect: rasterize,
-		},
-		{
-			id: 'clip',
-			label: clipped ? t('layers.unclip') : t('layers.clip'),
-			disabled: several || (!clipped && !hasBelow),
-			onSelect: clip,
-		},
-	];
-	return <Menu label={t('layers.actions')} icon={<MoreIcon />} items={items} align="end" />;
+	return sectioned([
+		[
+			...where(chosen.length > 0, { id: 'group', label: t('layers.group'), onSelect: group }),
+			...where(groups.length > 0, {
+				id: 'ungroup',
+				label: t('layers.ungroup'),
+				onSelect: ungroup,
+			}),
+		],
+		[
+			...where(canStepLayers(root, chosen, 'up'), {
+				id: 'up',
+				label: t('layers.moveUp'),
+				onSelect: () => document.execute(stepLayers(root, chosen, 'up')),
+			}),
+			...where(canStepLayers(root, chosen, 'down'), {
+				id: 'down',
+				label: t('layers.moveDown'),
+				onSelect: () => document.execute(stepLayers(root, chosen, 'down')),
+			}),
+		],
+		[
+			...where(!several && id !== undefined && mergeProblem(root, id) !== 'bottom', {
+				id: 'merge',
+				label: t('layers.mergeDown'),
+				onSelect: merge,
+			}),
+			...where(!several && id !== undefined && rasterizeProblem(root, id) !== 'raster', {
+				id: 'rasterize',
+				label: t('layers.rasterize'),
+				onSelect: rasterize,
+			}),
+			...where(!several && (clipped || hasBelow), {
+				id: 'clip',
+				label: clipped ? t('layers.unclip') : t('layers.clip'),
+				onSelect: clip,
+			}),
+		],
+	]);
 };

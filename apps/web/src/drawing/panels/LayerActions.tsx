@@ -1,11 +1,13 @@
 import type { LayerKind } from '@skysa/draw-core';
 
+import { ContextMenu, type MenuPoint } from '../../components/ui/ContextMenu.js';
 import { IconButton } from '../../components/ui/IconButton.js';
 import {
 	AddIcon,
 	DeleteIcon,
 	DuplicateIcon,
 	FolderIcon,
+	MoreIcon,
 	RasterIcon,
 	VectorIcon,
 } from '../../components/ui/icons.js';
@@ -15,15 +17,19 @@ import { duplicateLayers, outermostLayers, removeLayers } from '../document/arra
 import { addLayer } from '../document/commands.js';
 import type { DocumentSnapshot, EditorDocument, LayerInfo } from '../document/model.js';
 import type { LayerSelection } from '../layerSelection.js';
-import { LayerMenu } from './LayerMenu.js';
+import { layerMenuItems } from './layerMenu.js';
 
 /**
  * The layers panel's head (`LayersPanel`; docs/ARCHITECTURE.md §7, "The
  * interface"): New, a menu of a vector layer, a raster layer and a group,
  * each made above the active layer, as Photoshop's Layer › New is; and the
  * actions on the layers chosen, together, each one command: duplicate,
- * delete, and the rarer ones in `LayerMenu`. Dragging a row is how a layer
- * moves, and Move up and Move down are in `LayerMenu` for whoever does not drag.
+ * delete, and the rarer ones in the layer actions menu (`layerMenu.ts`),
+ * which is disabled when none of them applies. The same menu opens over a
+ * row, at `menuAt`, for a right-click there; it is in the top layer, so where
+ * it is in the panel is nothing to where it shows. Dragging a row is how a
+ * layer moves, and Move up and Move down are in that menu for whoever does
+ * not drag.
  */
 export const LayerActions = ({
 	document,
@@ -31,6 +37,8 @@ export const LayerActions = ({
 	active,
 	chosen,
 	order,
+	menuAt,
+	onMenuClosed,
 	onActivate,
 	onSelectLayers,
 	onShowGroups,
@@ -43,12 +51,26 @@ export const LayerActions = ({
 	chosen: readonly string[];
 	/** Every layer's id as the rows would show them with no group collapsed, top first. */
 	order: readonly string[];
+	/** Where the layer actions menu is open over a row, or none. */
+	menuAt: MenuPoint | undefined;
+	onMenuClosed: () => void;
 	onActivate: (id: string) => void;
 	onSelectLayers: (selection: LayerSelection) => void;
 	/** Groups just made, shown expanded, so what went into them is seen. */
 	onShowGroups: (ids: readonly string[]) => void;
 	onNotify: (message: string) => void;
 }>) => {
+	const menu = layerMenuItems({
+		document,
+		snapshot,
+		active,
+		chosen,
+		order,
+		onActivate,
+		onSelectLayers,
+		onShowGroups,
+		onNotify,
+	});
 	const root = document.root;
 	const count = Math.max(1, chosen.length);
 	const add = (kind: LayerKind) => {
@@ -108,16 +130,22 @@ export const LayerActions = ({
 				disabled={chosen.length === 0}
 				onClick={() => document.execute(removeLayers(root, chosen))}
 			/>
-			<LayerMenu
-				document={document}
-				snapshot={snapshot}
-				active={active}
-				chosen={chosen}
-				order={order}
-				onActivate={onActivate}
-				onSelectLayers={onSelectLayers}
-				onShowGroups={onShowGroups}
-				onNotify={onNotify}
+			{menu.length > 0 ? (
+				<Menu label={t('layers.actions')} icon={<MoreIcon />} items={menu} align="end" />
+			) : (
+				<IconButton
+					icon={<MoreIcon />}
+					label={t('layers.actions')}
+					haspopup="menu"
+					disabled
+					onClick={() => undefined}
+				/>
+			)}
+			<ContextMenu
+				label={t('layers.actions')}
+				items={menu}
+				at={menuAt}
+				onClose={onMenuClosed}
 			/>
 		</>
 	);
