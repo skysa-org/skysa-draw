@@ -1,28 +1,22 @@
 import { type PointerEvent, type RefObject, useEffect, useRef, useState } from 'react';
 
-import { canPlaceLayers, placeLayers } from '../document/arrange.js';
-import type { EditorDocument } from '../document/model.js';
-import {
-	type DropTarget,
-	dropTargetAt,
-	type Indent,
-	type MeasuredRow,
-	scrollStep,
-} from './layerDrop.js';
+import { scrollStep } from './layerDrop.js';
 
 /**
- * Layers dragged to another place in the layers panel, into and out of groups
- * (docs/ARCHITECTURE.md §7, "The interface"), with Pointer Events alone, as
- * everything here is (decision 0004). A mouse or a pen drags a row by the
- * layer itself; a finger, which scrolls the list there, by the row's grip.
- * The press is a click until it moves `DRAG_FROM_PX`, and from then the
- * pointer is captured, so a drag that leaves the list still ends.
+ * A drag in the layers panel (docs/ARCHITECTURE.md §7, "The interface"), with
+ * Pointer Events alone, as everything here is (decision 0004): of layers to
+ * another place in the stack, into and out of groups (`dragLayers.ts`), or of
+ * a vector layer's items to another place among its elements or another
+ * vector layer's (`dragItems.ts`), one engine for both. A mouse or a pen
+ * drags a row by its button; a finger, which scrolls the list there, by the
+ * row's grip. The press is a click until it moves `DRAG_FROM_PX`, and from
+ * then the pointer is captured, so a drag that leaves the list still ends.
  *
- * What is dragged is the layers chosen where the row pressed is one of them,
- * else that row alone, made active and chosen alone as the drag begins. Where
- * it would land is `dropTargetAt` over the rows as they are drawn, read from
- * the list each time, so a scroll or a render between two moves is never out
- * of date; a place `canPlaceLayers` refuses shows nothing and drops nothing.
+ * What a drag moves, and where it would land, are its own (`Dragged`): it is
+ * begun as the press becomes a drag, choosing or selecting what it moves
+ * where that was not already, and aimed anew from the rows as they are drawn,
+ * read from the list each time, so a scroll or a render between two moves is
+ * never out of date; a place it cannot go shows nothing and drops nothing.
  * Near the scrolling body's top or bottom the drag scrolls it, a frame at a
  * time while the pointer is held there. Escape, or the browser taking the
  * pointer back, cancels; the click that ends a drag chooses nothing.
@@ -31,80 +25,38 @@ import {
 /** How far a press moves, in CSS px, before it is a drag rather than a click. */
 const DRAG_FROM_PX = 4;
 
-/** The drag the panel draws: the layers dragged, and where they would land. */
-type LayerDrag = Readonly<{ ids: readonly string[]; target: DropTarget | undefined }>;
-
-/** What the drag is pressed by: the layer itself, which a finger leaves to scroll, or the grip. */
-type DragFrom = 'pick' | 'grip';
-
-type Press = Readonly<{ pointerId: number; element: Element; id: string; x: number; y: number }>;
-
 type Point = Readonly<{ x: number; y: number }>;
 
-/** A layer's row as it is drawn, with the facts the drop is read from (`LayerRow`). */
-const measureRow = (row: HTMLElement, id: string): MeasuredRow => {
-	const box = row.getBoundingClientRect();
-	return {
-		id,
-		depth: Number(row.dataset.depth ?? 0),
-		parentId: row.dataset.parentId,
-		group: row.dataset.group !== undefined,
-		collapsed: row.dataset.collapsed !== undefined,
-		topLayer: row.dataset.topLayer,
-		top: box.top,
-		bottom: box.bottom,
-	};
-};
-
-/** Whether `row` is the last of its layer's items' rows, the one whose bottom is the layer's foot. */
-const lastItemOf = (row: HTMLElement, layerId: string): boolean => {
-	const next = row.nextElementSibling;
-	return !(next instanceof HTMLElement) || next.dataset.itemOf !== layerId;
-};
-
 /**
- * The list's layers' rows as they are drawn. An item's row (`LayerItemRow`)
- * is no place of its own: it is under its layer, whose foot is the bottom of
- * the last of them (`MeasuredRow.foot`), the one item measured of a layer of
- * hundreds.
+ * A drag under way: what the panel draws of it, `shown`, and `aim`, the drag
+ * aimed at `point` over the rows of `list` as they are drawn, which is the
+ * very same drag where that changes nothing it shows.
  */
-const measureRows = (list: HTMLElement): readonly MeasuredRow[] =>
-	[...list.children].reduce<readonly MeasuredRow[]>((rows, row) => {
-		if (!(row instanceof HTMLElement)) return rows;
-		const layer = rows.at(-1);
-		const itemOf = row.dataset.itemOf;
-		if (itemOf !== undefined) {
-			return layer?.id === itemOf && lastItemOf(row, itemOf)
-				? [...rows.slice(0, -1), { ...layer, foot: row.getBoundingClientRect().bottom }]
-				: rows;
-		}
-		const id = row.dataset.layerId;
-		return id === undefined ? rows : [...rows, measureRow(row, id)];
-	}, []);
+export type Dragged<Shown> = Readonly<{
+	shown: Shown;
+	aim: (list: HTMLElement, point: Point) => Dragged<Shown>;
+}>;
 
-/** A CSS length in px, or nothing where it is not one, as in jsdom. */
-const pxOf = (length: string): number | undefined => {
-	const px = Number.parseFloat(length);
-	return Number.isFinite(px) && px > 0 ? px : undefined;
-};
+/** What a drag is pressed by: a row's button, which a finger leaves to scroll, or its grip. */
+export type DragFrom = 'pick' | 'grip';
 
-/**
- * Where depth 0 begins and how far in each depth more is drawn: a nested
- * row's own indent over its depth, or a rem, which is what the rows are
- * indented by (`--space-l`), where no row is nested.
- */
-const indentOf = (list: HTMLElement): Indent => {
-	const nested = [...list.children].find(
-		(row): row is HTMLElement => row instanceof HTMLElement && Number(row.dataset.depth) > 0
-	);
-	const measured =
-		nested === undefined ? undefined : pxOf(getComputedStyle(nested).paddingInlineStart);
-	const step =
-		measured === undefined || nested === undefined
-			? (pxOf(getComputedStyle(window.document.documentElement).fontSize) ?? 16)
-			: measured / Number(nested.dataset.depth);
-	return { left: list.getBoundingClientRect().left, step };
-};
+/** What a row's button and its grip hear of a drag. */
+export type PointerHandlers = Readonly<{
+	onPointerDown: (event: PointerEvent<HTMLElement>) => void;
+	onPointerMove: (event: PointerEvent<HTMLElement>) => void;
+	onPointerUp: (event: PointerEvent<HTMLElement>) => void;
+	onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
+	onLostPointerCapture: (event: PointerEvent<HTMLElement>) => void;
+}>;
+
+type Press<Shown> = Readonly<{
+	pointerId: number;
+	element: Element;
+	/** The drag this press begins, once it moves far enough to be one. */
+	begin: () => Dragged<Shown>;
+	x: number;
+	y: number;
+}>;
 
 /** Where the browser has it: jsdom has not, and a drag is not worth a throw. */
 const capture = (element: Element, pointerId: number): void => {
@@ -120,40 +72,24 @@ const scrollBody = (element: Element, step: number): void => {
 	(element as Partial<Pick<Element, 'scrollBy'>>).scrollBy?.(0, step);
 };
 
-const sameTarget = (one: DropTarget | undefined, other: DropTarget | undefined): boolean =>
-	one === other ||
-	(one !== undefined &&
-		other !== undefined &&
-		one.kind === other.kind &&
-		one.place.parentId === other.place.parentId &&
-		one.place.aboveId === other.place.aboveId &&
-		(one.kind === 'into' || (other.kind === 'gap' && one.before === other.before)));
-
-export const useLayerDrag = ({
-	document,
+export const useLayerDrag = <Shown>({
 	list,
-	chosen,
-	onActivate,
-	onDropped,
+	onDrop,
 }: Readonly<{
-	document: EditorDocument;
 	/** The list of rows, inside the panel's body, which is what scrolls (`Panel`). */
 	list: RefObject<HTMLUListElement | null>;
-	/** The layers chosen, top first. */
-	chosen: readonly string[];
-	onActivate: (id: string) => void;
-	/** After a drop, with the layers it moved. */
-	onDropped: (ids: readonly string[]) => void;
+	/** A drag let go of, with what it showed last: put down where it was aimed, if anywhere. */
+	onDrop: (shown: Shown) => void;
 }>) => {
-	const [drag, setDrag] = useState<LayerDrag | undefined>(undefined);
-	const press = useRef<Press | undefined>(undefined);
-	const dragging = useRef<LayerDrag | undefined>(undefined);
+	const [drag, setDrag] = useState<Dragged<Shown> | undefined>(undefined);
+	const press = useRef<Press<Shown> | undefined>(undefined);
+	const dragging = useRef<Dragged<Shown> | undefined>(undefined);
 	const point = useRef<Point | undefined>(undefined);
 	const frame = useRef<number | undefined>(undefined);
 	/** Set by a drop, for the click the browser sends after it. */
 	const clickSpent = useRef(false);
 
-	const show = (next: LayerDrag | undefined) => {
+	const show = (next: Dragged<Shown> | undefined) => {
 		dragging.current = next;
 		setDrag(next);
 	};
@@ -164,12 +100,8 @@ export const useLayerDrag = ({
 		const rows = list.current;
 		const at = point.current;
 		if (now === undefined || rows === null || at === undefined) return;
-		const found = dropTargetAt(measureRows(rows), at, indentOf(rows));
-		const target =
-			found !== undefined && canPlaceLayers(document.root, now.ids, found.place)
-				? found
-				: undefined;
-		if (!sameTarget(target, now.target)) show({ ids: now.ids, target });
+		const next = now.aim(rows, at);
+		if (next !== now) show(next);
 	};
 
 	/** A frame of scrolling, while the pointer is held near an edge of the body. */
@@ -197,21 +129,24 @@ export const useLayerDrag = ({
 		if (dragging.current !== undefined) show(undefined);
 	};
 
-	const begin = (pressed: Press) => {
-		const ids = chosen.includes(pressed.id) ? chosen : [pressed.id];
-		if (!chosen.includes(pressed.id)) onActivate(pressed.id);
+	const begin = (pressed: Press<Shown>) => {
+		const started = pressed.begin();
 		capture(pressed.element, pressed.pointerId);
-		show({ ids, target: undefined });
+		show(started);
 		frame.current = requestAnimationFrame(scrollFrame);
 	};
 
-	const onPointerDown = (event: PointerEvent<HTMLElement>, id: string, from: DragFrom) => {
+	const onPointerDown = (
+		event: PointerEvent<HTMLElement>,
+		begins: () => Dragged<Shown>,
+		from: DragFrom
+	) => {
 		clickSpent.current = false;
 		if (event.button !== 0 || (from === 'pick' && event.pointerType === 'touch')) return;
 		press.current = {
 			pointerId: event.pointerId,
 			element: event.currentTarget,
-			id,
+			begin: begins,
 			x: event.clientX,
 			y: event.clientY,
 		};
@@ -240,9 +175,7 @@ export const useLayerDrag = ({
 		window.setTimeout(() => {
 			clickSpent.current = false;
 		}, 0);
-		if (done.target === undefined) return;
-		document.execute(placeLayers(document.root, done.ids, done.target.place));
-		onDropped(done.ids);
+		onDrop(done.shown);
 	};
 
 	const onPointerCancel = (event: PointerEvent<HTMLElement>) => {
@@ -273,9 +206,9 @@ export const useLayerDrag = ({
 		[]
 	);
 
-	/** The handlers for a row's layer and its grip. */
-	const handlers = (id: string, from: DragFrom) => ({
-		onPointerDown: (event: PointerEvent<HTMLElement>) => onPointerDown(event, id, from),
+	/** The handlers for a row's button or its grip, `from`, for the drag a press there `begins`. */
+	const handlers = (begins: () => Dragged<Shown>, from: DragFrom): PointerHandlers => ({
+		onPointerDown: (event) => onPointerDown(event, begins, from),
 		onPointerMove,
 		onPointerUp,
 		onPointerCancel,
@@ -285,5 +218,5 @@ export const useLayerDrag = ({
 	/** Whether this click ends a drag, and so chooses nothing. */
 	const spentClick = (): boolean => clickSpent.current;
 
-	return { drag, handlers, spentClick };
+	return { drag: drag?.shown, handlers, spentClick };
 };

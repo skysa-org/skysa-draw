@@ -311,9 +311,16 @@
 	inset-block-end: -1px;
 }
 
-/* The grip a finger drags a row by, where the list scrolls under a finger
-   everywhere else. Only where some pointer is coarse: a mouse and a pen drag
-   by the layer itself, and the keyboard by Alt and an arrow. */
+/* Among a layer's items: from where their previews start, past the empty
+   place of a layer's eye (`.layer-item-slot`). */
+.layer-drop-line[data-item] {
+	margin-inline-start: calc(var(--target) + var(--space-2xs));
+}
+
+/* The grip a finger drags a row by, a layer's or an item's, at the end of
+   the row, where the list scrolls under a finger everywhere else. Only where
+   some pointer is coarse: a mouse and a pen drag by the row's button, and the
+   keyboard by Alt and an arrow. */
 .layer-grip {
 	align-items: center;
 	color: var(--muted);
@@ -466,6 +473,23 @@
 
 .layer-row[data-hidden] .layer-name {
 	color: var(--muted);
+}
+
+/* An item of a held layer, locked or hidden, itself or by a group: muted as a
+   hidden layer's name is, since it can be seen in the list but not reached,
+   and with no grip, which would offer a drag it does not take; the place is
+   kept, so its name lines up with the others'. */
+.layer-item[data-held] .layer-name {
+	color: var(--muted);
+}
+
+.layer-item[data-held] .layer-grip {
+	visibility: hidden;
+}
+
+/* Nor does it light under the pointer, as a row that takes a press does. */
+.layer-item[data-held]:not([data-selected]):hover {
+	background: none;
 }
 
 .layer-kind-icon {
@@ -629,6 +653,14 @@
 	border-inline-start: 1px solid var(--border);
 	margin-inline-start: var(--space-2xs);
 	padding-inline-start: var(--space-xs);
+}
+
+/* An action that opens a submenu, Arrange: the shared menu's button, sized
+   as the actions beside it. */
+.options-selection .menu > .icon-button {
+	font-size: var(--text-s);
+	padding: 0 var(--space-s);
+	white-space: nowrap;
 }
 
 .options-action {

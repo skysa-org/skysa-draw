@@ -190,6 +190,73 @@ describe('the options strip', () => {
 		expect(deselect).toHaveBeenCalledTimes(1);
 	});
 
+	it('shows an action with a submenu as a menu button by its name, which opens that submenu, and a plain button disabled', async () => {
+		const user = userEvent.setup();
+		const arrange = vi.fn();
+		const toFront = vi.fn();
+		const submenu: readonly MenuItem[] = [
+			{ id: 'bringToFront', label: 'Bring to front', onSelect: toFront },
+			{ id: 'sendToBack', label: 'Send to back', onSelect: vi.fn() },
+		];
+		const actions = (disabled: boolean): readonly MenuItem[] => [
+			{ id: 'deselect', label: 'Deselect', onSelect: vi.fn() },
+			{
+				id: 'arrange',
+				label: 'Arrange',
+				onSelect: arrange,
+				separatorBefore: true,
+				submenu,
+				disabled,
+			},
+			{ id: 'duplicateElements', label: 'Duplicate', onSelect: vi.fn() },
+		];
+		const selectLike: Tool = { id: 'select', options: [], behaviors: {} };
+		const { rerender } = render(
+			<OptionsStrip
+				tool={selectLike}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+				actions={actions(false)}
+			/>
+		);
+		const bar = screen.getByRole('group', { name: 'Selection' });
+		const button = screen.getByRole('button', { name: 'Arrange' });
+		expect(button.textContent).toBe('Arrange');
+		expect(button.getAttribute('aria-haspopup')).toBe('menu');
+		// In its place among the actions, with its group's rule before it.
+		expect([...bar.querySelectorAll('button')].map((each) => each.textContent)).toEqual([
+			'Deselect',
+			'Arrange',
+			'Duplicate',
+		]);
+		expect(bar.querySelectorAll('[role="separator"]')).toHaveLength(1);
+		expect(inToolOptions(button)).toBe(true);
+		await user.click(button);
+		const menu = screen.getByRole('menu', { name: 'Arrange' });
+		expect(
+			[...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)
+		).toEqual(['Bring to front', 'Send to back']);
+		await user.click(screen.getByRole('menuitem', { name: 'Bring to front' }));
+		expect(toFront).toHaveBeenCalledTimes(1);
+		expect(arrange).not.toHaveBeenCalled();
+		expect(screen.queryByRole('menu')).toBeNull();
+
+		rerender(
+			<OptionsStrip
+				tool={selectLike}
+				options={DEFAULT_TOOL_OPTIONS}
+				onChange={vi.fn()}
+				actions={actions(true)}
+			/>
+		);
+		const disabled = screen.getByRole('button', { name: 'Arrange' });
+		expect(disabled).toHaveProperty('disabled', true);
+		expect(disabled.hasAttribute('aria-haspopup')).toBe(false);
+		await user.click(disabled);
+		expect(screen.queryByRole('menu')).toBeNull();
+		expect(arrange).not.toHaveBeenCalled();
+	});
+
 	it('shows only the selection’s Apply and Cancel while Transform selection is on, none of the tool’s options', () => {
 		const actions: readonly MenuItem[] = [
 			{ id: 'applyTransform', label: 'Apply', onSelect: vi.fn() },

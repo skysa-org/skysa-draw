@@ -1,4 +1,9 @@
-import { DEFAULT_DRAWING_SIZE, emptyDrawing, type LayerKind } from '@skysa/draw-core';
+import {
+	DEFAULT_DRAWING_SIZE,
+	DRAWING_NAMESPACE,
+	emptyDrawing,
+	type LayerKind,
+} from '@skysa/draw-core';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { type ComponentProps, createRef } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -6,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type * as ContextMenuModule from '../../src/components/ui/ContextMenu.js';
 import type { MenuPoint } from '../../src/components/ui/ContextMenu.js';
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
+import { openDocument } from '../../src/drawing/document/openDocument.js';
 import type * as AlignModule from '../../src/drawing/tools/common/align.js';
 import { withBrushOutline } from '../../src/drawing/tools/common/brushOutline.js';
 import { ZOOM_CLICK, ZOOM_DRAG_PX } from '../../src/drawing/tools/common/zoom.js';
@@ -20,6 +26,7 @@ import {
 	type ToolContext,
 	type ToolId,
 } from '../../src/drawing/tools/types.js';
+import { elementsOf } from '../../src/drawing/tools/vector/hit.js';
 import type { ViewportHandle, ViewportProps } from '../../src/drawing/types.js';
 import { Viewport } from '../../src/drawing/Viewport.js';
 import { createViewportSelection } from '../../src/drawing/viewport/selectionState.js';
@@ -1478,6 +1485,105 @@ describe('the context menu', () => {
 		rightClick(region, 40, 30);
 		choose('Select inverse');
 		expect(selection.region.get()).toBeUndefined();
+	});
+
+	describe('with elements selected on a vector layer', () => {
+		const SHAPES = `<svg xmlns="${SVG_NS}" xmlns:draw="${DRAWING_NAMESPACE}" viewBox="0 0 100 100">
+  <g id="layer-1" draw:kind="vector">
+    <rect id="hull" x="10" y="20" width="30" height="40"/>
+    <circle id="sun" cx="60" cy="60" r="5"/>
+  </g>
+  <g id="layer-2" draw:kind="vector" draw:locked="true">
+    <rect x="1" y="1" width="5" height="5"/>
+  </g>
+</svg>`;
+
+		/** A real document, so what an item does is done, on `layerId`, its first element selected. */
+		const shapesSetup = (layerId = 'layer-1') => {
+			const document = openDocument(SHAPES);
+			if (document === undefined) throw new Error('the shapes open');
+			const selection = createViewportSelection();
+			const utils = setup(fakeTool('select', { vector: recorder().behavior }), {
+				document,
+				selection,
+				layerId,
+			});
+			const own = () => elementsOf(document.layer(layerId) ?? document.root);
+			const [first] = own();
+			act(() => selection.elements.set(first === undefined ? [] : [first]));
+			return { ...utils, document, selection, own, first };
+		};
+
+		const box = (overlay: SVGSVGElement) => overlay.querySelector('[data-draw-selection]');
+
+		it('lists Arrange, whose submenu arranges them, and Duplicate, after the selection’s own', () => {
+			const { region, document, selection, overlay, own, first } = shapesSetup();
+			const [, sun] = own();
+			rightClick(region, 40, 30);
+			expect(itemNames()).toEqual([
+				'Deselect',
+				'Select inverse',
+				'Arrange',
+				'Duplicate',
+				'Layer via copy',
+				'Layer via cut',
+				'Delete',
+			]);
+			choose('Arrange');
+			// Arrange only opens its submenu.
+			expect(menu()).not.toBeNull();
+			expect(document.snapshot().canUndo).toBe(false);
+			choose('Bring to front');
+			expect(menu()).toBeNull();
+			expect(own()).toEqual([sun, first]);
+			// The same element selected, its box drawn where it is.
+			expect(selection.elements.get()).toEqual([first]);
+			expect(box(overlay)?.querySelector('rect')?.getAttribute('x')).toBe('10');
+			expect(document.snapshot().canUndo).toBe(true);
+			document.undo();
+			expect(own()).toEqual([first, sun]);
+		});
+
+		it('does nothing, and records nothing, where the arrangement would leave them where they are', () => {
+			const { region, document, own, first } = shapesSetup();
+			rightClick(region, 40, 30);
+			choose('Arrange');
+			choose('Send to back');
+			expect(own()[0]).toBe(first);
+			expect(document.snapshot().canUndo).toBe(false);
+		});
+
+		it('duplicates them, each copy just above its original, and selects the copies', () => {
+			const { region, document, selection, overlay, own, first } = shapesSetup();
+			rightClick(region, 40, 30);
+			choose('Duplicate');
+			const [original, copy, sun] = own();
+			expect(original).toBe(first);
+			expect(copy?.getAttribute('id')).toBe('hull-copy');
+			expect(sun?.getAttribute('id')).toBe('sun');
+			expect(selection.elements.get()).toEqual([copy]);
+			expect(box(overlay)).not.toBeNull();
+			document.undo();
+			expect(own()).toHaveLength(2);
+		});
+
+		it('shows them disabled on a locked layer, Arrange’s submenu with them', () => {
+			const { region } = shapesSetup('layer-2');
+			rightClick(region, 40, 30);
+			const disabled = screen
+				.getAllByRole('menuitem')
+				.filter((item) => item.getAttribute('aria-disabled') === 'true')
+				.map((item) => item.firstChild?.textContent);
+			expect(disabled).toEqual([
+				'Arrange',
+				'Duplicate',
+				'Layer via copy',
+				'Layer via cut',
+				'Delete',
+			]);
+			choose('Arrange');
+			expect(screen.queryByRole('menuitem', { name: 'Bring to front' })).toBeNull();
+		});
 	});
 
 	it('shows the pixels’ actions disabled on a vector layer', () => {

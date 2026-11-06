@@ -155,21 +155,75 @@ describe('the selection’s actions', () => {
 		]);
 	});
 
-	it('with elements selected on a vector layer: the selection, a layer of their own, delete', () => {
+	it('with elements selected on a vector layer: the selection, their place and a copy, a layer of their own, delete', () => {
 		const given = facts({ elements: 2, layer: layer({ kind: 'vector' }), region: AREA });
 		expect(selectionModeOf(given)).toBe('elements');
 		expect(ids(given)).toEqual([
 			'deselect',
 			'selectInverse',
+			'arrange',
+			'duplicateElements',
 			'layerViaCopy',
 			'layerViaCut',
 			'delete',
 		]);
-		expect(groups(given)).toEqual(['layerViaCopy', 'delete']);
+		expect(groups(given)).toEqual(['arrange', 'layerViaCopy', 'delete']);
 		expect(enabled(given)).toEqual(ids(given));
+		expect(items(given).map((item) => item.label)).toEqual([
+			'Deselect',
+			'Select inverse',
+			'Arrange',
+			'Duplicate',
+			'Layer via copy',
+			'Layer via cut',
+			'Delete',
+		]);
 		const locked = facts({ elements: 2, layer: layer({ kind: 'vector', locked: true }) });
 		expect(enabled(locked)).toEqual(['deselect', 'selectInverse']);
 	});
+
+	it('holds the four arrangements in Arrange’s submenu, as Illustrator lists them, and tells `run` the one chosen', () => {
+		const run = vi.fn<(action: SelectionActionId) => void>();
+		const given = facts({ elements: 1, layer: layer({ kind: 'vector' }) });
+		const listed = selectionActions(given, run, false);
+		const arrange = listed.find((item) => item.id === 'arrange');
+		expect(
+			arrange?.submenu?.map((item) => [
+				item.id,
+				item.label,
+				item.disabled,
+				item.separatorBefore,
+			])
+		).toEqual([
+			['bringToFront', 'Bring to front', false, false],
+			['bringForward', 'Bring forward', false, false],
+			['sendBackward', 'Send backward', false, false],
+			['sendToBack', 'Send to back', false, false],
+		]);
+		// It is the one item with a submenu, which it opens rather than act.
+		expect(listed.filter((item) => item.submenu !== undefined)).toEqual([arrange]);
+		arrange?.submenu?.find((item) => item.id === 'sendToBack')?.onSelect();
+		expect(run).toHaveBeenCalledExactlyOnceWith('sendToBack');
+	});
+
+	it.each([
+		['locked', layer({ kind: 'vector', locked: true })],
+		['hidden', layer({ kind: 'vector', hidden: true })],
+	])(
+		'shows Arrange and Duplicate disabled, not hidden, on a %s layer, and its submenu with them',
+		(_name, active) => {
+			const listed = items(facts({ elements: 1, layer: active }));
+			const arrange = listed.find((item) => item.id === 'arrange');
+			expect(arrange?.disabled).toBe(true);
+			expect(arrange?.submenu?.map((item) => item.disabled)).toEqual([
+				true,
+				true,
+				true,
+				true,
+			]);
+			expect(listed.find((item) => item.id === 'duplicateElements')?.disabled).toBe(true);
+		}
+	);
 
 	it('with nothing selected: select all, the history, the layers', () => {
 		const given = facts();
@@ -198,6 +252,18 @@ describe('the selection’s actions', () => {
 			crop: undefined,
 		});
 		expect(shortcuts(facts({ region: AREA }), true)).toMatchObject({ fillDialog: '⇧F5' });
+		// Arrange and Duplicate have none: Illustrator's Ctrl or ⌘ [ and ] are a Mac browser's Back and Forward.
+		const elements = facts({ elements: 1, layer: layer({ kind: 'vector' }) });
+		expect(shortcuts(elements, true)).toMatchObject({
+			arrange: undefined,
+			duplicateElements: undefined,
+			layerViaCopy: '⌘J',
+		});
+		expect(
+			items(elements, true)
+				.find((item) => item.id === 'arrange')
+				?.submenu?.map((item) => item.shortcut)
+		).toEqual([undefined, undefined, undefined, undefined]);
 		expect(shortcuts(facts(), true)).toEqual({
 			selectAll: '⌘A',
 			undo: '⌘Z',

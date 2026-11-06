@@ -46,3 +46,4 @@ A clipped layer keeps its clip where the layer below is when it is dragged, nudg
 What a vector tool draws after Image rotation, a flip, Image size or a Free Transform of its layer is upright, unmirrored and at the sizes the options say, and the move tool, the marquee and the pickers find it by its own box rather than a larger one.
 Align and distribute now line up the elements selected on a vector layer with each other, such as a text, a shape and a line, instead of moving their whole layer.
 The layers panel shows a preview of each layer, a vector layer's marked in its corner; a vector layer of two or more items expands into a row per item, and a press on one selects it on the canvas.
+An item in the layers panel has its own menu, the canvas's, which now arranges and duplicates what is selected on a vector layer; items are dragged within their layer or into another vector layer, and a locked or hidden layer's items are shown but not selected from the panel.

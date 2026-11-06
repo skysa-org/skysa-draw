@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type PointerEvent, useEffect, useRef } from 'react';
+import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from 'react';
 
 import type { MenuPoint } from '../../components/ui/ContextMenu.js';
 import { IconButton } from '../../components/ui/IconButton.js';
@@ -21,6 +21,7 @@ import { layerDisplayName } from '../layerName.js';
 import { LayerPreview } from './LayerPreview.js';
 import { LayerNameField } from './LayerProperties.js';
 import type { Row } from './LayerTree.js';
+import type { PointerHandlers } from './useLayerDrag.js';
 
 /**
  * A row of the layers panel (`LayersPanel`): a list item of three buttons —
@@ -54,9 +55,11 @@ import type { Row } from './LayerTree.js';
  * the rename field keeps the browser's menu, for its text, and the grip none,
  * since a finger held on it is a drag about to begin.
  *
- * The row carries what a drop is read from (`layerDrop.ts`) on itself, its
- * id, depth, parent, whether it is a group and collapsed, and a collapsed
- * group's top layer, so the drag measures the rows as drawn.
+ * The row carries what a drop is read from on itself, so the drag measures
+ * the rows as drawn: for layers (`layerDrop.ts`) its id, depth, parent,
+ * whether it is a group and collapsed, and a collapsed group's top layer; for
+ * items (`itemDrop.ts`) whether it takes them, a vector `<g>` not held, and
+ * how many elements it holds, on top of which they go when dropped on it.
  */
 
 /** A row's button id, for moving the focus to it. */
@@ -86,13 +89,20 @@ export type Disclosure =
 export type RowDrop =
 	Readonly<{ at: 'before' | 'after'; depth: number }> | Readonly<{ at: 'into' }>;
 
-type PointerHandlers = Readonly<{
-	onPointerDown: (event: PointerEvent<HTMLElement>) => void;
-	onPointerMove: (event: PointerEvent<HTMLElement>) => void;
-	onPointerUp: (event: PointerEvent<HTMLElement>) => void;
-	onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
-	onLostPointerCapture: (event: PointerEvent<HTMLElement>) => void;
-}>;
+/** The arrow keys walk the rows as they are shown: down the list is down the drawing. */
+export const ROW_STEPS: Readonly<Record<string, -1 | 1>> = { ArrowDown: 1, ArrowUp: -1 };
+
+/** Whether a key is pressed with nothing held. */
+export const plainKey = (event: KeyboardEvent): boolean =>
+	!event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey;
+
+/**
+ * Shift F10, a row's menu key, heard on the keydown, since a Mac's browsers
+ * make no `contextmenu` of it; spent where it opens one, so the others make
+ * no second one.
+ */
+export const isMenuKey = (event: KeyboardEvent): boolean =>
+	event.key === 'F10' && event.shiftKey && !event.altKey;
 
 /**
  * Where a row's menu opens: at the pointer, or under the row's button for the
@@ -212,13 +222,19 @@ const ClipMark = () => (
 	</span>
 );
 
-/** A line where a drop would go, over a row or under it, drawn in from the left as deep as the place. */
+/**
+ * A line where a drop would go, over a row or under it, drawn in from the
+ * left as deep as the place; a gap among a layer's items from where their
+ * previews start, past the place of a layer's eye, so it reads as among the
+ * items and not as a layer's gap at the same depth.
+ */
 export const DropLine = ({
 	drop,
-}: Readonly<{ drop: Readonly<{ at: 'before' | 'after'; depth: number }> }>) => (
+}: Readonly<{ drop: Readonly<{ at: 'before' | 'after'; depth: number; item?: boolean }> }>) => (
 	<span
 		className="layer-drop-line"
 		data-at={drop.at}
+		data-item={flag(drop.item === true)}
 		aria-hidden="true"
 		style={{ insetInlineStart: `calc(${drop.depth} * var(--space-l))` }}
 	/>
@@ -268,6 +284,7 @@ export const LayerRow = ({
 	dragged,
 	drop,
 	disclosure,
+	elementCount,
 	onPick,
 	onRename,
 	onRenamed,
@@ -287,6 +304,8 @@ export const LayerRow = ({
 	dragged: boolean;
 	drop: RowDrop | undefined;
 	disclosure: Disclosure;
+	/** How many elements it holds, where it takes items dropped on it: a vector `<g>` not held; none elsewhere. */
+	elementCount: number | undefined;
 	onPick: (event: MouseEvent<HTMLButtonElement>) => void;
 	onRename: () => void;
 	onRenamed: () => void;
@@ -326,6 +345,8 @@ export const LayerRow = ({
 			data-hidden={flag(layer.hidden)}
 			data-dragged={flag(dragged)}
 			data-drop={drop?.at === 'into' ? 'into' : undefined}
+			data-takes-items={flag(elementCount !== undefined)}
+			data-item-count={elementCount}
 			style={{ paddingInlineStart: `calc(${layer.depth} * var(--space-l))` }}
 			onContextMenu={(event) => {
 				if (renaming) return;

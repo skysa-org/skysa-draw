@@ -49,7 +49,8 @@ import { isMac } from '../viewport/pointer.js';
  * After them, while something is selected and the tool is one that selects,
  * the selection bar (docs/decisions/0004-the-interface.md, "The context
  * menu"): the context menu's actions as buttons, which a touch screen has no
- * other way to, as Procreate's selection bar is. They follow the tool's own
+ * other way to, as Procreate's selection bar is, and an action that opens a
+ * submenu there as a menu button that opens the same submenu. They follow the tool's own
  * options rather than take their place, since the marquee's are still wanted
  * for the next area, and the row scrolls sideways where it is too narrow for
  * both, as the tool bar does.
@@ -230,22 +231,33 @@ const Option = ({
 	);
 };
 
-/** One of the selection's actions as a button: its name, and its key in the tooltip. */
-const ActionButton = ({ item }: Readonly<{ item: MenuItem }>) => (
-	<button
-		type="button"
-		className="options-action"
-		disabled={item.disabled}
-		title={
-			item.shortcut === undefined
-				? item.label
-				: t('ui.labelWithShortcut', { label: item.label, shortcut: item.shortcut })
-		}
-		onClick={item.onSelect}
-	>
-		{item.label}
-	</button>
-);
+/**
+ * One of the selection's actions as a button: its name, and its key in the
+ * tooltip. One with a submenu, Arrange, is the shared menu's button
+ * (`Menu`), by its name, and opens the submenu under it, as the context
+ * menu opens it beside its item; disabled, it is the plain button disabled,
+ * since a menu that cannot open has nothing to show.
+ */
+const ActionButton = ({ item }: Readonly<{ item: MenuItem }>) => {
+	if (item.submenu !== undefined && item.disabled !== true) {
+		return <Menu label={item.label} icon={item.label} items={item.submenu} />;
+	}
+	return (
+		<button
+			type="button"
+			className="options-action"
+			disabled={item.disabled}
+			title={
+				item.shortcut === undefined
+					? item.label
+					: t('ui.labelWithShortcut', { label: item.label, shortcut: item.shortcut })
+			}
+			onClick={item.onSelect}
+		>
+			{item.label}
+		</button>
+	);
+};
 
 /** The selection's actions, in their groups, a rule between each. */
 const SelectionBar = ({ actions }: Readonly<{ actions: readonly MenuItem[] }>) => (

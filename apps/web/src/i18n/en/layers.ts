@@ -35,6 +35,8 @@ export const layers = {
 		drawing: 'Embedded drawing',
 		/** A text's words, cut short where they run long, as its name. */
 		cut: '{text}…',
+		/** The menu over an item's row: the selection's actions, for the item and what is selected with it. */
+		actions: 'Item actions',
 	},
 	/** The panel's menu of what can be made above the active layer, as Photoshop's Layer › New. */
 	new: 'New',

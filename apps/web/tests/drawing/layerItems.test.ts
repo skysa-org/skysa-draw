@@ -7,6 +7,7 @@ import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
 import {
 	cutWords,
+	heldNotice,
 	itemName,
 	itemsOf,
 	pressedSelection,
@@ -185,6 +186,48 @@ describe('useLayerItems', () => {
 		const after = result.current.shownOf('layer-1').map(({ element: each }) => each);
 		expect(after).toHaveLength(2);
 		expect(after.some((each) => before.includes(each))).toBe(false);
+	});
+});
+
+describe('heldNotice', () => {
+	/** Layer 1 and Layer 2 in Group 3, and Group 3 in Group 4, each with what `attributes` gives it. */
+	const nested = (attributes: Readonly<Record<string, string>>) => {
+		const of = (id: string) => attributes[id] ?? '';
+		const document = open(
+			`<g id="layer-4" draw:kind="group"${of('layer-4')}><g id="layer-3" draw:kind="group"${of('layer-3')}>` +
+				`<g id="layer-1" draw:kind="vector"${of('layer-1')}/><g id="layer-2" draw:kind="vector"${of('layer-2')}/></g></g>`
+		);
+		return document.snapshot().layers;
+	};
+	const LOCKED = ' draw:locked="true"';
+	const HIDDEN = ' display="none"';
+
+	it('says nothing of a layer nothing holds, nor of one it does not have', () => {
+		expect(heldNotice(nested({}), 'layer-1')).toBeUndefined();
+		expect(heldNotice(nested({}), 'layer-9')).toBeUndefined();
+	});
+
+	it('says the layer is locked, or hidden, by its name, as a tool does, its lock first', () => {
+		expect(heldNotice(nested({ 'layer-1': LOCKED }), 'layer-1')).toBe('“Layer 1” is locked.');
+		expect(heldNotice(nested({ 'layer-1': HIDDEN }), 'layer-1')).toBe('“Layer 1” is hidden.');
+		expect(heldNotice(nested({ 'layer-1': LOCKED + HIDDEN }), 'layer-1')).toBe(
+			'“Layer 1” is locked.'
+		);
+		expect(heldNotice(nested({ 'layer-2': ' draw:name="Sky"' + HIDDEN }), 'layer-2')).toBe(
+			'“Sky” is hidden.'
+		);
+	});
+
+	it('says which group holds it where the layer itself is free, the nearest first', () => {
+		expect(heldNotice(nested({ 'layer-3': HIDDEN }), 'layer-1')).toBe('“Group 3” is hidden.');
+		expect(heldNotice(nested({ 'layer-4': LOCKED }), 'layer-2')).toBe('“Group 4” is locked.');
+		expect(heldNotice(nested({ 'layer-3': HIDDEN, 'layer-4': LOCKED }), 'layer-1')).toBe(
+			'“Group 3” is hidden.'
+		);
+		// The layer's own state before any group's.
+		expect(heldNotice(nested({ 'layer-1': HIDDEN, 'layer-3': LOCKED }), 'layer-1')).toBe(
+			'“Layer 1” is hidden.'
+		);
 	});
 });
 

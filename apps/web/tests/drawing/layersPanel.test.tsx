@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { useReducer, useState } from 'react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import type { MenuItem } from '../../src/components/ui/MenuList.js';
 import { editLayer } from '../../src/drawing/document/commands.js';
 import type { EditorDocument } from '../../src/drawing/document/model.js';
 import { openDocument } from '../../src/drawing/document/openDocument.js';
@@ -59,6 +60,7 @@ const Harness = ({
 	onNotify = () => undefined,
 	selection: given,
 	tool = initialEditorState.toolId,
+	elementActions = [],
 }: Readonly<{
 	document: EditorDocument;
 	onActivate?: (id: string) => void;
@@ -68,6 +70,8 @@ const Harness = ({
 	selection?: ViewportSelection;
 	/** The tool in hand to begin with. */
 	tool?: ToolId;
+	/** The selection's actions, as the frame makes them for the canvas's menu. */
+	elementActions?: readonly MenuItem[];
 }>) => {
 	const snapshot = useDocumentSnapshot(document);
 	const [state, dispatch] = useReducer(editorReducer, { ...initialEditorState, toolId: tool });
@@ -102,6 +106,7 @@ const Harness = ({
 					dispatch({ type: 'selectInLayer', id });
 					selection.elements.set(elements.length === 0 ? NO_SELECTION : elements);
 				}}
+				elementActions={elementActions}
 				withProperties
 				onNotify={onNotify}
 			/>
@@ -1201,6 +1206,250 @@ describe('dragging layers', () => {
 			);
 		});
 	});
+
+	describe('a vector layer’s items', () => {
+		/**
+		 * Top first: Layer 6, a vector layer of one polyline; Layer 5, a locked
+		 * vector layer of an image and a clone; Group 3 holding Layer 4, a vector
+		 * layer of a path and a polygon; Layer 2, raster; and Layer 1, a vector
+		 * layer of a rectangle, a circle and a line.
+		 */
+		const withItems = () =>
+			open(
+				emptyDrawing({ id: DRAWING_ID }).replace(
+					/<g id="layer-1"[^>]*\/>/,
+					[
+						'<g id="layer-1" draw:kind="vector"><rect width="1" height="1"/><circle r="1"/><line x2="1"/></g>',
+						'<g id="layer-2" draw:kind="raster"/>',
+						'<g id="layer-3" draw:kind="group"><g id="layer-4" draw:kind="vector"><path d="M0 0L1 1"/><polygon points="0,0 1,1 1,0"/></g></g>',
+						'<g id="layer-5" draw:kind="vector" draw:locked="true"><image width="1" height="1"/><use href="#nowhere"/></g>',
+						'<g id="layer-6" draw:kind="vector"><polyline points="0,0 1,1"/></g>',
+					].join('')
+				)
+			);
+
+		/** Each named vector layer shown expanded, then the rows laid out. */
+		const expand = (...layers: readonly string[]) => {
+			layers.forEach((name) => {
+				const control = row(name)
+					.closest('li')
+					?.querySelector(':scope > .layer-disclosure');
+				if (!(control instanceof HTMLElement)) throw new Error(`a disclosure on ${name}`);
+				fireEvent.click(control);
+			});
+			layOut();
+		};
+
+		/** An item's button, by its name. */
+		const itemPick = (name: string) => {
+			const found = [...list().querySelectorAll('.layer-item .layer-pick')].find(
+				(each) => each.querySelector('.layer-name')?.textContent === name
+			);
+			if (!(found instanceof HTMLElement)) throw new Error(`an item called ${name}`);
+			return found;
+		};
+
+		const kept = (document: EditorDocument, id: string) =>
+			[...(document.layer(id)?.children ?? [])].map((each) => each.localName);
+
+		/** How far in the line is drawn, as its style says it. */
+		const lineDepth = () => list().querySelector('.layer-drop-line')?.getAttribute('style');
+
+		it('drags an item to another place among its layer’s, the line over the row, and selects it there', async () => {
+			const document = withItems();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			expand('Layer 1');
+			expect(names()).toEqual([
+				'Layer 6',
+				'Layer 5',
+				'Group 3',
+				'Layer 4',
+				'Layer 2',
+				'Layer 1',
+				'Line',
+				'Ellipse',
+				'Rectangle',
+			]);
+			const [rect] = document.layer('layer-1')?.children ?? [];
+			const from = itemPick('Rectangle');
+
+			// Under itself, or under the item over it, is where it is: nothing to show.
+			drag(from, [[100, yOf(8, 0.7)]]);
+			expect(list().getAttribute('data-dragging')).toBe('');
+			expect(names('[data-dragged]')).toEqual(['Rectangle']);
+			expect(selection.elements.get()).toEqual([rect]);
+			expect(line()).toBeUndefined();
+			fire(from, pointer('pointermove', 100, yOf(7, 0.8)));
+			expect(line()).toBeUndefined();
+			// Over the top item: on top of them all, the line at the items' depth.
+			fire(from, pointer('pointermove', 100, yOf(6, 0.2)));
+			expect(line()).toEqual(['Line', 'before']);
+			expect(lineDepth()).toContain('calc(1 * var(--space-l))');
+			expect(lit()).toEqual([]);
+			lift(from);
+			// The click after the drag selects nothing, not what its row shows now.
+			fireEvent.click(from);
+
+			await waitFor(() =>
+				expect(kept(document, 'layer-1')).toEqual(['circle', 'line', 'rect'])
+			);
+			expect(names('.layer-item')).toEqual(['Rectangle', 'Line', 'Ellipse']);
+			expect(selection.elements.get()).toEqual([rect]);
+			expect(names('.layer-item[data-selected]')).toEqual(['Rectangle']);
+			expect(activeName()).toBe('Layer 1');
+			expect(list().getAttribute('data-dragging')).toBeNull();
+			act(() => document.undo());
+			await waitFor(() =>
+				expect(names('.layer-item')).toEqual(['Line', 'Ellipse', 'Rectangle'])
+			);
+		});
+
+		it('drags an item among another vector layer’s, in a group, at their depth, and makes that layer active', async () => {
+			const document = withItems();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			expand('Layer 1', 'Layer 4');
+			expect(names().slice(3, 6)).toEqual(['Layer 4', 'Polygon', 'Path']);
+			const from = itemPick('Line');
+
+			drag(from, [[100, yOf(5, 0.8)]]);
+			expect(line()).toEqual(['Path', 'after']);
+			expect(lineDepth()).toContain('calc(2 * var(--space-l))');
+			lift(from);
+
+			await waitFor(() =>
+				expect(kept(document, 'layer-4')).toEqual(['line', 'path', 'polygon'])
+			);
+			expect(kept(document, 'layer-1')).toEqual(['rect', 'circle']);
+			expect(selection.elements.get()).toEqual([document.layer('layer-4')?.children[0]]);
+			expect(activeName()).toBe('Layer 4');
+			expect(names(':not(.layer-item)[data-selected]')).toEqual(['Layer 4']);
+			// Both stay expanded, as they were.
+			expect(names('.layer-item')).toEqual([
+				'Polygon',
+				'Path',
+				'Line',
+				'Ellipse',
+				'Rectangle',
+			]);
+		});
+
+		it('drags an item onto a vector layer’s row, lit, on top of its elements, of one or collapsed', async () => {
+			const document = withItems();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			expand('Layer 1');
+			const from = itemPick('Ellipse');
+
+			drag(from, [[100, yOf(3, 0.5)]]);
+			expect(lit()).toEqual(['Layer 4']);
+			expect(line()).toBeUndefined();
+			fire(from, pointer('pointermove', 100, yOf(0, 0.9)));
+			expect(lit()).toEqual(['Layer 6']);
+			lift(from);
+
+			await waitFor(() => expect(kept(document, 'layer-6')).toEqual(['polyline', 'circle']));
+			expect(selection.elements.get()).toEqual([document.layer('layer-6')?.children[1]]);
+			expect(activeName()).toBe('Layer 6');
+			// Layer 6 has two items now, and is collapsed as it was.
+			expect(names('.layer-item')).toEqual(['Line', 'Rectangle']);
+		});
+
+		it('drags what is selected on the layer with the item where it is among it, and the click after selects nothing', async () => {
+			const document = withItems();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			expand('Layer 1');
+			fireEvent.click(itemPick('Line'));
+			fireEvent.click(itemPick('Rectangle'), { shiftKey: true });
+			const from = itemPick('Rectangle');
+
+			drag(from, [[100, yOf(0, 0.5)]]);
+			expect(names('[data-dragged]')).toEqual(['Line', 'Rectangle']);
+			lift(from);
+			fireEvent.click(from);
+
+			await waitFor(() =>
+				expect(kept(document, 'layer-6')).toEqual(['polyline', 'rect', 'line'])
+			);
+			expect(selection.elements.get()).toEqual(
+				[...(document.layer('layer-6')?.children ?? [])].slice(1)
+			);
+			expect(kept(document, 'layer-1')).toEqual(['circle']);
+		});
+
+		it('shows nothing and drops nothing over a raster layer, a group, a held layer and its items, or past the rows', () => {
+			const document = withItems();
+			const before = document.text();
+			render(<Harness document={document} />);
+			expand('Layer 5', 'Layer 1');
+			expect(names()).toEqual([
+				'Layer 6',
+				'Layer 5',
+				'Clone',
+				'Image',
+				'Group 3',
+				'Layer 4',
+				'Layer 2',
+				'Layer 1',
+				'Line',
+				'Ellipse',
+				'Rectangle',
+			]);
+			const from = itemPick('Line');
+
+			drag(from, [[100, yOf(6, 0.5)]]);
+			// Raster, group, the held layer, its items, its own layer's top where it is, past the end.
+			[6, 4, 1, 2, 3, 7, 11].forEach((at) => {
+				fire(from, pointer('pointermove', 100, yOf(at, 0.5)));
+				expect([at, lit(), line()]).toEqual([at, [], undefined]);
+			});
+			lift(from);
+
+			expect(document.text()).toBe(before);
+		});
+
+		it('puts the drag down with Escape', () => {
+			const document = withItems();
+			const before = document.text();
+			render(<Harness document={document} />);
+			expand('Layer 1');
+			const from = itemPick('Rectangle');
+
+			drag(from, [[100, yOf(6, 0.2)]]);
+			expect(line()).toEqual(['Line', 'before']);
+			const unclaimed = fireEvent.keyDown(from, { key: 'Escape' });
+			expect(unclaimed).toBe(false);
+			expect(line()).toBeUndefined();
+			expect(list().getAttribute('data-dragging')).toBeNull();
+			lift(from);
+
+			expect(document.text()).toBe(before);
+		});
+
+		it('leaves a finger on the item to scroll the list, and drags by the grip at the end of its row', async () => {
+			const document = withItems();
+			render(<Harness document={document} />);
+			expand('Layer 1');
+			const touch = { pointerType: 'touch' };
+			const from = itemPick('Rectangle');
+
+			drag(from, [[100, yOf(6, 0.2)]], touch);
+			expect(list().getAttribute('data-dragging')).toBeNull();
+			lift(from, touch);
+
+			const grip = from.closest('li')?.querySelector(':scope > .layer-grip:last-of-type');
+			if (!(grip instanceof Element)) throw new Error('a grip at the end of the row');
+			drag(grip, [[100, yOf(6, 0.2)]], touch);
+			expect(line()).toEqual(['Line', 'before']);
+			lift(grip, touch);
+
+			await waitFor(() =>
+				expect(kept(document, 'layer-1')).toEqual(['circle', 'line', 'rect'])
+			);
+		});
+	});
 });
 
 describe('collapsing groups', () => {
@@ -1648,7 +1897,7 @@ describe('the previews, and a vector layer’s items', () => {
 		expect(
 			items.every((each) => each.querySelector('.layer-pick .layer-preview') !== null)
 		).toBe(true);
-		// No item can be dragged, and none has an eye or a lock of its own.
+		// None has an eye or a lock of its own: its one button is the item.
 		expect(items.every((each) => each.querySelectorAll('button').length === 1)).toBe(true);
 	});
 
@@ -1783,15 +2032,245 @@ describe('the previews, and a vector layer’s items', () => {
 		expect(selection.elements.get()).toEqual([rect]);
 	});
 
-	it('opens the layer’s actions menu over an item, choosing its layer alone first', async () => {
-		render(<Harness document={itemized()} />);
-		toggle('Layer 3');
-		click('Layer 1');
+	describe('an item’s menu', () => {
+		const deleted = vi.fn();
+		/** The selection's actions, as the frame would give them for elements selected. */
+		const ACTIONS: readonly MenuItem[] = [
+			{ id: 'deselect', label: 'Deselect', onSelect: () => undefined },
+			{ id: 'delete', label: 'Delete', onSelect: deleted },
+		];
 
-		fireEvent.contextMenu(item('Ellipse'), { clientX: 10, clientY: 20 });
+		const shownItems = () =>
+			within(screen.getByRole('menu', { name: 'Item actions' }))
+				.getAllByRole('menuitem')
+				.map((each) => each.textContent);
 
-		expect(await screen.findByRole('menu', { name: 'Layer actions' })).toBeDefined();
-		expect(chosenLayers()).toEqual(['Layer 3']);
+		it('opens on a right-click with the selection’s actions, the item selected alone first, and acts', async () => {
+			const user = userEvent.setup();
+			const document = itemized();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} elementActions={ACTIONS} />);
+			toggle('Layer 3');
+			click('Layer 1');
+			const [rect, circle] = elementsOf(document, 'layer-3');
+			act(() => selection.elements.set([rect].flatMap((each) => each ?? [])));
+
+			const event = createEvent.contextMenu(item('Ellipse'), { clientX: 10, clientY: 20 });
+			fireEvent(item('Ellipse'), event);
+
+			expect(event.defaultPrevented).toBe(true);
+			const menu = await screen.findByRole('menu', { name: 'Item actions' });
+			expect(menu.style.top).not.toBe('');
+			expect(shownItems()).toEqual(['Deselect', 'Delete']);
+			expect(screen.queryByRole('menu', { name: 'Layer actions' })).toBeNull();
+			expect(selection.elements.get()).toEqual([circle]);
+			expect(activeName()).toBe('Layer 3');
+			expect(chosenLayers()).toEqual(['Layer 3']);
+
+			await user.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
+			expect(deleted).toHaveBeenCalledTimes(1);
+			expect(screen.queryByRole('menu', { name: 'Item actions' })).toBeNull();
+		});
+
+		it('keeps a selection the item is among, opens on Shift F10 under the row, and gives the focus back on Escape', async () => {
+			const user = userEvent.setup();
+			const document = itemized();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} elementActions={ACTIONS} />);
+			toggle('Layer 3');
+			const [rect, circle] = elementsOf(document, 'layer-3');
+			fireEvent.click(item('Ellipse'));
+			fireEvent.click(item('Rectangle'), { shiftKey: true });
+			item('Rectangle').focus();
+
+			await user.keyboard('{Shift>}{F10}{/Shift}');
+
+			const menu = await screen.findByRole('menu', { name: 'Item actions' });
+			await waitFor(() => expect(menu.contains(window.document.activeElement)).toBe(true));
+			expect(selection.elements.get()).toEqual([rect, circle]);
+			await user.keyboard('{Escape}');
+			expect(screen.queryByRole('menu', { name: 'Item actions' })).toBeNull();
+			expect(window.document.activeElement).toBe(item('Rectangle'));
+		});
+
+		it('opens none from the grip, which a finger drags by', () => {
+			render(<Harness document={itemized()} elementActions={ACTIONS} />);
+			toggle('Layer 3');
+			const grip = item('Ellipse').closest('li')?.querySelector('.layer-grip');
+			if (!(grip instanceof Element)) throw new Error('a grip on the item’s row');
+			expect(grip.getAttribute('aria-hidden')).toBe('true');
+
+			const onGrip = createEvent.contextMenu(grip);
+			fireEvent(grip, onGrip);
+
+			expect(onGrip.defaultPrevented).toBe(true);
+			expect(screen.queryByRole('menu', { name: 'Item actions' })).toBeNull();
+		});
+	});
+
+	describe('a held layer’s items', () => {
+		const HOLDS = {
+			locked: ' draw:locked="true"',
+			hidden: ' display="none"',
+			group: '',
+		} as const;
+
+		/** Layer 3 as `itemized` has it, locked, hidden, or in a group, Coast, that is locked. */
+		const heldBy = (how: keyof typeof HOLDS) => {
+			const held = `<g id="layer-3" draw:kind="vector"${HOLDS[how]}><rect width="4" height="4"/><circle r="2"/></g>`;
+			return open(
+				emptyDrawing({ id: DRAWING_ID }).replace(
+					/<g id="layer-1"[^>]*\/>/,
+					`<g id="layer-1" draw:kind="raster"/><g id="layer-2" draw:kind="vector"><rect width="1" height="1"/></g>${
+						how === 'group'
+							? `<g id="layer-5" draw:kind="group" draw:name="Coast" draw:locked="true">${held}</g>`
+							: held
+					}`
+				)
+			);
+		};
+
+		const heldRows = () =>
+			[...list().querySelectorAll('.layer-item[data-held]')].map(
+				(each) => each.querySelector('.layer-name')?.textContent
+			);
+
+		it.each([
+			['locked', '“Layer 3” is locked.'],
+			['hidden', '“Layer 3” is hidden.'],
+			['group', '“Coast” is locked.'],
+		] as const)(
+			'shows them muted and out of reach where the layer is %s, a press saying why and selecting nothing',
+			(how, why) => {
+				const document = heldBy(how);
+				const notified = vi.fn();
+				const selection = createViewportSelection();
+				render(<Harness document={document} selection={selection} onNotify={notified} />);
+				toggle('Layer 3');
+				expect(heldRows()).toEqual(['Ellipse', 'Rectangle']);
+				expect(item('Ellipse').getAttribute('aria-disabled')).toBe('true');
+
+				fireEvent.click(item('Ellipse'));
+
+				expect(notified).toHaveBeenCalledWith(why);
+				expect(selection.elements.get()).toEqual(NO_SELECTION);
+				expect(selectedItems()).toEqual([]);
+				// The layer's own row is chosen, unlocked and shown as ever.
+				click('Layer 3');
+				expect(chosenLayers()).toEqual(['Layer 3']);
+			}
+		);
+
+		it('opens no menu on one, by a right-click or Shift F10, and keeps the browser’s', () => {
+			render(<Harness document={heldBy('locked')} elementActions={[]} />);
+			toggle('Layer 3');
+
+			const event = createEvent.contextMenu(item('Ellipse'), { clientX: 10, clientY: 20 });
+			fireEvent(item('Ellipse'), event);
+			const key = createEvent.keyDown(item('Ellipse'), { key: 'F10', shiftKey: true });
+			fireEvent(item('Ellipse'), key);
+
+			expect(event.defaultPrevented).toBe(true);
+			expect(key.defaultPrevented).toBe(true);
+			expect(screen.queryByRole('menu', { name: 'Item actions' })).toBeNull();
+			expect(screen.queryByRole('menu', { name: 'Layer actions' })).toBeNull();
+		});
+
+		it('walks onto one with the arrows, focusing it without selecting it, and moves none with Alt', () => {
+			const document = heldBy('hidden');
+			const before = document.text();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			toggle('Layer 3');
+
+			fireEvent.keyDown(row('Layer 3'), { key: 'ArrowDown' });
+			expect(window.document.activeElement).toBe(item('Ellipse'));
+			fireEvent.keyDown(item('Ellipse'), { key: 'ArrowDown' });
+			expect(window.document.activeElement).toBe(item('Rectangle'));
+			expect(selection.elements.get()).toEqual(NO_SELECTION);
+
+			fireEvent.keyDown(item('Rectangle'), { key: 'ArrowUp', altKey: true });
+			expect(document.text()).toBe(before);
+			// Past it, the next layer's row is chosen as ever.
+			fireEvent.keyDown(item('Rectangle'), { key: 'ArrowDown' });
+			expect(activeName()).toBe('Layer 2');
+		});
+
+		it('drags none, by its button or by its grip', () => {
+			const document = heldBy('locked');
+			const before = document.text();
+			render(<Harness document={document} />);
+			toggle('Layer 3');
+			const from = item('Ellipse');
+			const grip = from.closest('li')?.querySelector('.layer-grip');
+			if (!(grip instanceof Element)) throw new Error('a grip, kept for the column');
+			const press = (target: Element, pointerType: string) => {
+				const init = { bubbles: true, pointerId: 1, pointerType, button: 0, clientX: 10 };
+				act(() => {
+					target.dispatchEvent(new PointerEvent('pointerdown', { ...init, clientY: 10 }));
+					target.dispatchEvent(new PointerEvent('pointermove', { ...init, clientY: 90 }));
+				});
+				expect(list().getAttribute('data-dragging')).toBeNull();
+				act(() => {
+					target.dispatchEvent(new PointerEvent('pointerup', { ...init, clientY: 90 }));
+				});
+			};
+
+			press(from, 'mouse');
+			press(grip, 'touch');
+
+			expect(document.text()).toBe(before);
+		});
+	});
+
+	describe('Alt with an arrow on an item', () => {
+		/** Layer 3 holding a rectangle, a circle and a line, bottom first. */
+		const three = () => itemized('<rect width="4" height="4"/><circle r="2"/><line x2="1"/>');
+
+		it('moves the item a step forward up the list and backward down it, selected, the focus with it', async () => {
+			const document = three();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			toggle('Layer 3');
+			const [rect] = elementsOf(document, 'layer-3');
+			expect(itemNames()).toEqual(['Line', 'Ellipse', 'Rectangle']);
+
+			fireEvent.keyDown(item('Rectangle'), { key: 'ArrowUp', altKey: true });
+
+			await waitFor(() => expect(itemNames()).toEqual(['Line', 'Rectangle', 'Ellipse']));
+			expect(selection.elements.get()).toEqual([rect]);
+			expect(window.document.activeElement).toBe(item('Rectangle'));
+			fireEvent.keyDown(item('Rectangle'), { key: 'ArrowUp', altKey: true });
+			await waitFor(() => expect(itemNames()).toEqual(['Rectangle', 'Line', 'Ellipse']));
+			expect(window.document.activeElement).toBe(item('Rectangle'));
+
+			// At the top already: nothing to do.
+			const top = document.text();
+			fireEvent.keyDown(item('Rectangle'), { key: 'ArrowUp', altKey: true });
+			expect(document.text()).toBe(top);
+
+			fireEvent.keyDown(item('Rectangle'), { key: 'ArrowDown', altKey: true });
+			await waitFor(() => expect(itemNames()).toEqual(['Line', 'Rectangle', 'Ellipse']));
+			act(() => document.undo());
+			await waitFor(() => expect(itemNames()).toEqual(['Rectangle', 'Line', 'Ellipse']));
+		});
+
+		it('moves what is selected on the layer with it where it is among it, and keeps them selected', async () => {
+			const document = three();
+			const selection = createViewportSelection();
+			render(<Harness document={document} selection={selection} />);
+			toggle('Layer 3');
+			const [rect, circle] = elementsOf(document, 'layer-3');
+			fireEvent.click(item('Rectangle'));
+			fireEvent.click(item('Ellipse'), { shiftKey: true });
+
+			fireEvent.keyDown(item('Ellipse'), { key: 'ArrowUp', altKey: true });
+
+			await waitFor(() => expect(itemNames()).toEqual(['Ellipse', 'Rectangle', 'Line']));
+			expect(selection.elements.get()).toEqual([rect, circle]);
+			expect(selectedItems()).toEqual(['Ellipse', 'Rectangle']);
+			expect(window.document.activeElement).toBe(item('Ellipse'));
+		});
 	});
 
 	it('keeps a layer expanded through an edit and an undo that put its markup back, and loses the caret at one item', () => {

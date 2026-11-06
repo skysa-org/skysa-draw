@@ -25,11 +25,11 @@ import type { LayerPlace } from '../document/arrange.js';
  * over it whole.
  *
  * An expanded vector layer's items are rows of their own under the layer's,
- * which hold no layers and take no drop: the layer is one row here, whose
- * `foot` is where its items' rows end. Over them is under the layer, as the
- * lower half of its own row is, so the line is drawn under the last of them,
- * on the next layer's row, between a layer's row and the next layer's
- * wherever items' rows sit.
+ * which hold no layers and take no drop of layers, only of items
+ * (`itemDrop.ts`): the layer is one row here, whose `foot` is where its
+ * items' rows end. Over them is under the layer, as the lower half of its own
+ * row is, so the line is drawn under the last of them, on the next layer's
+ * row, between a layer's row and the next layer's wherever items' rows sit.
  */
 
 export type DropRow = Readonly<{

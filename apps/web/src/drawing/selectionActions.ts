@@ -17,6 +17,11 @@ import type { Region, ToolId } from './tools/types.js';
  * does is the viewport's (`viewport/selectionCommands.ts`), reached by its id,
  * since the viewport holds the selection and the tools' context.
  *
+ * Arrange is a submenu, as Illustrator's Object › Arrange is: Bring to
+ * front, Bring forward, Send backward and Send to back, among the layer's
+ * own elements (`document/elements.ts`); Arrange itself does nothing but
+ * open it, and the selection bar shows it as a menu button.
+ *
  * Fill… opens the frame's dialog, which asks what the area is filled with
  * and how (`panels/FillDialog.tsx`). The two fills Photoshop does at once
  * from a key, with the fill color and with the stroke color, are actions
@@ -32,6 +37,12 @@ export const SELECTION_ACTIONS = [
 	'transformSelection',
 	'applyTransform',
 	'cancelTransform',
+	'arrange',
+	'bringToFront',
+	'bringForward',
+	'sendBackward',
+	'sendToBack',
+	'duplicateElements',
 	'layerViaCopy',
 	'layerViaCut',
 	'fillDialog',
@@ -98,7 +109,8 @@ const editable = (layer: LayerInfo | undefined): boolean =>
  * layer's duplicate is. Fill… is Shift F5, Photoshop's, and Shift Backspace
  * too; Alt Backspace fills with the fill color and Ctrl or ⌘ Backspace with
  * the stroke color, as Photoshop's fill with the foreground and the
- * background.
+ * background. Arrange and Duplicate have none: Illustrator's Ctrl or ⌘ [ and
+ * ] are a Mac browser's Back and Forward.
  */
 const KEYS: Readonly<Partial<Record<SelectionActionId, EditAction>>> = {
 	deselect: 'deselect',
@@ -120,7 +132,13 @@ const KEYS: Readonly<Partial<Record<SelectionActionId, EditAction>>> = {
 	duplicateLayer: 'duplicate',
 };
 
-type Entry = Readonly<{ id: SelectionActionId; enabled: boolean; separatorBefore?: boolean }>;
+type Entry = Readonly<{
+	id: SelectionActionId;
+	enabled: boolean;
+	separatorBefore?: boolean;
+	/** The entries of a submenu the item opens, in place of an action of its own. */
+	submenu?: readonly Entry[];
+}>;
 
 /**
  * With an area: the area itself, then the pixels it takes to a layer of their
@@ -144,12 +162,31 @@ const areaEntries = (facts: SelectionFacts, region: Region): readonly Entry[] =>
 	];
 };
 
-/** With elements selected on a vector layer: the selection, a layer of their own, and away with them. */
+/** Where Arrange's submenu puts the elements, top to bottom as Illustrator lists them. */
+const ARRANGEMENTS: readonly SelectionActionId[] = [
+	'bringToFront',
+	'bringForward',
+	'sendBackward',
+	'sendToBack',
+];
+
+/**
+ * With elements selected on a vector layer: the selection, where they are
+ * among the layer's own and a copy of them, a layer of their own, and away
+ * with them.
+ */
 const elementEntries = (facts: SelectionFacts): readonly Entry[] => {
 	const changeable = editable(facts.layer);
 	return [
 		{ id: 'deselect', enabled: true },
 		{ id: 'selectInverse', enabled: true },
+		{
+			id: 'arrange',
+			enabled: changeable,
+			separatorBefore: true,
+			submenu: ARRANGEMENTS.map((id) => ({ id, enabled: changeable })),
+		},
+		{ id: 'duplicateElements', enabled: changeable },
 		{ id: 'layerViaCopy', enabled: changeable, separatorBefore: true },
 		{ id: 'layerViaCut', enabled: changeable },
 		{ id: 'delete', enabled: changeable, separatorBefore: true },
@@ -179,6 +216,19 @@ const entriesFor = (facts: SelectionFacts): readonly Entry[] => {
 	return nothingEntries(facts);
 };
 
+/** An entry as a menu item, and its submenu's entries as the submenu's items. */
+const itemOf =
+	(run: (action: SelectionActionId) => void, isMac: boolean) =>
+	({ id, enabled, separatorBefore, submenu }: Entry): MenuItem => ({
+		id,
+		label: t(`selection.actions.${id}`),
+		onSelect: () => run(id),
+		disabled: !enabled,
+		shortcut: shortcutFor(KEYS[id], isMac),
+		separatorBefore: separatorBefore === true,
+		...(submenu === undefined ? {} : { submenu: submenu.map(itemOf(run, isMac)) }),
+	});
+
 /**
  * The actions for what is selected, as menu items: `run` is told the id of
  * the one chosen. The same list for the context menu and the selection bar.
@@ -187,15 +237,7 @@ export const selectionActions = (
 	facts: SelectionFacts,
 	run: (action: SelectionActionId) => void,
 	isMac: boolean
-): readonly MenuItem[] =>
-	entriesFor(facts).map(({ id, enabled, separatorBefore }) => ({
-		id,
-		label: t(`selection.actions.${id}`),
-		onSelect: () => run(id),
-		disabled: !enabled,
-		shortcut: shortcutFor(KEYS[id], isMac),
-		separatorBefore: separatorBefore === true,
-	}));
+): readonly MenuItem[] => entriesFor(facts).map(itemOf(run, isMac));
 
 /**
  * The list as a component holds it: made again only when what it is made of

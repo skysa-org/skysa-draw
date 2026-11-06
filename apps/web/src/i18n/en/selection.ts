@@ -23,6 +23,18 @@ export const selection = {
 		applyTransform: 'Apply',
 		/** The outline put back as it was before the transform. */
 		cancelTransform: 'Cancel',
+		/** The submenu of the four below, as Illustrator's Object › Arrange: where the selected shapes are among their layer's. */
+		arrange: 'Arrange',
+		/** The selected shapes above all the others on their layer. */
+		bringToFront: 'Bring to front',
+		/** Each selected shape above the next one above it. */
+		bringForward: 'Bring forward',
+		/** Each selected shape below the next one below it. */
+		sendBackward: 'Send backward',
+		/** The selected shapes below all the others on their layer. */
+		sendToBack: 'Send to back',
+		/** A copy of each selected shape, just above it, in the same place. */
+		duplicateElements: 'Duplicate',
 		layerViaCopy: 'Layer via copy',
 		layerViaCut: 'Layer via cut',
 		/** Fill…: the dialog that asks what the area is filled with, and how, as Photoshop's Edit > Fill. */
@@ -133,6 +145,12 @@ export const selection = {
 	history: {
 		layerViaCopy: 'Layer via copy',
 		layerViaCut: 'Layer via cut',
+		/** Shapes brought to the front or forward, or sent backward or to the back. */
+		arrange: 'Arrange',
+		/** Shapes copied in place. */
+		duplicate: 'Duplicate',
+		/** Shapes moved to another place in their layer, or to another layer, from the layers panel. */
+		moveElements: 'Move',
 	},
 	/** An action that changes pixels, asked of a layer that has none. */
 	rasterOnly: '“{action}” works on a raster layer. Choose one in the layers panel first.',

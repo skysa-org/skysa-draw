@@ -377,10 +377,13 @@ const rewriteReferences = (attribute: Attr, renamed: ReadonlyMap<string, string>
 };
 
 /**
- * A deep copy of a layer with ids of its own: `id` for the copy itself, the
- * next free `layer-n` for each layer inside a copied group, and `old-copy`
- * for anything else inside that has an id. Every reference inside the copy to
- * something copied with it, a gradient's `url(#…)` or a `<use>`'s `#…`, is
+ * A deep copy of a layer, or of an element, with ids of its own: `id` for
+ * the copy itself, the next free `layer-n` for each layer inside a copied
+ * group, and `old-copy` for anything else inside that has an id. Without an
+ * `id`, the copy itself is named as anything inside it is, `old-copy` where
+ * the original has an id and none where it has none: an element duplicated
+ * on its layer, which is no layer to number. Every reference inside the copy
+ * to something copied with it, a gradient's `url(#…)` or a `<use>`'s `#…`, is
  * pointed at the copy; references to things outside stay as they were. An
  * element `kept` says of keeps its id, and what refers to it still does: for
  * what is moved rather than copied, which leaves the original behind. The
@@ -390,18 +393,18 @@ const rewriteReferences = (attribute: Attr, renamed: ReadonlyMap<string, string>
 export const copyOf = (
 	root: Element,
 	original: Element,
-	id: string,
+	id: string | undefined,
 	kept: (element: Element, copy: Element) => boolean = () => false,
 	reserved: ReadonlySet<string> = new Set()
 ): Element => {
 	const copy = original.cloneNode(true) as Element;
-	const taken = new Set([...idsIn(root), id, ...reserved]);
+	const taken = new Set([...idsIn(root), ...(id === undefined ? [] : [id]), ...reserved]);
 	const renamed = new Map<string, string>();
 	const originalId = original.getAttribute('id');
-	if (originalId !== null && originalId !== '') renamed.set(originalId, id);
-	copy.setAttribute('id', id);
+	if (id !== undefined && originalId !== null && originalId !== '') renamed.set(originalId, id);
+	if (id !== undefined) copy.setAttribute('id', id);
 	const layers = new Set<Element>(layersWithin(copy));
-	[...copy.querySelectorAll('[id]')].forEach((element) => {
+	[...(id === undefined ? [copy] : []), ...copy.querySelectorAll('[id]')].forEach((element) => {
 		const old = element.getAttribute('id') ?? '';
 		if (old === '' || kept(element, copy)) return;
 		const next = layers.has(element) ? freeLayerIdAmong(taken) : copyId(old, taken);

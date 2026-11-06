@@ -307,6 +307,8 @@ const Frame = ({
 				dispatch({ type: 'selectInLayer', id });
 				selection.elements.set(elements.length === 0 ? NO_SELECTION : elements);
 			}}
+			// An item's menu is the canvas's, for the elements its press selected.
+			elementActions={items}
 			withProperties={!expanded}
 			onClose={onClose}
 			onNotify={notify}

@@ -1,6 +1,13 @@
 import { t } from '../../i18n/t.js';
 import { addLayer, duplicateLayer } from '../document/commands.js';
 import { type CanvasBox, canvasBoxOf, cropCanvas } from '../document/crop.js';
+import {
+	arrangeElements,
+	canArrange,
+	duplicateElements,
+	type ElementArrangement,
+	type PlacingCommand,
+} from '../document/elements.js';
 import type { LayerVia } from '../document/layerVia.js';
 import type { EditorDocument, LayerInfo } from '../document/model.js';
 import { type SelectionActionId, selectionModeOf } from '../selectionActions.js';
@@ -10,6 +17,8 @@ import type { AreaModify } from '../tools/raster/areaOps.js';
 import { clearArea, fillArea, layerViaArea } from '../tools/raster/index.js';
 import type { ToolContext, ToolId } from '../tools/types.js';
 import type { Point } from '../tools/vector/geometry.js';
+import { activeLayerElement, guardLayer, targetLayer } from '../tools/vector/guard.js';
+import { elementsAtPositions, elementsOf, positionsIn } from '../tools/vector/hit.js';
 import { deleteSelection } from '../tools/vector/index.js';
 import {
 	hideSelection,
@@ -17,6 +26,7 @@ import {
 	selectedBox,
 	selectEveryElement,
 	selectOtherElements,
+	showSelection,
 } from '../tools/vector/region.js';
 import { NO_SELECTION } from './context.js';
 import type { ViewportSelection } from './selectionState.js';
@@ -29,6 +39,11 @@ import type { ViewportSelection } from './selectionState.js';
  * selection, the tools' context and whether a stroke is under way. Each
  * action says whether it did anything, so a key that did nothing is left to
  * the browser; one that cannot be done here says why, as a tool does.
+ *
+ * Arrange and Duplicate are the selected elements' among their layer's own
+ * (`document/elements.ts`), each one command; what is selected after is
+ * what was arranged, or the copies, found again where the command says they
+ * went, and its box is drawn again there.
  *
  * Fill… asks the frame for its dialog, whose Apply comes back through
  * `fillWith`; the two fills a key does at once, with the fill color and with
@@ -304,6 +319,52 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 	};
 
 	/**
+	 * `place` done to the elements selected on the active vector layer, with
+	 * no stroke under way, after the guard every vector tool passes, which
+	 * says why on a locked or a hidden layer; a loose layer is wrapped first,
+	 * as an edit wraps it, but only where `wanted` says, from where they are
+	 * now, that there is something to do. Then what the command placed is
+	 * selected, and shown as the tool in hand shows a selection.
+	 */
+	const placeSelected = (
+		wanted: (count: number, positions: readonly number[]) => boolean,
+		place: (layerId: string, positions: readonly number[]) => PlacingCommand
+	): boolean => {
+		if (selection.elements.get().length === 0 || deps.busy()) return false;
+		if (layer?.kind !== 'vector') return false;
+		const context = deps.context();
+		if (context === undefined) return false;
+		if (guardLayer(context) === undefined) return true;
+		const before = activeLayerElement(context);
+		const positions =
+			before === undefined ? [] : positionsIn(before, context.selection.elements);
+		if (before === undefined || !wanted(elementsOf(before).length, positions)) return false;
+		// Found again after the wrapping of a loose layer, which moved them into a group.
+		const target = targetLayer(context);
+		if (target === undefined) return false;
+		const made = place(target.id, positionsIn(target, context.selection.elements));
+		document.execute(made);
+		const placed = elementsAtPositions(document.layer(made.layerId), made.positions);
+		context.selection.set(placed);
+		showSelection(context, placed, handles);
+		return true;
+	};
+
+	/** The selected elements brought to the front or forward, or sent backward or to the back, among their layer's. */
+	const arrange = (how: ElementArrangement): boolean =>
+		placeSelected(
+			(count, positions) => canArrange(count, positions, how),
+			(layerId, positions) => arrangeElements(layerId, positions, how)
+		);
+
+	/** A copy of each selected element just above it, and the copies selected, as Illustrator selects what it pastes. */
+	const duplicateSelected = (): boolean =>
+		placeSelected(
+			(_count, positions) => positions.length > 0,
+			(layerId, positions) => duplicateElements(document.root, layerId, positions)
+		);
+
+	/**
 	 * The canvas cut down to the box around the area, as much of it as is on
 	 * the canvas (`cropCanvas`): the crop tool's command, so nothing is
 	 * resampled and the view refits. The area stays, as in Photoshop. An
@@ -347,6 +408,13 @@ export const useSelectionCommands = (deps: SelectionCommandDeps): SelectionComma
 		transformSelection: () => deps.transform.start(),
 		applyTransform: () => deps.transform.apply(),
 		cancelTransform: () => deps.transform.cancel(),
+		// Arrange only opens its submenu.
+		arrange: () => false,
+		bringToFront: () => arrange('front'),
+		bringForward: () => arrange('forward'),
+		sendBackward: () => arrange('backward'),
+		sendToBack: () => arrange('back'),
+		duplicateElements: duplicateSelected,
 		layerViaCopy: () => layerVia('copy'),
 		layerViaCut: () => layerVia('cut'),
 		fillDialog,

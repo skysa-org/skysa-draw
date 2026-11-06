@@ -730,6 +730,8 @@ describe('the selection bar', () => {
 			expect(barButtons()).toEqual([
 				'Deselect',
 				'Select inverse',
+				'Arrange',
+				'Duplicate',
 				'Layer via copy',
 				'Layer via cut',
 				'Delete',
@@ -792,6 +794,37 @@ describe('selecting from a vector layer’s items', () => {
 			expect(layers().getByRole('button', { name: 'Rectangle Selected' })).toBeDefined()
 		);
 		expect(layers().getByRole('button', { name: 'Ellipse Selected' })).toBeDefined();
+	});
+
+	it('opens an item’s menu on a right-click with the very list the canvas’s menu shows, the item selected first', async () => {
+		await renderEditor('expanded');
+		twoItems();
+		fireEvent.click(layers().getByRole('button', { name: 'Expand layer' }));
+
+		fireEvent.contextMenu(layers().getByRole('button', { name: 'Ellipse' }), {
+			clientX: 10,
+			clientY: 20,
+		});
+
+		const menu = await screen.findByRole('menu', { name: 'Item actions' });
+		const listed = (each: HTMLElement) =>
+			within(each)
+				.getAllByRole('menuitem')
+				.map((item) => item.textContent);
+		const items = listed(menu);
+		expect(items.some((each) => each.startsWith('Delete'))).toBe(true);
+		expect(layers().getByRole('button', { name: 'Ellipse Selected' })).toBeDefined();
+		fireEvent.keyDown(menu, { key: 'Escape' });
+		await waitFor(() =>
+			expect(screen.queryByRole('menu', { name: 'Item actions' })).toBeNull()
+		);
+
+		fireEvent.contextMenu(screen.getByRole('region', { name: 'Canvas' }), {
+			clientX: 40,
+			clientY: 30,
+			button: 2,
+		});
+		expect(listed(await screen.findByRole('menu', { name: 'Canvas actions' }))).toEqual(items);
 	});
 });
 

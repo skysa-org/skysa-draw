@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 
 import { t } from '../../i18n/t.js';
 import { layerNameOf } from '../document/layers.js';
-import type { DocumentSnapshot, EditorDocument } from '../document/model.js';
+import type { DocumentSnapshot, EditorDocument, LayerInfo } from '../document/model.js';
+import { layerDisplayName } from '../layerName.js';
 import { elementsOf } from '../tools/vector/hit.js';
 
 /**
@@ -117,6 +118,22 @@ export const pressedSelection = (
 	const was = new Set(selected);
 	const now = (element: Element) => (element === item ? !was.has(element) : was.has(element));
 	return elements.filter(now);
+};
+
+/**
+ * Why the items of the layer `id` cannot be selected, in the user's words, as
+ * a tool says it of the active layer (`guardLayer`, `tools/vector/guard.ts`):
+ * the layer locked or hidden, or else the nearest group holding it that is,
+ * each named as its row names it; none where nothing holds it.
+ */
+export const heldNotice = (layers: readonly LayerInfo[], id: string): string | undefined => {
+	const index = layers.findIndex((layer) => layer.id === id);
+	const layer = layers[index];
+	if (layer === undefined) return undefined;
+	const name = layerDisplayName(layer, index);
+	if (layer.locked) return t('layers.locked', { name });
+	if (layer.hidden) return t('layers.hidden', { name });
+	return layer.parentId === undefined ? undefined : heldNotice(layers, layer.parentId);
 };
 
 export type LayerItems = Readonly<{
