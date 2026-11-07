@@ -12,11 +12,14 @@ const ARROWS = {
 
 /**
  * The buttons the arrow keys move among: a disabled one is passed over, and
- * so is the item of a menu open in the bar, whose arrows are the menu's own.
+ * so is the item of a menu open in the bar, whose arrows are the menu's own,
+ * and a button of a panel open from the bar (`Popover`), whose keys and tab
+ * stops are the panel's.
  */
-const enabledButtons = (bar: HTMLElement): HTMLButtonElement[] => [
-	...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([role^="menuitem"])'),
-];
+const enabledButtons = (bar: HTMLElement): HTMLButtonElement[] =>
+	[
+		...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([role^="menuitem"])'),
+	].filter((button) => button.closest('[role="toolbar"], [role="dialog"]') === bar);
 
 /**
  * A light rule between groups of a bar's controls, as Photoshop's tool bar

@@ -514,7 +514,7 @@ Decided 2026-11-04; see [`decisions/0004-the-interface.md`](decisions/0004-the-i
 **Size classes.**
 The window is `compact` under 600 px wide, `medium` from 600 to 839 and `expanded` from 840, Material's window size classes, read from `matchMedia` by `useSizeClass` (`components/ui/sizeClass.ts`) and nowhere else: a component never asks how wide the window is; the frame places it, and the component fits its container (`@container`).
 
-**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Toggle` (an option on or off, a check box beside its name), `ChoiceButtons` (one of a few options, each by its icon, as the selection modes are), `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke as one tool button), `Select`, `Menu` and `ContextMenu` (one list, `MenuList`, whose items may open submenus), `DialogForm` (a dialog of the frame's: its groups, Enter and its first focus, Cancel and Apply) with `NumberField`, `SliderField` and `RadioRows`, `Notice`, `ApplyingProvider` with `useApply` (the frame's indicator for work that holds the page), and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
+**One set of components**, `apps/web/src/components/ui/`: `ToolBar` (horizontal or vertical, one tab stop and the arrow keys, as WAI-ARIA's toolbar pattern says), `ToolButton` (a long press for a tool's variants), `IconButton`, `Toggle` (an option on or off, a check box beside its name), `ChoiceButtons` (one of a few options, each by its icon, as the selection modes are), `Panel`, `PanelHost` (a bottom sheet on compact, a drawer over the canvas on medium, a docked column on expanded), `Slider`, `ColorField`, `ColorPair` (the fill and the stroke as one tool button), `Popover` (a panel beside the button it opens from, placed as `ContextMenu` is, by `anchored.ts`), `Select`, `Menu` and `ContextMenu` (one list, `MenuList`, whose items may open submenus), `DialogForm` (a dialog of the frame's: its groups, Enter and its first focus, Cancel and Apply) with `NumberField`, `SliderField` and `RadioRows`, `Notice`, `ApplyingProvider` with `useApply` (the frame's indicator for work that holds the page), and the icons, drawn by hand at 24 px in `icons.tsx` and looked up by name through `ICONS`.
 Every control is at least 44 CSS px in either direction, whatever the size class and whatever the pointer; keyboard focus shows a ring; words come from the catalog.
 
 **The frame** (`drawing/Editor.tsx`) places them:
@@ -523,7 +523,7 @@ Every control is at least 44 CSS px in either direction, whatever the size class
 compact    ┌ top bar: back · title · undo · redo · more ─┐
            │ canvas                                      │
            │ options, one row, for the active tool       │
-           └ tool bar: the tools · colors · layers ──────┘   layers and colors open as sheets
+           └ tool bar: the tools · colors · layers ──────┘   layers open as a sheet; colors over the bar
 medium     ┌ top bar ────────────────────────────────────┐
            │ rail │ options                              │
            │ rail │ canvas                               │   layers and properties in a drawer over the canvas
@@ -536,8 +536,11 @@ expanded   ┌ top bar ───────────────────
 
 An open drawing fills the window on every size; the library (folders and drawings) is the screen before it on compact and a drawer from the top bar elsewhere, as a gallery is to a canvas.
 On compact the zoom and the saving status are under More, to keep the bar to one row; the options row comes after the canvas in the page there and before it elsewhere, so reading order is the order seen.
-The color panel is a drawer on medium and expanded alike; the dock holds layers and properties, follows the 1200 px rule until the layers button is pressed, and then stays as the user left it.
-The two colors are one tool button at the foot of the tool bar, on the rail and on compact alike (`ColorPair`; `decisions/0004-the-interface.md`, "The two colors"): its face shows both, and a press opens the color panel and the next closes it (`togglePanel` in `editorState.ts`).
+The dock holds layers and properties, follows the 1200 px rule until the layers button is pressed, and then stays as the user left it.
+The two colors are one tool button at the foot of the tool bar, on the rail and on compact alike (`ColorPair`; `decisions/0004-the-interface.md`, "The two colors"): its face shows both, and a press opens the color panel beside it and the next closes it (`togglePanel` in `editorState.ts`).
+The color panel is a popover in every size class (`Popover`), in the menus' container, beside the button toward the canvas as a folded tool group's menu is: beside the rail, its top at the button's or its foot at the button's where the rail's end leaves no room under it, and over the bar at the foot of a compact window, its end at the button's.
+It is a dialog that is not modal, after the button in the page so Tab goes from the button into it and on to the layers, in the top layer, and placed again rather than closed when the window changes size, as a phone's keyboard makes it do.
+Escape in it, its close, the button again or a press outside put it away; a press outside goes on to what it lands on, a tool or the layers, except on the canvas, where it is spent putting the panel away and draws nothing, as the canvas's own menu's is.
 The swap and the reset are the color panel's, in its header, and X's and D's.
 The panel lays out each color as Fill… lays out its groups (`.field-groups` in `ui.css`): `ColorField` stacked, its name over its row and the recent colors under it, where a bar has it inline, its name beside its row.
 A click in the layers panel chooses one layer, Ctrl or ⌘ adds or takes one out, Shift takes the range from the last layer clicked, Shift with an arrow grows or shrinks it, and Ctrl or ⌘ A chooses every row shown, as in Photoshop and every file manager (`layerSelection.ts`).

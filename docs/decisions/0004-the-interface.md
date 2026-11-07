@@ -87,12 +87,16 @@ Not built: a box that turns with the outline, as Photoshop's does; the select to
 The fill and the stroke are at the foot of the tool bar, after the tools, as Photoshop shows its foreground and background: the fill's square in front at the top left, the stroke's behind it at the bottom right, none struck through.
 On a raster layer the brush paints with the fill and the pencil with the stroke, so they are the foreground and the background by other names.
 The pair is one tool button, a 44 px target whose face is both squares, the same on the rail and on a compact window's bottom bar; a press opens the color panel and a second press closes it, as a toggle does.
+The panel opens beside the pair, in the menus' container, as a folded tool group's menu opens beside its tool: beside the rail, and over the bar at the foot of a compact window, so a color is picked a few pixels from the press that asked for it, on every window.
+A drawer from the far edge put the panel the width of the window from the press on a desktop, and a sheet on a phone covered the canvas the color was for.
+A press on the canvas that puts it away draws nothing, as Procreate's color panel and the canvas's own menu have it, so a tap to put it away leaves no mark; a press on a tool or the layers puts it away and does what it was for.
+The pair says it opens a dialog and whether it is open, and is drawn as a pressed tool while it is.
 Its name is the pair's, and what each color is, none included, is said after it.
 Photoshop's swap and reset are glyphs a mouse can hit at 12 px and a finger cannot, so neither is in the bar on any window: both are in the color panel's header, each with its key in its tooltip, and X and D do them.
 The panel shows each color as Fill… shows its groups, the name over a row of the swatch, the hex and None, which never breaks, and the colors used lately under it.
 X swaps the colors and D puts back the defaults, as in Photoshop; Ctrl or ⌘ D stays deselect.
 The pair is where the tool's options are set (`tools/optionsRegion.ts`), so a color picked, swapped or reset while the text tool's field is open is the text's.
-Rejected: Photoshop's pair as a 2×2 of 44 px corners, which needs 88 px across where the rail and the bottom bar have 52; one color button with a badge, which showed the fill and hid the stroke; the fill, the stroke and the swap as three targets along the bar, which took 132 px of the rail and put a second swap beside the panel's; and the reset as a target in the bar, which took 44 px of the rail for good for a press D does.
+Rejected: the panel in a drawer on medium and expanded windows and a sheet on compact ones, as it first was; Photoshop's pair as a 2×2 of 44 px corners, which needs 88 px across where the rail and the bottom bar have 52; one color button with a badge, which showed the fill and hid the stroke; the fill, the stroke and the swap as three targets along the bar, which took 132 px of the rail and put a second swap beside the panel's; and the reset as a target in the bar, which took 44 px of the rail for good for a press D does.
 
 **A double press.**
 A double press with the select tool edits what it is on in the tool that edits it, as a double-click does in Illustrator, Figma and Inkscape: a text in the text tool, its caret at the press, and a path or a shape in the node tool, its anchors shown.

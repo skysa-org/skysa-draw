@@ -8,6 +8,7 @@ import {
 	useState,
 } from 'react';
 
+import { along, focused, giveBack } from './anchored.js';
 import {
 	type Closing,
 	focusFirst,
@@ -21,43 +22,6 @@ import {
 /** Where a context menu opens: a point in the window, in CSS pixels from its top left. */
 export type MenuPoint = Readonly<{ x: number; y: number }>;
 
-/** The element with the focus, inside the shadow roots it is in: the canvas keeps one. */
-const focused = (root: DocumentOrShadowRoot): Element | null => {
-	const inner = root.activeElement?.shadowRoot;
-	return inner?.activeElement instanceof Element ? focused(inner) : root.activeElement;
-};
-
-/** Whether the focus is in `menu`, or went with it: to nothing, or to the page's body. */
-const holds = (menu: HTMLElement | null): boolean => {
-	const now = document.activeElement;
-	return now === null || now === document.body || (menu?.contains(now) ?? false);
-};
-
-/**
- * Gives the focus back to `to`, the element that had it when the menu
- * opened, if the menu has it still or took it when it went; not if it has
- * gone somewhere since, as to what a press outside landed on.
- */
-const giveBack = (to: Element | null, menu: HTMLElement | null) => {
-	if (!holds(menu) || to === document.body || to?.isConnected !== true) return;
-	if (to instanceof HTMLElement || to instanceof SVGElement) to.focus();
-};
-
-/**
- * Where a menu `size` long starts along one axis, opened at `at` and going
- * `toward` the end of that axis, or back from it: ahead where there is the
- * room ahead, behind where there is the room only behind, and where there is
- * neither, as little short of ahead as the window needs. Never past `MARGIN`
- * nor `far`, whatever the room; a point outside the window comes in.
- */
-const along = (at: number, size: number, far: number, toward: 1 | -1): number => {
-	const ahead = toward === 1 ? at : at - size;
-	const behind = toward === 1 ? at - size : at;
-	const fits = (start: number) => start >= MARGIN && start + size <= far;
-	const start = fits(ahead) || !fits(behind) ? ahead : behind;
-	return Math.max(MARGIN, Math.min(start, far - size));
-};
-
 /** Where the menu goes for `at`, measured as it is: as tall as fits, the rest scrolling. */
 const spotFor = (at: MenuPoint, list: HTMLElement): Spot => {
 	const view = document.documentElement;
@@ -66,8 +30,8 @@ const spotFor = (at: MenuPoint, list: HTMLElement): Spot => {
 	// Across, toward the end of the line: rightward, or leftward in a
 	// right-to-left language; down, under the point.
 	const rtl = getComputedStyle(list).direction === 'rtl';
-	const left = along(at.x, list.offsetWidth, end, rtl ? -1 : 1);
-	const top = along(at.y, list.scrollHeight, foot, 1);
+	const left = along(at.x, at.x, list.offsetWidth, end, rtl ? -1 : 1);
+	const top = along(at.y, at.y, list.scrollHeight, foot, 1);
 	return {
 		position: 'fixed',
 		top,

@@ -111,15 +111,15 @@ type FramePanelsProps = Readonly<{
 	onClosePanel: () => void;
 	/** The layers panel, with the close of whatever holds it. */
 	layers: (onClose: () => void) => ReactNode;
-	color: ReactNode;
 	properties: ReactNode;
 }>;
 
 /**
- * Where the panels go. Expanded: the layers over the properties in the dock,
- * and the color, which is picked and put away rather than kept beside the
- * canvas, in a drawer. Compact and medium: one panel at a time, in a sheet or
- * a drawer, with the layer's properties inside the layers panel.
+ * Where the panels go. Expanded: the layers over the properties in the dock.
+ * Compact and medium: the layers in a sheet or a drawer, with the layer's
+ * properties inside them. The color panel, picked from and put away rather
+ * than kept beside the canvas, is beside the colors' button in every size
+ * class (`ToolButtons`), and not here.
  */
 const FramePanels = ({
 	sizeClass,
@@ -128,7 +128,6 @@ const FramePanels = ({
 	onCloseDock,
 	onClosePanel,
 	layers,
-	color,
 	properties,
 }: FramePanelsProps) => {
 	if (sizeClass === 'expanded') {
@@ -145,15 +144,6 @@ const FramePanels = ({
 						{properties}
 					</PanelHost>
 				</div>
-				<PanelHost
-					placement="drawer"
-					side="end"
-					open={panel === 'color'}
-					onClose={onClosePanel}
-					label={t('editor.color.title')}
-				>
-					{color}
-				</PanelHost>
 			</>
 		);
 	}
@@ -161,11 +151,11 @@ const FramePanels = ({
 		<PanelHost
 			placement={sizeClass === 'compact' ? 'sheet' : 'drawer'}
 			side="end"
-			open={panel !== undefined}
+			open={panel === 'layers'}
 			onClose={onClosePanel}
-			label={panel === 'color' ? t('editor.color.title') : t('layers.title')}
+			label={t('layers.title')}
 		>
-			{panel === 'color' ? color : layers(onClosePanel)}
+			{layers(onClosePanel)}
 		</PanelHost>
 	);
 };
@@ -263,6 +253,16 @@ const Frame = ({
 			fill={state.options.fill}
 			stroke={state.options.stroke}
 			colorsOpen={state.panel === 'color'}
+			colors={
+				<ColorPanel
+					options={state.options}
+					recent={state.recentColors}
+					onColor={setColor}
+					onSwap={() => dispatch({ type: 'swapColors' })}
+					onReset={() => dispatch({ type: 'resetColors' })}
+					onClose={closePanel}
+				/>
+			}
 			layersOpen={expanded ? dockShown : state.panel === 'layers'}
 			dispatch={dispatch}
 			onLayers={toggleLayers}
@@ -371,16 +371,6 @@ const Frame = ({
 				onCloseDock={closeDock}
 				onClosePanel={closePanel}
 				layers={layers}
-				color={
-					<ColorPanel
-						options={state.options}
-						recent={state.recentColors}
-						onColor={setColor}
-						onSwap={() => dispatch({ type: 'swapColors' })}
-						onReset={() => dispatch({ type: 'resetColors' })}
-						onClose={closePanel}
-					/>
-				}
 				properties={
 					<PropertiesPanel
 						document={document}

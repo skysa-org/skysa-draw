@@ -9,15 +9,19 @@ import { ToolButton } from '../../src/components/ui/ToolButton.js';
 /**
  * The two colors in the tool bar (docs/ARCHITECTURE.md §7, "The interface"):
  * one tool button named for the pair, described by what each color is in a
- * whole sentence, pressed while the color panel is open, which a press opens
- * and closes. The swap and the reset are the color panel's
+ * whole sentence, expanded while the color panel it opens beside it is open,
+ * which a press opens and closes. The swap and the reset are the color panel's
  * (`colorPanel.test.tsx`), and X's and D's, not here.
  */
+
+/** The color panel, as the pair is told of it: closed, and open. */
+const CLOSED = { id: 'color-panel', open: false } as const;
+const OPEN = { id: 'color-panel', open: true } as const;
 
 const renderPair = (props: Partial<Parameters<typeof ColorPair>[0]> = {}) => {
 	const onToggle = vi.fn();
 	const utils = render(
-		<ColorPair fill="#111827" stroke="none" open={false} onToggle={onToggle} {...props} />
+		<ColorPair fill="#111827" stroke="none" panel={CLOSED} onToggle={onToggle} {...props} />
 	);
 	return { ...utils, onToggle };
 };
@@ -52,7 +56,7 @@ describe('ColorPair', () => {
 	it('says none as none, for the fill and for the stroke', () => {
 		const { rerender, onToggle } = renderPair({ fill: '#111827', stroke: 'none' });
 		expect(description(colors())).toEqual(['Fill color: #111827', 'Stroke color: none']);
-		rerender(<ColorPair fill="none" stroke="#e11d48" open={false} onToggle={onToggle} />);
+		rerender(<ColorPair fill="none" stroke="#e11d48" panel={CLOSED} onToggle={onToggle} />);
 		expect(description(colors())).toEqual(['Fill color: none', 'Stroke color: #e11d48']);
 	});
 
@@ -70,11 +74,15 @@ describe('ColorPair', () => {
 		expect(mark?.lastElementChild).toBe(fill);
 	});
 
-	it('is pressed while the color panel is open, and not while it is closed', () => {
+	it('says it opens a dialog, and whether the color panel is open and which it is, never pressed', () => {
 		const { rerender, onToggle } = renderPair();
-		expect(colors().getAttribute('aria-pressed')).toBe('false');
-		rerender(<ColorPair fill="#111827" stroke="none" open onToggle={onToggle} />);
-		expect(colors().getAttribute('aria-pressed')).toBe('true');
+		expect(colors().getAttribute('aria-haspopup')).toBe('dialog');
+		expect(colors().getAttribute('aria-expanded')).toBe('false');
+		expect(colors().hasAttribute('aria-controls')).toBe(false);
+		rerender(<ColorPair fill="#111827" stroke="none" panel={OPEN} onToggle={onToggle} />);
+		expect(colors().getAttribute('aria-expanded')).toBe('true');
+		expect(colors().getAttribute('aria-controls')).toBe('color-panel');
+		expect(colors().hasAttribute('aria-pressed')).toBe(false);
 	});
 
 	it('asks for the color panel to open or close on a press, with the keyboard too', async () => {
@@ -90,7 +98,7 @@ describe('ColorPair', () => {
 
 	it('shows colors changed elsewhere the moment it is given them', () => {
 		const { rerender, onToggle } = renderPair();
-		rerender(<ColorPair fill="none" stroke="#111827" open={false} onToggle={onToggle} />);
+		rerender(<ColorPair fill="none" stroke="#111827" panel={CLOSED} onToggle={onToggle} />);
 		const mark = colors().querySelector('.color-pair-mark');
 		expect(mark?.querySelector('.color-pair-mark-fill')?.classList.contains('is-none')).toBe(
 			true
@@ -109,7 +117,7 @@ describe('ColorPair', () => {
 			render(
 				<ToolBar orientation={orientation} label="Tools">
 					<ToolButton icon={null} label="Brush" onClick={vi.fn()} />
-					<ColorPair fill="#111827" stroke="none" open={false} onToggle={vi.fn()} />
+					<ColorPair fill="#111827" stroke="none" panel={CLOSED} onToggle={vi.fn()} />
 					<ToolButton icon={null} label="Layers" onClick={vi.fn()} />
 				</ToolBar>
 			);

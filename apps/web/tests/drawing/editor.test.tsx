@@ -435,7 +435,7 @@ describe('the editor frame', () => {
 		await renderEditor('medium');
 		await user.click(colors());
 		const dialog = await screen.findByRole('dialog', { name: 'Color' });
-		expect(colors().getAttribute('aria-pressed')).toBe('true');
+		expect(colors().getAttribute('aria-expanded')).toBe('true');
 		expect(within(dialog).getByRole('button', { name: 'Swap colors' }).title).toBe(
 			'Swap colors (X)'
 		);
@@ -444,24 +444,42 @@ describe('the editor frame', () => {
 		);
 		await user.click(colors());
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-		expect(colors().getAttribute('aria-pressed')).toBe('false');
+		expect(colors().getAttribute('aria-expanded')).toBe('false');
 
 		await user.click(colors());
 		await screen.findByRole('dialog', { name: 'Color' });
 		await user.keyboard('{Escape}');
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 		expect(document.activeElement).toBe(colors());
-		expect(colors().getAttribute('aria-pressed')).toBe('false');
+		expect(colors().getAttribute('aria-expanded')).toBe('false');
 	});
 
-	it('opens the color sheet on a compact window, and swaps there as X does', async () => {
+	it.each(['compact', 'medium', 'expanded'] as const)(
+		'on %s, opens the color panel beside the colors’ button, not in a sheet or a drawer, and swaps there as X does',
+		async (sizeClass) => {
+			const user = userEvent.setup();
+			await renderEditor(sizeClass);
+			await user.click(colors());
+			const panel = await screen.findByRole('dialog', { name: 'Color' });
+			expect(panel.classList.contains('popover')).toBe(true);
+			expect(panel.closest('[role="toolbar"]')).toBe(
+				screen.getByRole('toolbar', { name: 'Tools' })
+			);
+			expect(document.querySelector('.panel-host, .panel-backdrop')).toBeNull();
+			await user.click(within(panel).getByRole('button', { name: 'Swap colors' }));
+			expect(colorsSaid()).toEqual(['Fill color: none', 'Stroke color: #111827']);
+		}
+	);
+
+	it('puts the color panel away for the layers on a compact window, one panel at a time', async () => {
 		const user = userEvent.setup();
 		await renderEditor('compact');
 		await user.click(colors());
-		const sheet = await screen.findByRole('dialog', { name: 'Color' });
-		expect(colors().getAttribute('aria-pressed')).toBe('true');
-		await user.click(within(sheet).getByRole('button', { name: 'Swap colors' }));
-		expect(colorsSaid()).toEqual(['Fill color: none', 'Stroke color: #111827']);
+		await screen.findByRole('dialog', { name: 'Color' });
+		await user.click(screen.getByRole('button', { name: 'Layers' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Layers' });
+		expect(sheet.classList.contains('panel-sheet')).toBe(true);
+		expect(screen.queryByRole('dialog', { name: 'Color' })).toBeNull();
 	});
 
 	it('puts the colors back with D, and leaves D with the primary key to the selection', async () => {
@@ -507,8 +525,8 @@ describe('the editor frame', () => {
 	it('closes a sheet with Escape, and it stays closed', async () => {
 		const user = userEvent.setup();
 		await renderEditor('compact');
-		await user.click(screen.getByRole('button', { name: 'Colors' }));
-		expect(await screen.findByRole('dialog', { name: 'Color' })).toBeDefined();
+		await user.click(screen.getByRole('button', { name: 'Layers' }));
+		expect(await screen.findByRole('dialog', { name: 'Layers' })).toBeDefined();
 
 		await user.keyboard('{Escape}');
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

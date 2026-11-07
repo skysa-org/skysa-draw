@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { type Ref, useId } from 'react';
 
 import { t } from '../../i18n/t.js';
 import { classes } from './classes.js';
@@ -9,7 +9,8 @@ import { ToolButton } from './ToolButton.js';
  * The two colors in the tool bar (docs/ARCHITECTURE.md §7, "The interface"),
  * as Photoshop's tool bar shows its foreground and background: the fill in
  * front at the top left, the stroke behind it at the bottom right, as one
- * tool button that opens the color panel and, pressed again, closes it. The
+ * tool button that opens the color panel beside it and, pressed again,
+ * closes it. The
  * swap and the reset Photoshop keeps beside them are the panel's, and X's
  * and D's, so the bar spends one target on the pair.
  */
@@ -57,25 +58,28 @@ export const ColorPairMark = ({
 type ColorPairProps = Readonly<{
 	fill: string;
 	stroke: string;
-	/** Whether the color panel is open, which the pair opens and closes. */
-	open: boolean;
+	/** The color panel, which the pair opens beside it and closes: its id, and whether it is open. */
+	panel: Readonly<{ id: string; open: boolean }>;
 	onToggle: () => void;
+	/** The pair's button, which the color panel is placed beside (`Popover`). */
+	ref?: Ref<HTMLButtonElement>;
 }>;
 
 /**
  * The pair as one tool button, its face the two colors, named for the pair
  * and described by what each color is now, which a screen reader says after
- * the name.
+ * the name, and saying whether the panel it opens is open.
  */
-export const ColorPair = ({ fill, stroke, open, onToggle }: ColorPairProps) => {
+export const ColorPair = ({ fill, stroke, panel, onToggle, ref }: ColorPairProps) => {
 	const id = useId();
 	return (
 		<span className="color-pair">
 			<ToolButton
+				ref={ref}
 				icon={<ColorPairMark fill={fill} stroke={stroke} />}
 				label={t('colorPair.title')}
 				describedBy={`${id}-fill ${id}-stroke`}
-				pressed={open}
+				opens={panel}
 				onClick={onToggle}
 			/>
 			<span id={`${id}-fill`} hidden>

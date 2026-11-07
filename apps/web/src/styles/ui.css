@@ -47,8 +47,10 @@
 	background: var(--hover-bg);
 }
 
+/* Pressed, and a tool's button with its panel open beside it (`Popover`), which is the one look. */
 .icon-button[aria-pressed='true'],
-.color-none[aria-pressed='true'] {
+.color-none[aria-pressed='true'],
+.tool-button[aria-expanded='true'] {
 	background: var(--on-bg);
 	border-color: transparent;
 	color: var(--on-fg);
@@ -670,8 +672,9 @@ legend.field-legend {
 	position: relative;
 }
 
-/* What floats over the page, a menu, a notice and work under way, has the one edge. */
+/* What floats over the page, a menu, a popover, a notice and work under way, has the one edge. */
 .menu-list,
+.popover,
 .notice-card,
 .applying-card {
 	border: 1px solid var(--border);
@@ -734,6 +737,38 @@ legend.field-legend {
 	overscroll-behavior: contain;
 	position: fixed;
 	width: max-content;
+}
+
+/*
+ * A panel opened beside its button (`Popover`), as the color panel is from
+ * the colors' button: in a menu's container, placed by its style from the
+ * window's top left, in the top layer or, without the Popover API, in place,
+ * growing from the button. As wide as a drawer was, or the window less its
+ * margins, since a panel is measured by its width (`.panel`'s container) and
+ * not by what it holds; as tall as what it holds, and where the window has
+ * not the room, it is what scrolls, the panel in it its own height.
+ */
+.popover {
+	--arrive-scale: 0.98;
+	--arrive-y: 0;
+	animation: arrive var(--duration-m) var(--ease-out);
+	background: var(--bg);
+	color: var(--fg);
+	display: flex;
+	flex-direction: column;
+	inset: auto;
+	margin: 0;
+	outline: none;
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding: 0;
+	position: fixed;
+	width: min(var(--dock), calc(100vw - 1rem));
+	z-index: var(--z-menu);
+}
+
+.popover .panel {
+	flex: none;
 }
 
 /* A rule between a menu's groups (`separatorBefore`): not a control, and so no target. */

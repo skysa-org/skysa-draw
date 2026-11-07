@@ -11,6 +11,7 @@ import {
 import type { EditorDocument, LayerInfo } from '../document/model.js';
 import { choiceKeysOf } from '../layerSelection.js';
 import { elementsAtPositions } from '../tools/vector/hit.js';
+import { focusCanvas } from '../viewport/canvasRegion.js';
 import { isMac } from '../viewport/pointer.js';
 import { type ItemsDrag, itemsDragged } from './dragItems.js';
 import { itemDropOnItem } from './itemDrop.js';
@@ -48,18 +49,6 @@ import type { DragFrom, Dragged, PointerHandlers } from './useLayerDrag.js';
  */
 
 const MAC = isMac();
-
-/**
- * The keyboard given back to the canvas, its region (`Viewport.tsx`), which
- * hears the keys the page is sent, so the arrows nudge what a press in the
- * panel selected rather than walk the rows, as Illustrator's and Figma's
- * panels hand the keys back; nothing scrolls to show it.
- */
-const focusCanvas = (): void => {
-	window.document.querySelector<HTMLElement>('.viewport[role="region"]')?.focus({
-		preventScroll: true,
-	});
-};
 
 /** What the rows read of the panel's one drag (`useLayerDrag`). */
 type ItemDragView = Readonly<{

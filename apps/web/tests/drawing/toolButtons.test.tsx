@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ComponentProps, useReducer } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -41,6 +41,7 @@ const renderButtons = (props: Partial<ComponentProps<typeof ToolButtons>> = {}) 
 				fill="#111827"
 				stroke="none"
 				colorsOpen={false}
+				colors={<p>The color panel</p>}
 				layersOpen={false}
 				dispatch={dispatch}
 				onLayers={onLayers}
@@ -155,7 +156,7 @@ describe('the groups', () => {
 
 	it('folds nothing where the browser cannot measure the bar', () => {
 		renderButtons({ layerKind: 'vector' });
-		expect(document.querySelector('[aria-haspopup]')).toBeNull();
+		expect(document.querySelector('[aria-haspopup="menu"]')).toBeNull();
 	});
 
 	it('folds the largest group first where the bar is short, and unfolds it given the room', () => {
@@ -193,6 +194,7 @@ describe('the groups', () => {
 					fill="#111827"
 					stroke="none"
 					colorsOpen={false}
+					colors={null}
 					layersOpen={false}
 					dispatch={vi.fn()}
 					onLayers={vi.fn()}
@@ -288,9 +290,69 @@ describe('the colors and the layers', () => {
 		expect(dispatch).toHaveBeenCalledTimes(1);
 	});
 
-	it('show the color panel open as the colors pressed', () => {
+	it('show the color panel beside the colors, after them in the page, where the tool’s options are set', () => {
 		renderButtons({ colorsOpen: true });
-		expect(button('Colors').getAttribute('aria-pressed')).toBe('true');
+		const panel = screen.getByRole('dialog', { name: 'Color' });
+		expect(button('Colors').getAttribute('aria-expanded')).toBe('true');
+		expect(button('Colors').getAttribute('aria-controls')).toBe(panel.id);
+		expect(within(panel).getByText('The color panel')).toBeDefined();
+		expect(panel.classList.contains('popover')).toBe(true);
+		expect(button('Colors').closest('.color-pair')?.nextElementSibling).toBe(panel);
+		expect(inToolOptions(panel)).toBe(true);
+	});
+
+	it('leave the color panel’s buttons out of the bar’s one tab stop and its arrow keys', async () => {
+		const user = userEvent.setup();
+		renderButtons({
+			colorsOpen: true,
+			colors: (
+				<>
+					<button type="button">Swap</button>
+					<button type="button">Reset</button>
+				</>
+			),
+		});
+		const swap = button('Swap');
+		expect(swap.tabIndex).toBe(0);
+		expect(button('Reset').tabIndex).toBe(0);
+		swap.focus();
+		await user.keyboard('{ArrowDown}');
+		expect(document.activeElement).toBe(swap);
+		await user.tab();
+		expect(document.activeElement).toBe(button('Reset'));
+	});
+
+	it('close the color panel through the state, on Escape in it and on a press outside', async () => {
+		const user = userEvent.setup();
+		const { dispatch } = renderButtons({ colorsOpen: true });
+		const panel = screen.getByRole('dialog', { name: 'Color' });
+		await waitFor(() => expect(document.activeElement).toBe(panel));
+		await user.keyboard('{Escape}');
+		expect(dispatch).toHaveBeenLastCalledWith({ type: 'closePanel' });
+		await user.click(button('Layers'));
+		expect(dispatch).toHaveBeenCalledTimes(2);
+		expect(dispatch).toHaveBeenLastCalledWith({ type: 'closePanel' });
+	});
+
+	it('spend a press on the canvas in closing the color panel, and let one elsewhere go on', () => {
+		const heard = vi.fn();
+		const { dispatch } = renderButtons({ colorsOpen: true });
+		const canvas = document.createElement('div');
+		canvas.className = 'viewport';
+		canvas.setAttribute('role', 'region');
+		const elsewhere = document.createElement('div');
+		document.body.append(canvas, elsewhere);
+		canvas.addEventListener('pointerdown', heard);
+		elsewhere.addEventListener('pointerdown', heard);
+
+		fireEvent.pointerDown(canvas);
+		expect(dispatch).toHaveBeenLastCalledWith({ type: 'closePanel' });
+		expect(heard).not.toHaveBeenCalled();
+		fireEvent.pointerDown(elsewhere);
+		expect(dispatch).toHaveBeenCalledTimes(2);
+		expect(heard).toHaveBeenCalledTimes(1);
+		canvas.remove();
+		elsewhere.remove();
 	});
 
 	it('show a color changed elsewhere at once: by the color panel or the eyedropper, and by X', async () => {
@@ -331,6 +393,7 @@ describe('the colors and the layers', () => {
 							fill={state.options.fill}
 							stroke={state.options.stroke}
 							colorsOpen={state.panel === 'color'}
+							colors={<p>The color panel</p>}
 							layersOpen={false}
 							dispatch={dispatch}
 							onLayers={vi.fn()}
@@ -361,10 +424,14 @@ describe('the colors and the layers', () => {
 		await user.click(button('Key X'));
 		expect(said()).toBe('Fill color: #2563eb Stroke color: #e11d48');
 
-		// And the pair's own press, through the same state: the panel opens and closes.
+		// And the pair's own press, through the same state: the panel opens
+		// beside it and closes, the press on the pair not taken for one outside.
 		await user.click(colors());
-		expect(colors().getAttribute('aria-pressed')).toBe('true');
+		expect(colors().getAttribute('aria-expanded')).toBe('true');
+		expect(screen.getByRole('dialog', { name: 'Color' })).toBeDefined();
 		await user.click(colors());
-		expect(colors().getAttribute('aria-pressed')).toBe('false');
+		expect(colors().getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(document.activeElement).toBe(colors());
 	});
 });

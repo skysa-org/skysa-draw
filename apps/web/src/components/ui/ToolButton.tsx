@@ -1,4 +1,4 @@
-import { type PointerEvent, type ReactNode, useEffect, useRef } from 'react';
+import { type PointerEvent, type ReactNode, type Ref, useEffect, useRef } from 'react';
 
 import { t } from '../../i18n/t.js';
 import { classes } from './classes.js';
@@ -20,6 +20,10 @@ const LONG_PRESS_MS = 500;
  * the browser sends as one. A key is never a long press. Pointer Events only,
  * as everything here (docs/decisions/0004-the-interface.md): the one handler
  * sees a finger, a pen and a mouse alike.
+ *
+ * With `opens`, the button opens a panel beside it (`Popover`), as the colors'
+ * button opens the color panel: it says it has a dialog under it and whether
+ * that is open, and while it is it is drawn as a pressed tool is.
  */
 export const ToolButton = ({
 	icon,
@@ -31,7 +35,9 @@ export const ToolButton = ({
 	describedBy,
 	onClick,
 	onMenu,
+	opens,
 	badge,
+	ref,
 }: {
 	icon: ReactNode;
 	label: string;
@@ -49,7 +55,10 @@ export const ToolButton = ({
 	onClick: () => void;
 	/** The button's menu asked for, with the button to open it from. */
 	onMenu?: (button: HTMLButtonElement) => void;
+	/** The panel the button opens beside it: its id, and whether it is open. */
+	opens?: Readonly<{ id: string; open: boolean }>;
 	badge?: ReactNode;
+	ref?: Ref<HTMLButtonElement>;
 }) => {
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	// Whether the press now ending was a long one, so the click that follows
@@ -88,11 +97,16 @@ export const ToolButton = ({
 
 	return (
 		<button
+			ref={ref}
 			type="button"
 			// An icon button in looks, and a tool button for its badge.
 			className={classes('icon-button tool-button', unavailable === true && 'is-unavailable')}
 			aria-pressed={pressed}
-			aria-haspopup={onMenu === undefined ? undefined : 'menu'}
+			aria-haspopup={
+				onMenu === undefined ? (opens === undefined ? undefined : 'dialog') : 'menu'
+			}
+			aria-expanded={opens?.open}
+			aria-controls={opens?.open === true ? opens.id : undefined}
 			aria-label={label}
 			aria-describedby={describedBy}
 			title={shortcut === undefined ? label : t('ui.labelWithShortcut', { label, shortcut })}
