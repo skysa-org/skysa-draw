@@ -1,5 +1,5 @@
 {
-	"$schema": "./brand.schema.json",
+	"$schema": "../node_modules/@skysa/pwa/brand.schema.json",
 	"name": "Draw",
 	"shortName": "Draw",
 	"description": "Local-first drawing and image editing that syncs to your own cloud storage.",

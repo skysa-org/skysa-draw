@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"size": "node scripts/bundleBudget.mjs",
+		"size": "node scripts/size.mjs",
 		"preview": "vite preview",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test": "vitest run"
@@ -23,6 +23,7 @@
 		"zod": "catalog:"
 	},
 	"devDependencies": {
+		"@skysa/pwa": "1.0.0",
 		"@tanstack/router-plugin": "^1.168.43",
 		"@testing-library/dom": "^10.4.2",
 		"@testing-library/react": "^16.3.3",

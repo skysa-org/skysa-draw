@@ -419,7 +419,7 @@ export interface ConnectionScope {
 /**
  * The app's own database. The name is data identity, not brand: a deployment
  * that renames the app keeps it, or every drawing already on the device would
- * stop being found (`brand.ts`).
+ * stop being found (docs/ARCHITECTURE.md §8, "Brand").
  */
 export const db = createDatabase('skysa-draw');
 watchTab(db);
