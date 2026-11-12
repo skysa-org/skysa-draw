@@ -54,9 +54,26 @@ const RESET =
 		readFileSync(join(API, '..', '..', 'docs', 'self-hosting.md'), 'utf8')
 	)?.[1] ?? '';
 
-/** Runs a migration's statements, as wrangler does, on a database in memory. */
+/** A database in memory, with foreign keys held to as D1 holds them. */
+const database = (): DatabaseSync => {
+	const db = new DatabaseSync(':memory:');
+	db.exec('PRAGMA foreign_keys = ON;');
+	return db;
+};
+
+/**
+ * Runs a migration's statements as wrangler does: in a transaction of their
+ * own, so a migration that fails leaves the database as it found it.
+ */
 const apply = (db: DatabaseSync, file: string): void => {
-	db.exec(readFileSync(file, 'utf8'));
+	db.exec('BEGIN;');
+	try {
+		db.exec(readFileSync(file, 'utf8'));
+		db.exec('COMMIT;');
+	} catch (error) {
+		db.exec('ROLLBACK;');
+		throw error;
+	}
 };
 
 const applyAll = (db: DatabaseSync): DatabaseSync => {
@@ -87,7 +104,7 @@ const tablesOf = (db: DatabaseSync): unknown[] =>
  * records one, and a connection with a device's grant.
  */
 const fromOld = (): DatabaseSync => {
-	const db = new DatabaseSync(':memory:');
+	const db = database();
 	apply(db, OLD);
 	db.exec(
 		'CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);' +
@@ -108,6 +125,10 @@ describe('the D1 migrations wrangler.toml applies', () => {
 		expect(MIGRATIONS.slice(0, APPLIED.length)).toEqual(APPLIED);
 	});
 
+	it('make the two tables this app’s database has, and nothing else', () => {
+		expect(tablesOf(applyAll(database()))).toEqual(['grants', 'storage_connections']);
+	});
+
 	/**
 	 * What docs/self-hosting.md, "A database from 0.1.0", rests on. Wrangler
 	 * knows a migration by its name, and runs each in a transaction of its own,
@@ -115,10 +136,12 @@ describe('the D1 migrations wrangler.toml applies', () => {
 	 * (above), so wrangler takes it for applied on such a database.
 	 */
 	describe('over a database 0.1.0 made', () => {
-		it('fail at the kit’s second, so a database migrated as it is goes no further', () => {
+		it('fail at the kit’s second, so a database migrated as it is goes no further and keeps what it held', () => {
+			const db = fromOld();
 			expect(() => {
-				apply(fromOld(), join(FOLDER, APPLIED[1] ?? ''));
+				apply(db, join(FOLDER, APPLIED[1] ?? ''));
 			}).toThrow(/no such table: (main\.)?connections/u);
+			expect(db.prepare('SELECT count(*) AS n FROM grants').get()).toEqual({ n: 1 });
 		});
 
 		it('apply whole after the reset self-hosting.md gives, making what they make of an empty database', () => {
@@ -127,7 +150,7 @@ describe('the D1 migrations wrangler.toml applies', () => {
 			db.exec(RESET);
 			expect(tablesOf(db)).toEqual([]);
 			applyAll(db);
-			expect(schemaOf(db)).toEqual(schemaOf(applyAll(new DatabaseSync(':memory:'))));
+			expect(schemaOf(db)).toEqual(schemaOf(applyAll(database())));
 			expect(db.prepare('SELECT count(*) AS n FROM storage_connections').get()).toEqual({
 				n: 0,
 			});

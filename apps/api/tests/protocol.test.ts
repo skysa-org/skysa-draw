@@ -1,19 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as core from '@skysa/draw-core';
 import * as kit from '@skysa/protocol';
 import { describe, expect, it } from 'vitest';
-
-const MODULES = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@skysa');
-
-/** A kit package's manifest, as this package has it installed. */
-const manifestOf = (name: string): { version: string; dependencies?: Record<string, string> } =>
-	JSON.parse(readFileSync(join(MODULES, name, 'package.json'), 'utf8')) as {
-		version: string;
-		dependencies?: Record<string, string>;
-	};
 
 /**
  * The server speaks the kit's protocol (`@skysa/protocol`), and the app still
@@ -30,10 +21,14 @@ const isData = (value: unknown): boolean =>
 
 const SPOKEN = Object.entries(kit).filter(([, value]) => isData(value));
 
+const MODULES = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@skysa');
+
 describe("the server's protocol and the app's", () => {
-	it('are compared at the version the server is built on', () => {
-		expect(manifestOf('protocol').version).toBe(
-			manifestOf('server').dependencies?.['@skysa/protocol']
+	it('compare the very protocol the server is built on', () => {
+		// The one this package installs, and the one installed beside the server,
+		// are the same files: one copy, which the Worker ships.
+		expect(realpathSync(join(MODULES, 'protocol'))).toBe(
+			realpathSync(join(realpathSync(join(MODULES, 'server')), '..', 'protocol'))
 		);
 	});
 

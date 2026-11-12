@@ -70,8 +70,9 @@ What is expected of a change:
 - **Say why** for a new dependency, in the pull request description, and check
   the license. Anything that reaches the shipped bundle must be MIT, Apache-2.0
   or ISC, but for the shared kit's `@skysa/*` packages, which are AGPL-3.0-only
-  like this repository, under the same CLA, and pinned exactly. Build- and test-time tools are held to a looser line — `docs/ARCHITECTURE.md`
-  §13 records what is already in the tree and why — but say which it is.
+  like this repository, under the same CLA, and pinned exactly. Build- and
+  test-time tools are held to a looser line — `docs/ARCHITECTURE.md` §13
+  records what is already in the tree and why — but say which it is.
 - **A doc comment says what the code promises, in one to five lines.** It sits on
   the declaration it describes. History and reasoning go in `docs/ARCHITECTURE.md`,
   a record in `docs/decisions/` or the pull request, and the comment links them by

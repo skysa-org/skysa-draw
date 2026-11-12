@@ -279,8 +279,9 @@ The app words a refusal by its code in both places it can come. Your `reason`
 reaches only one of them: the storage panel, for an account that is already
 connected and refused a token later. An account refused as it first connects
 sees only the code's wording, because that refusal comes back in a URL, and a
-URL does not carry free text. `docs/ARCHITECTURE.md` §6, "Entitlement seam",
-has the details.
+URL does not carry free text. The kit's
+[ARCHITECTURE §6](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#backend),
+"Entitlement seam", has the details.
 
 Give it a `gate` too, and people see your message and one link where the
 connect buttons are, before a provider's consent screen ends in a refusal. A

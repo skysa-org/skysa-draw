@@ -8,6 +8,7 @@ export default defineConfig({
 		// the relay's Durable Object imports as the Worker loads. The stub is the
 		// base class and nothing else: what the relay does is the kit's to test.
 		alias: {
+			// `.href`: the DOM's `URL` type is not the one node:url's takes.
 			'cloudflare:workers': fileURLToPath(
 				new URL('./tests/stubs/cloudflare-workers.ts', import.meta.url).href
 			),
