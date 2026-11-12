@@ -1,8 +1,10 @@
 /**
  * The change relay's wire protocol, which the Worker and the app both speak
- * (docs/ARCHITECTURE.md §6, "Change relay"). Kept here so the two ends cannot
- * drift: a close code renamed at one end is a socket the other reconnects to
- * for ever, or gives up on for good.
+ * (docs/ARCHITECTURE.md §6, "Change relay"). The Worker's is the kit's
+ * (`@skysa/protocol`), and this copy is held to it by
+ * `apps/api/tests/protocol.test.ts` until core takes the kit's: a close code
+ * renamed at one end is a socket the other reconnects to for ever, or gives up
+ * on for good.
  *
  * Neither message carries a path, an id or a version. A device told `changed`
  * runs an ordinary round against the provider, which is where the truth is.

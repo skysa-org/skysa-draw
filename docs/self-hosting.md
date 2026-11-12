@@ -490,14 +490,16 @@ of what it applied, then apply them all.
 
 ```bash
 pnpm --filter @skysa/draw-api exec wrangler d1 execute skysa-draw --remote \
-  --command "DROP TABLE grants; DROP TABLE storage_connections; DROP TABLE d1_migrations;"
+  --command "DROP TABLE IF EXISTS grants; DROP TABLE IF EXISTS storage_connections; DROP TABLE IF EXISTS d1_migrations;"
 pnpm --filter @skysa/draw-api exec wrangler d1 migrations apply skysa-draw --remote
 ```
 
 The database holds the connections to storage accounts and nothing else, so
-that is what goes: every device that had connected says it needs connecting
-again. No drawing is in it. Drawings are in the storage accounts and on the
-devices, and the reset touches neither.
+that is what goes. No drawing is in it, and the reset touches none of the
+drawings in the storage accounts. Each device finds its connection gone, as
+if it had been revoked from another device, and asks to connect again. Until
+it does, it lets go of the drawings it had synced, which connecting brings
+back, and keeps any it had not sent yet, shown as waiting.
 
 Two other things go with it. The refresh tokens it held are dropped, not
 revoked: each account's earlier grant to the app stays listed at its provider

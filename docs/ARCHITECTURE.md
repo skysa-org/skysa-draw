@@ -27,7 +27,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
 | License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
-| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`) | Each product exports its own API and core to the parent project; a shared package comes when the first fix has to be made twice |
+| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), moving into the shared kit both apps run on; the server has moved | Each product exports its own API and core to the parent project |
 
 ## 2. Architecture overview
 
@@ -655,7 +655,8 @@ Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
 The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
-Until a shared package exists, a fix to a carried-over layer is a fix in both repositories; the first fix that has to be made twice is the trigger for the package.
+Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server has moved (§6): a fix to it is a kit PR.
+Until the rest has moved, a fix to a carried-over layer still here is a fix in both repositories.
 
 ## 13. Distribution and licensing
 
@@ -668,6 +669,7 @@ Nothing of that deployment is in this repository, and nothing in this repository
 **Self-hosting.** `self-hosting.md`: one Cloudflare account, one Worker, one D1 database, the provider registrations, the secrets.
 
 **Dependencies.** MIT, Apache-2.0 or ISC only; a new one says why in its pull request.
+The kit's `@skysa/*` packages are the one exception: AGPL-3.0-only like this repository, under the same CLA, and pinned to an exact version ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md)).
 
 ## 14. Not planned
 

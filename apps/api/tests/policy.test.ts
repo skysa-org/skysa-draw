@@ -5,8 +5,8 @@ import { createApp, parseEnv } from '../src/index.js';
 
 /**
  * A policy written as docs/self-hosting.md writes one, in a Worker entry of the
- * operator's own beside the stock one: its type from `@skysa/draw-core`, which this
- * package depends on for that alone, and the app from `./index.js`. If either
+ * operator's own beside the stock one: its type from `@skysa/draw-core`, and
+ * the app from `./index.js`. If either
  * stops resolving here, so does the operator's entry; for the type, it is the
  * typecheck of this file that fails, since a type is gone by the time it runs.
  */

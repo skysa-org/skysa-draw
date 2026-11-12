@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -6,8 +8,9 @@ export default defineConfig({
 		// the relay's Durable Object imports as the Worker loads. The stub is the
 		// base class and nothing else: what the relay does is the kit's to test.
 		alias: {
-			'cloudflare:workers': new URL('./tests/stubs/cloudflare-workers.ts', import.meta.url)
-				.pathname,
+			'cloudflare:workers': fileURLToPath(
+				new URL('./tests/stubs/cloudflare-workers.ts', import.meta.url).href
+			),
 		},
 	},
 	test: {

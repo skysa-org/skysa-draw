@@ -50,8 +50,8 @@ pnpm verify   # format:check + lint + typecheck + knip + test
 ```
 
 CI runs the same thing plus `pnpm build` and `pnpm size` (the SPA's size
-budget), a check that the generated files (the route tree, the Worker's types,
-the migration snapshots) match their sources, the tests again on Node 22.13,
+budget), a check that the generated files (the route tree and the Worker's
+types) match their sources, the tests again on Node 22.13,
 and `pnpm audit --prod` for information only. A pull request that has not run `pnpm verify` will fail, and
 there is nothing in it that a maintainer can fix for you.
 
@@ -69,7 +69,8 @@ What is expected of a change:
   how a release is cut and why the three packages share one version.
 - **Say why** for a new dependency, in the pull request description, and check
   the license. Anything that reaches the shipped bundle must be MIT, Apache-2.0
-  or ISC. Build- and test-time tools are held to a looser line — `docs/ARCHITECTURE.md`
+  or ISC, but for the shared kit's `@skysa/*` packages, which are AGPL-3.0-only
+  like this repository, under the same CLA, and pinned exactly. Build- and test-time tools are held to a looser line — `docs/ARCHITECTURE.md`
   §13 records what is already in the tree and why — but say which it is.
 - **A doc comment says what the code promises, in one to five lines.** It sits on
   the declaration it describes. History and reasoning go in `docs/ARCHITECTURE.md`,

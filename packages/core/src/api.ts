@@ -1,9 +1,10 @@
 /**
  * The API's answers that are not the thing asked for, as the Worker gives them
- * and the app reads them (#451). Kept here, as the relay's protocol is in
- * `relay.ts`, so the two ends cannot drift: the server answers only with a
- * code on this list (`fail` in the kit's `packages/server/src/http.ts`), and
- * the app's `Refusal` is a part of it.
+ * and the app reads them (#451). The server is the kit's, and answers only
+ * with a code on the kit's list (`@skysa/protocol`); this is the app's copy,
+ * held to that one by `apps/api/tests/protocol.test.ts` until core takes the
+ * kit's (skysa-notes' record 0018, step 4b). The app's `Refusal` is a part of
+ * it.
  *
  * Each is `{ error: code }`, with its HTTP status; `not_entitled` carries the
  * policy's `code` and `reason` beside it.
@@ -50,9 +51,10 @@ export const API_ERROR_CODES = [
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
 /**
- * How the app relates to the server's sign-in, as `/api/config` says
- * (`AUTH_MODE`). Only `storage-first` boots; the other is refused at start,
- * and removing it is issue #118.
+ * How the app relates to the server's sign-in, as `/api/config` says. The
+ * kit's server no longer reads `AUTH_MODE` (skysa-notes#118), and still sends
+ * `storage-first` for an app that reads it, as this one does until it takes the
+ * kit's client.
  */
 export const AUTH_MODES = ['storage-first', 'account-first'] as const;
 

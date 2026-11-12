@@ -15,26 +15,55 @@ import { describe, expect, it } from 'vitest';
 
 const API = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const folder = (): string => {
-	const named = /^migrations_dir = "([^"]+)"$/mu.exec(
-		readFileSync(join(API, 'wrangler.toml'), 'utf8')
-	)?.[1];
-	expect(named).toBeDefined();
-	return resolve(API, named ?? '');
-};
+/** Where `wrangler.toml` says the migrations are. */
+const FOLDER = resolve(
+	API,
+	/^migrations_dir = "([^"]+)"$/mu.exec(readFileSync(join(API, 'wrangler.toml'), 'utf8'))?.[1] ??
+		''
+);
 
 /** The kit's migrations, by name, in the order wrangler applies them. */
-const migrations = (): string[] =>
-	readdirSync(folder())
-		.filter((name) => name.endsWith('.sql'))
-		.sort();
+const MIGRATIONS = existsSync(FOLDER)
+	? readdirSync(FOLDER)
+			.filter((name) => name.endsWith('.sql'))
+			.sort()
+	: [];
+
+/**
+ * The names wrangler has recorded for a database of this app once it is on the
+ * kit: the kit's, through 1.0.0. A kit that renamed one would have wrangler run
+ * it again on every such database.
+ */
+const APPLIED = [
+	'0000_init.sql',
+	'0001_connection_per_provider.sql',
+	'0002_connection_account_id.sql',
+	'0003_one_user_per_account.sql',
+	'0004_per_connection_credentials.sql',
+	'0005_drop_user_connections.sql',
+	'0006_grant_device.sql',
+	'0007_drop_sign_in_tables.sql',
+];
 
 /** 0.1.0's one migration, as it was released (`fixtures/`). */
 const OLD = join(API, 'tests', 'fixtures', '0.1.0-0000_init.sql');
 
+/** The reset's statements, as docs/self-hosting.md, "A database from 0.1.0", gives them. */
+const RESET =
+	/### A database from 0\.1\.0[\s\S]*?--command "([^"]+)"/u.exec(
+		readFileSync(join(API, '..', '..', 'docs', 'self-hosting.md'), 'utf8')
+	)?.[1] ?? '';
+
 /** Runs a migration's statements, as wrangler does, on a database in memory. */
 const apply = (db: DatabaseSync, file: string): void => {
 	db.exec(readFileSync(file, 'utf8'));
+};
+
+const applyAll = (db: DatabaseSync): DatabaseSync => {
+	MIGRATIONS.forEach((name) => {
+		apply(db, join(FOLDER, name));
+	});
+	return db;
 };
 
 /** Every table and index a database has, as SQLite holds it. */
@@ -45,21 +74,25 @@ const schemaOf = (db: DatabaseSync): unknown[] =>
 		)
 		.all();
 
-/** A database from the kit's migrations, every one of them. */
-const fresh = (): DatabaseSync => {
-	const db = new DatabaseSync(':memory:');
-	migrations().forEach((name) => {
-		apply(db, join(folder(), name));
-	});
-	return db;
-};
+const tablesOf = (db: DatabaseSync): unknown[] =>
+	db
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+		)
+		.all()
+		.map((row) => row.name);
 
-/** A database as 0.1.0 left it, holding a connection and a device's grant. */
+/**
+ * A database as 0.1.0 left it: its migration applied and recorded as wrangler
+ * records one, and a connection with a device's grant.
+ */
 const fromOld = (): DatabaseSync => {
 	const db = new DatabaseSync(':memory:');
 	apply(db, OLD);
 	db.exec(
-		"INSERT INTO storage_connections (id, provider, account_id, display_name, secret_ciphertext, secret_iv, secret_key_id, created_at) VALUES ('c1', 'dropbox', 'a1', 'Me', 'x', 'iv', 'k1', 0);" +
+		'CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);' +
+			"INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');" +
+			"INSERT INTO storage_connections (id, provider, account_id, display_name, secret_ciphertext, secret_iv, secret_key_id, created_at) VALUES ('c1', 'dropbox', 'a1', 'Me', 'x', 'iv', 'k1', 0);" +
 			"INSERT INTO grants (id, connection_id, secret_hash, created_at, last_used_at) VALUES ('g1', 'c1', 'h1', 0, 0);"
 	);
 	return db;
@@ -67,40 +100,45 @@ const fromOld = (): DatabaseSync => {
 
 describe('the D1 migrations wrangler.toml applies', () => {
 	it('are the kit’s, where it says', () => {
-		expect(folder()).toMatch(/node_modules\/@skysa\/server\/migrations$/u);
-		expect(existsSync(folder())).toBe(true);
-		expect(migrations().length).toBeGreaterThan(1);
+		expect(FOLDER).toMatch(/node_modules\/@skysa\/server\/migrations$/u);
+		expect(existsSync(FOLDER)).toBe(true);
+	});
+
+	it('keep every name a database of this app has applied, in order', () => {
+		expect(MIGRATIONS.slice(0, APPLIED.length)).toEqual(APPLIED);
 	});
 
 	/**
 	 * What docs/self-hosting.md, "A database from 0.1.0", rests on. Wrangler
 	 * knows a migration by its name, and runs each in a transaction of its own,
-	 * stopping at the first that fails; these hold the kit's migrations to what
-	 * the reset assumes of them, so a kit that changed them would say so here.
+	 * stopping at the first that fails. The kit's first has 0.1.0's one name
+	 * (above), so wrangler takes it for applied on such a database.
 	 */
 	describe('over a database 0.1.0 made', () => {
-		it('begin with the name 0.1.0’s one migration had, so wrangler takes it for applied', () => {
-			expect(migrations()[0]).toBe('0000_init.sql');
-		});
-
 		it('fail at the kit’s second, so a database migrated as it is goes no further', () => {
-			const db = fromOld();
-			const second = migrations()[1] ?? '';
 			expect(() => {
-				apply(db, join(folder(), second));
-			}).toThrow();
+				apply(fromOld(), join(FOLDER, APPLIED[1] ?? ''));
+			}).toThrow(/no such table: (main\.)?connections/u);
 		});
 
-		it('make, once its tables are dropped, what they make of an empty database, and hold no connection', () => {
+		it('apply whole after the reset self-hosting.md gives, making what they make of an empty database', () => {
+			expect(RESET).toMatch(/DROP TABLE/u);
 			const db = fromOld();
-			db.exec('DROP TABLE grants; DROP TABLE storage_connections;');
-			migrations().forEach((name) => {
-				apply(db, join(folder(), name));
-			});
-			expect(schemaOf(db)).toEqual(schemaOf(fresh()));
+			db.exec(RESET);
+			expect(tablesOf(db)).toEqual([]);
+			applyAll(db);
+			expect(schemaOf(db)).toEqual(schemaOf(applyAll(new DatabaseSync(':memory:'))));
 			expect(db.prepare('SELECT count(*) AS n FROM storage_connections').get()).toEqual({
 				n: 0,
 			});
+		});
+
+		it('take the reset twice, for an operator unsure the first went through', () => {
+			const db = fromOld();
+			db.exec(RESET);
+			expect(() => {
+				db.exec(RESET);
+			}).not.toThrow();
 		});
 	});
 });
