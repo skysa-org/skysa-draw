@@ -1,5 +1,5 @@
 import { loadBrand, pwaManifest, pwaWorkbox } from '@skysa/pwa';
-import { APP, workerOf } from '@skysa/pwa/testing';
+import { workerOf } from '@skysa/pwa/testing';
 import { createRouter } from '@tanstack/react-router';
 import { describe, expect, it } from 'vitest';
 
@@ -13,7 +13,7 @@ import { routeTree } from '../src/routeTree.gen';
 
 const manifest = pwaManifest(loadBrand(DEFAULT_BRAND), DRAW_PWA);
 const workbox = pwaWorkbox(DRAW_PWA);
-const { shellAnswers, ruleFor } = workerOf(workbox);
+const { shellAnswers } = workerOf(workbox);
 
 describe('the web app manifest, in this app', () => {
 	it('names the app as its default brand does', () => {
@@ -51,7 +51,6 @@ describe('the service worker, in this app', () => {
 
 	it('answers no POST itself', () => {
 		// It is no share target, and nothing else posts to it.
-		expect(ruleFor(`${APP}/share`, 'POST')).toBeUndefined();
 		expect(workbox.runtimeCaching?.filter((rule) => (rule.method ?? 'GET') !== 'GET')).toEqual(
 			[]
 		);

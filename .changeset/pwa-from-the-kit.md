@@ -1,5 +1,5 @@
 ---
-'@skysa/draw-web': patch
+'@skysa/draw-web': minor
 ---
 
 The PWA build is the shared kit's `@skysa/pwa` 1.0.0 (skysa-notes' record 0018, step 4): the brand plugin, the manifest, the service worker's options and the size budget.

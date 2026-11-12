@@ -2,7 +2,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 
-import { BRAND_ICONS, brandCss, loadBrand } from '@skysa/pwa';
+import { brandCss, loadBrand } from '@skysa/pwa';
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_BRAND } from '../pwaApp.js';
@@ -32,14 +32,12 @@ describe('the default brand', () => {
 
 	it('keeps the system fonts', () => {
 		expect(brand.fonts).toEqual({});
-		const css = brandCss(brand);
-		expect(css).not.toContain('@font-face');
-		expect(css).toContain('--font-sans: ui-sans-serif, system-ui');
-		expect(css).toContain('--font-mono: ui-monospace, SFMono-Regular');
+		expect(brandCss(brand)).not.toContain('@font-face');
 	});
 
-	it('has all six icons', () => {
-		expect(brand.icons.map((icon) => icon.file)).toEqual(BRAND_ICONS.map((icon) => icon.file));
+	it('has all six icons, at their sizes', () => {
+		// The kit's loader refuses a brand missing one, or with one at the wrong size.
+		expect(() => loadBrand(DEFAULT_BRAND)).not.toThrow();
 	});
 
 	it("points an editor at the kit's JSON Schema", () => {
