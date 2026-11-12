@@ -364,9 +364,10 @@ long holds once your deployment's app has been updated.
 This goes in a Worker entry of your own. Copy `apps/api/src/worker.ts`, change
 its `createApp({ … })` call to pass `entitlements` as well, and point `main` in
 `wrangler.toml` at your copy. Beside the original in `apps/api/src`, its
-relative imports work as they are. Anywhere else, import `createApp` and
-`parseEnv` from `@skysa/draw-api` instead, and `ConnectionRelay` and
-`durableObjectRelay` from `@skysa/draw-api/relay`. Keep the copy's
+relative imports work as they are. Anywhere else, import `createApp`,
+`parseEnv`, `envWarnings` and `misconfigured` from `@skysa/draw-api` instead,
+`ConnectionRelay` and `durableObjectRelay` from `@skysa/draw-api/relay`, and
+`cell` from `@skysa/draw-core`. Keep the copy's
 `export { ConnectionRelay }` whether or not you run the relay: `wrangler.toml`
 binds that class, and a deploy whose entry does not export it is refused. The
 stock entry never sets a gate.
@@ -497,6 +498,16 @@ The database holds the connections to storage accounts and nothing else, so
 that is what goes: every device that had connected says it needs connecting
 again. No drawing is in it. Drawings are in the storage accounts and on the
 devices, and the reset touches neither.
+
+Two other things go with it. The refresh tokens it held are dropped, not
+revoked: each account's earlier grant to the app stays listed at its provider
+until the account's owner removes it there. And the record of which devices
+were revoked goes too, so a revoked device's credential could be used to
+connect again; like any new device, it would have to go through the
+provider's consent for an account it can sign in to.
+
+A local database from before, made by `pnpm db:migrate`, is reset the same way
+with `--local` in place of `--remote`, or by deleting `apps/api/.wrangler/state`.
 
 ## When it will not boot
 

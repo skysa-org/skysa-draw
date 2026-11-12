@@ -1,7 +1,8 @@
 /**
- * Connecting a storage account (docs/ARCHITECTURE.md §6, "Storage OAuth"): the
- * question asked first when this device holds drawings of its own, why a
- * connect did not start, and what is said on the way back from the provider.
+ * Connecting a storage account (the kit's docs/ARCHITECTURE.md §6, "Storage
+ * OAuth, as built"): the question asked first when this device holds drawings
+ * of its own, why a connect did not start, and what is said on the way back
+ * from the provider.
  *
  * `{provider}` is a storage provider's name ("Dropbox", "Google Drive").
  */

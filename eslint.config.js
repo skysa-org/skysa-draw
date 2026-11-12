@@ -484,6 +484,14 @@ export default tseslint.config(
 							message:
 								'the Worker runs without nodejs_compat — Web Crypto and fetch only.',
 						},
+						{
+							// What names the Workers runtime is the kit's: its relay's
+							// Durable Object. This package re-exports it, and its tests
+							// load the entry under Node.
+							group: ['cloudflare:*'],
+							message:
+								'the Workers runtime is named in the kit’s @skysa/server, which this package re-exports.',
+						},
 					],
 				},
 			],

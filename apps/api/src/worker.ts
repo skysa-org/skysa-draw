@@ -1,4 +1,4 @@
-import { cell } from '@skysa/storage';
+import { cell } from '@skysa/draw-core';
 
 import { createApp, envWarnings, misconfigured, parseEnv } from './index.js';
 import { durableObjectRelay } from './relay.js';

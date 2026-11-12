@@ -24,7 +24,9 @@ export default defineConfig({
 			// up: a pull request that raises a package's numbers raises these.
 			thresholds: {
 				'packages/core/src/**': { statements: 95, branches: 90, functions: 98, lines: 97 },
-				'apps/api/src/**': { statements: 97, branches: 93, functions: 95, lines: 98 },
+				// The Worker's entry alone, once the server was the kit's (2026-11-12):
+				// its one branch of fourteen left is a throw that is not an Error.
+				'apps/api/src/**': { statements: 99, branches: 92, functions: 99, lines: 99 },
 				'apps/web/src/**': { statements: 93, branches: 84, functions: 93, lines: 95 },
 			},
 		},

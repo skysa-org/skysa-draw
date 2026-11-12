@@ -83,10 +83,10 @@ importers:
       '@skysa/server':
         specifier: 1.0.0
         version: 1.0.0(vitest@5.0.3)
-      '@skysa/storage':
-        specifier: 1.0.0
-        version: 1.0.0(vitest@5.0.3)
     devDependencies:
+      '@skysa/protocol':
+        specifier: 1.0.0
+        version: 1.0.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.5

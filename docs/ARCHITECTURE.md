@@ -37,8 +37,8 @@ Three packages in a pnpm workspace, one version between them (`.changeset/README
   It imports nothing from `apps/*` and nothing of Node or the DOM; ESLint and a second `tsc` pass with no Node types keep it so.
 - `apps/web` — the PWA: Vite, React, TanStack Router, Dexie over IndexedDB, vite-plugin-pwa.
   It boots and renders from IndexedDB, talks to the providers directly from the browser for drawing content, and to `apps/api` only to connect an account and to mint access tokens.
-- `apps/api` — a Hono app on Cloudflare Workers with D1 through Drizzle: the storage OAuth flows, per-connection credentials, token minting, the connection and device routes, and the optional change relay (§6).
-  Only `src/worker.ts` reads the environment; everything else takes its configuration and its seams through `createApp(options)`.
+- `apps/api` — the Worker entry over the kit's server, `@skysa/server`: a Hono app on Cloudflare Workers with D1 through Drizzle, which holds the storage OAuth flows, per-connection credentials, token minting, the connection and device routes, and the optional change relay (§6).
+  Only `src/worker.ts` reads the environment; the server takes its configuration and its seams through `createApp(options)`.
 
 Data flows:
 
@@ -205,6 +205,7 @@ This app's part is its deployment, in `apps/api`:
 - `@skysa/draw-api` and `@skysa/draw-api/relay` (`src/index.ts`, `src/relay.ts`) are the server's names as this package has always offered them: the stock entry imports them, and so does a deployment's own, so an operator who needs different behavior still writes an entry rather than a fork (`self-hosting.md`).
 - `wrangler.toml` binds D1, whose migrations are the kit's (`migrations_dir = "node_modules/@skysa/server/migrations"`), and serves the SPA from the same Worker through `[assets]`, so `/api/*` and the app share an origin.
   A database 0.1.0 made is reset onto them rather than migrated (`self-hosting.md`, "A database from 0.1.0").
+  It sets no `nodejs_compat`: the Worker, the server in it included, uses only Web Crypto and fetch, and lint and `tsconfig.src.json` hold the entry to that.
 
 What the kit's section decides that this app is built around, named here because this app's documents cite it by name:
 
@@ -627,9 +628,9 @@ Known gaps in what is built, each for an issue:
 
 ```
 apps/
-  api/            Hono on Workers: src/app.ts (createApp), src/worker.ts (the only env reader),
-                  src/routes/, src/oauth/, src/db/ (schema), src/relay/ (Durable Object),
-                  migrations/ (generated), tests/ (node:sqlite shim for D1)
+  api/            The Worker over the kit's @skysa/server: src/worker.ts (the only env reader),
+                  src/index.ts and src/relay.ts (the server's names, for a deployment's own entry),
+                  wrangler.toml (D1 migrations from node_modules/@skysa/server/migrations)
   web/            Vite + React: src/routes/ (file routes; routeTree.gen.ts is generated),
                   src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/, sources/, account/),
                   src/drawing/ (the editor: document/, tools/, panels/, Editor.tsx, Viewport.tsx, keys.ts),
