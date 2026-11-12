@@ -1,85 +1,167 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 /**
- * Migrations run once, in order, against whatever a deployment already holds —
- * and a migration that fails half way is worse than one that never ran, because
- * `wrangler d1 migrations apply` has no rollback and the next attempt starts
- * from the wreckage. One file so far, written by `drizzle-kit generate` from
- * `src/db/schema.ts`; CI checks that the two still agree.
+ * The D1 migrations are the kit's (`@skysa/server`), and `wrangler.toml`
+ * reaches them in `node_modules`. A database 0.1.0 made is reset onto them
+ * rather than migrated (docs/self-hosting.md): its one migration was this
+ * repository's own, under the name the kit's first has, so wrangler takes the
+ * kit's first for applied and stops at its second, changing nothing.
  */
 
-const DIR = new URL('../migrations/', import.meta.url).pathname;
+const API = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const files = (): string[] =>
-	readdirSync(DIR)
-		.filter((name) => name.endsWith('.sql'))
-		.sort();
+/** Where `wrangler.toml` says the migrations are. */
+const FOLDER = resolve(
+	API,
+	/^migrations_dir = "([^"]+)"$/mu.exec(readFileSync(join(API, 'wrangler.toml'), 'utf8'))?.[1] ??
+		''
+);
 
-const statements = (name: string): string[] =>
-	readFileSync(join(DIR, name), 'utf8')
-		.split('--> statement-breakpoint')
-		.map((statement) => statement.trim())
-		.filter((statement) => statement !== '');
+/** The kit's migrations, by name, in the order wrangler applies them. */
+const MIGRATIONS = existsSync(FOLDER)
+	? readdirSync(FOLDER)
+			.filter((name) => name.endsWith('.sql'))
+			.sort()
+	: [];
 
-const open = (): DatabaseSync => {
+/**
+ * The names wrangler has recorded for a database of this app once it is on the
+ * kit: the kit's, through 1.0.0. A kit that renamed one would have wrangler run
+ * it again on every such database.
+ */
+const APPLIED = [
+	'0000_init.sql',
+	'0001_connection_per_provider.sql',
+	'0002_connection_account_id.sql',
+	'0003_one_user_per_account.sql',
+	'0004_per_connection_credentials.sql',
+	'0005_drop_user_connections.sql',
+	'0006_grant_device.sql',
+	'0007_drop_sign_in_tables.sql',
+];
+
+/** 0.1.0's one migration, as it was released (`fixtures/`). */
+const OLD = join(API, 'tests', 'fixtures', '0.1.0-0000_init.sql');
+
+/** The reset's statements, as docs/self-hosting.md, "A database from 0.1.0", gives them. */
+const RESET =
+	/### A database from 0\.1\.0[\s\S]*?--command "([^"]+)"/u.exec(
+		readFileSync(join(API, '..', '..', 'docs', 'self-hosting.md'), 'utf8')
+	)?.[1] ?? '';
+
+/** A database in memory, with foreign keys held to as D1 holds them. */
+const database = (): DatabaseSync => {
 	const db = new DatabaseSync(':memory:');
-	db.exec('PRAGMA foreign_keys = ON');
-	for (const name of files()) {
-		for (const statement of statements(name)) db.exec(statement);
-	}
+	db.exec('PRAGMA foreign_keys = ON;');
 	return db;
 };
 
-const tables = (db: DatabaseSync): string[] =>
-	(
-		db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {
-			name: string;
-		}[]
-	).map((row) => row.name);
+/**
+ * Runs a migration's statements as wrangler does: in a transaction of their
+ * own, so a migration that fails leaves the database as it found it.
+ */
+const apply = (db: DatabaseSync, file: string): void => {
+	db.exec('BEGIN;');
+	try {
+		db.exec(readFileSync(file, 'utf8'));
+		db.exec('COMMIT;');
+	} catch (error) {
+		db.exec('ROLLBACK;');
+		throw error;
+	}
+};
 
-describe('the migrations', () => {
-	it('start at 0000 and apply cleanly from empty, in order', () => {
-		expect(files()[0]).toMatch(/^0000_/);
-		expect(open).not.toThrow();
+const applyAll = (db: DatabaseSync): DatabaseSync => {
+	MIGRATIONS.forEach((name) => {
+		apply(db, join(FOLDER, name));
+	});
+	return db;
+};
+
+/** Every table and index a database has, as SQLite holds it. */
+const schemaOf = (db: DatabaseSync): unknown[] =>
+	db
+		.prepare(
+			"SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"
+		)
+		.all();
+
+const tablesOf = (db: DatabaseSync): unknown[] =>
+	db
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+		)
+		.all()
+		.map((row) => row.name);
+
+/**
+ * A database as 0.1.0 left it: its migration applied and recorded as wrangler
+ * records one, and a connection with a device's grant.
+ */
+const fromOld = (): DatabaseSync => {
+	const db = database();
+	apply(db, OLD);
+	db.exec(
+		'CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);' +
+			"INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');" +
+			"INSERT INTO storage_connections (id, provider, account_id, display_name, secret_ciphertext, secret_iv, secret_key_id, created_at) VALUES ('c1', 'dropbox', 'a1', 'Me', 'x', 'iv', 'k1', 0);" +
+			"INSERT INTO grants (id, connection_id, secret_hash, created_at, last_used_at) VALUES ('g1', 'c1', 'h1', 0, 0);"
+	);
+	return db;
+};
+
+describe('the D1 migrations wrangler.toml applies', () => {
+	it('are the kit’s, where it says', () => {
+		expect(FOLDER).toMatch(/node_modules\/@skysa\/server\/migrations$/u);
+		expect(existsSync(FOLDER)).toBe(true);
 	});
 
-	it('make the two tables the schema has, and nothing carried over from skysa-notes', () => {
-		// A connection and a device's grant on it: no users, no identities, no
-		// sessions (docs/decisions/0002-carried-over-from-skysa-notes.md). A table
-		// nothing reads, holding live refresh tokens, is the worst of both.
-		expect(tables(open())).toEqual(['grants', 'storage_connections']);
+	it('keep every name a database of this app has applied, in order', () => {
+		expect(MIGRATIONS.slice(0, APPLIED.length)).toEqual(APPLIED);
 	});
 
-	it('separate every statement, so wrangler can stop at the one that failed', () => {
-		for (const name of files()) {
-			for (const statement of statements(name)) {
-				expect(statement.match(/;/g) ?? [], `${name}: ${statement}`).toHaveLength(
-					statement.endsWith(';') ? 1 : 0
-				);
-			}
-		}
+	it('make the two tables this app’s database has, and nothing else', () => {
+		expect(tablesOf(applyAll(database()))).toEqual(['grants', 'storage_connections']);
 	});
 
-	it('leave a grant unreachable, but still there, once its connection goes', () => {
-		const db = open();
-		db.prepare(
-			'INSERT INTO storage_connections (id, provider, account_id, display_name, secret_ciphertext, secret_iv, secret_key_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
-		).run('c', 'dropbox', 'dbid:1', 'x', 'c', 'i', 'k1');
-		db.prepare(
-			'INSERT INTO grants (id, connection_id, secret_hash, created_at, last_used_at) VALUES (?, ?, ?, 0, 0)'
-		).run('g', 'c', 'h');
+	/**
+	 * What docs/self-hosting.md, "A database from 0.1.0", rests on. Wrangler
+	 * knows a migration by its name, and runs each in a transaction of its own,
+	 * stopping at the first that fails. The kit's first has 0.1.0's one name
+	 * (above), so wrangler takes it for applied on such a database.
+	 */
+	describe('over a database 0.1.0 made', () => {
+		it('fail at the kit’s second, so a database migrated as it is goes no further and keeps what it held', () => {
+			const db = fromOld();
+			expect(() => {
+				apply(db, join(FOLDER, APPLIED[1] ?? ''));
+			}).toThrow(/no such table: (main\.)?connections/u);
+			expect(db.prepare('SELECT count(*) AS n FROM grants').get()).toEqual({ n: 1 });
+		});
 
-		db.prepare('DELETE FROM storage_connections WHERE id = ?').run('c');
+		it('apply whole after the reset self-hosting.md gives, making what they make of an empty database', () => {
+			expect(RESET).toMatch(/DROP TABLE/u);
+			const db = fromOld();
+			db.exec(RESET);
+			expect(tablesOf(db)).toEqual([]);
+			applyAll(db);
+			expect(schemaOf(db)).toEqual(schemaOf(applyAll(database())));
+			expect(db.prepare('SELECT count(*) AS n FROM storage_connections').get()).toEqual({
+				n: 0,
+			});
+		});
 
-		// The DDL has to be `ON DELETE set null`: a cascade would delete the row
-		// and free its hash for anyone holding a copy of the credential to claim
-		// again (`grants` in src/db/schema.ts).
-		expect(db.prepare('SELECT id, connection_id FROM grants').all()).toEqual([
-			{ id: 'g', connection_id: null },
-		]);
+		it('take the reset twice, for an operator unsure the first went through', () => {
+			const db = fromOld();
+			db.exec(RESET);
+			expect(() => {
+				db.exec(RESET);
+			}).not.toThrow();
+		});
 	});
 });

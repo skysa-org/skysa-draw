@@ -27,7 +27,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
 | License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
-| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`) | Each product exports its own API and core to the parent project; a shared package comes when the first fix has to be made twice |
+| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), moving into the shared kit both apps run on; the server has moved | Each product exports its own API and core to the parent project |
 
 ## 2. Architecture overview
 
@@ -37,8 +37,8 @@ Three packages in a pnpm workspace, one version between them (`.changeset/README
   It imports nothing from `apps/*` and nothing of Node or the DOM; ESLint and a second `tsc` pass with no Node types keep it so.
 - `apps/web` — the PWA: Vite, React, TanStack Router, Dexie over IndexedDB, vite-plugin-pwa.
   It boots and renders from IndexedDB, talks to the providers directly from the browser for drawing content, and to `apps/api` only to connect an account and to mint access tokens.
-- `apps/api` — a Hono app on Cloudflare Workers with D1 through Drizzle: the storage OAuth flows, per-connection credentials, token minting, the connection and device routes, and the optional change relay (§6).
-  Only `src/worker.ts` reads the environment; everything else takes its configuration and its seams through `createApp(options)`.
+- `apps/api` — the Worker entry over the kit's server, `@skysa/server`: a Hono app on Cloudflare Workers with D1 through Drizzle, which holds the storage OAuth flows, per-connection credentials, token minting, the connection and device routes, and the optional change relay (§6).
+  Only `src/worker.ts` reads the environment; the server takes its configuration and its seams through `createApp(options)`.
 
 Data flows:
 
@@ -197,55 +197,31 @@ Deferred indefinitely, as in skysa-notes: it needs a proxy on the Worker, which 
 
 ## 6. Backend
 
-Carried over whole from skysa-notes (§12); the words here are the decisions, and the code's comments the detail.
+The backend is the kit's: `@skysa/server`, a Hono app on Cloudflare Workers, built as a library ([kit §6, "Backend"](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#backend)).
+The design that was here is there: the composition root and its seams (entitlements, connect codes, rate limits, the relay), provider enablement, the storage OAuth flows, the server's half of the per-connection credential, the data model, the endpoints and the change relay.
+This app's part is its deployment, in `apps/api`:
+- `src/worker.ts` is the default Worker entry, and the only module here that reads the environment.
+  It builds the config through the server's own `parseEnv`, logs what `envWarnings` says of it, hands it to `createApp` with the relay's Durable Object when `RELAY` is on, and answers with `misconfigured` while the config is wrong.
+- `@skysa/draw-api` and `@skysa/draw-api/relay` (`src/index.ts`, `src/relay.ts`) are the server's names as this package has always offered them: the stock entry imports them, and so does a deployment's own, so an operator who needs different behavior still writes an entry rather than a fork (`self-hosting.md`).
+- `wrangler.toml` binds D1, whose migrations are the kit's (`migrations_dir = "node_modules/@skysa/server/migrations"`), and serves the SPA from the same Worker through `[assets]`, so `/api/*` and the app share an origin.
+  A database 0.1.0 made is reset onto them rather than migrated (`self-hosting.md`, "A database from 0.1.0").
+  It sets no `nodejs_compat`: the Worker, the server in it included, uses only Web Crypto and fetch, and lint and `tsconfig.src.json` hold the entry to that.
+
+What the kit's section decides that this app is built around, named here because this app's documents cite it by name:
 
 **No identity.**
 A connection is one storage account, reached by the devices that hold a credential for it.
 Nothing aggregates connections under a person, and there is no sign-in.
-The schema has two tables and is new: skysa-notes' `users` and `identities`, kept there for a sign-in it dropped, were not carried over.
-
-**Storage OAuth.**
-Hand-rolled over Web Crypto, no dependency.
-`POST /api/auth/connect/:provider/start` (same origin, with the device's credential hash, the return path and an operator's code where one is asked) sets a `__Host-` flow cookie with `state` and a PKCE verifier and redirects to the provider; `GET …/callback` exchanges the code, asks the provider who the account is, upserts the connection on `(provider, account_id)`, writes the device's grant, and redirects back to the app with `?connect=ok` or a reason.
-Refresh tokens are sealed with AES-256-GCM under `SECRETS_KEY` and never leave D1 decrypted except inside `POST /api/token`.
 
 **Per-connection credentials.**
-The device generates 32 random bytes (`sk1_…`), keeps them in IndexedDB, and sends only their SHA-256.
-`grants.secret_hash` is unique over every row, tombstones included: revoking a device nulls its `connection_id` and keeps the row, so a hash that has ever been used can never be claimed again, and a credential leaked from a dump mints nothing.
-`grants.last_used_at` is touched at most once a day for idle expiry; `grants.device` is the browser's own label of itself.
-
-**Data model (Drizzle, D1).**
-`storage_connections` (`id`, `provider`, `account_id`, `display_name`, `root_id`, the sealed secret and its key id, timestamps; unique on `(provider, account_id)`) and `grants` (`id`, `connection_id` → set null, `secret_hash` unique, `created_at`, `last_used_at`, `device`).
-One migration, `0000_init.sql`, generated by `drizzle-kit` from `src/db/schema.ts`; CI regenerates and compares.
-
-**Endpoints**, all under `/api`:
-
-| Route | Guard | What |
-|---|---|---|
-| `GET /health` | — | `{ ok: true }` |
-| `GET /config` | — | What this deployment offers: the providers enabled, whether the relay is on |
-| `POST /auth/connect/:provider/start` | same origin | Begin connecting an account |
-| `POST /connect-code` | same origin | Check an operator's code before connecting (`EntitlementProvider`) |
-| `GET /auth/connect/:provider/callback` | flow cookie | Finish connecting; upsert the connection and the grant |
-| `POST /token` | credential | A short-lived provider access token for the connection |
-| `GET /connection` | credential | The connection's metadata |
-| `GET /connection/grants` | credential | The devices holding a grant |
-| `DELETE /connection/grants/:id` | credential | Revoke a device |
-| `DELETE /connection` | credential | Disconnect the account; its grants become tombstones |
-| `POST /connection/relay/ticket` | credential | A one-time ticket for the relay socket |
-| `GET /relay` | same origin, ticket | The change relay's WebSocket |
-
-Every response is `Cache-Control: no-store`; `hono/csrf` guards the same-origin routes; the Worker runs without `nodejs_compat`.
+The device generates 32 random bytes (`sk1_…`), keeps them in IndexedDB, and sends only their SHA-256 ([kit §6](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#per-connection-credentials)).
 
 **Seams.**
-`createApp({ config, entitlements, rateLimiter, relay, fetch, providerTimeoutMs })`.
-`entitlements` decides whether an account may connect and why not (`ENTITLEMENT_CODES`); `rateLimiter` decides whether a request may proceed; `relay` is the change relay's hub.
-The defaults allow everything and limit nothing.
+`createApp` takes an `EntitlementProvider`, a `RateLimiter` and a relay; the defaults allow everything and limit nothing.
 A parent project supplies its own and never edits this repository (§13).
 
 **Change relay** (optional, `RELAY=true`).
-A Durable Object per connection, `ConnectionRelay`, which a device tells "I pushed" over a WebSocket and which tells the connection's other devices "something changed", nothing else.
-Declared in `wrangler.toml` whether or not it is on; `self-hosting.md` says what it costs.
+A Durable Object per connection that tells the connection's other devices "something changed", nothing else ([kit §6](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#change-relay)); `self-hosting.md` says what it costs.
 
 ## 7. Local store and sync engine (client)
 
@@ -652,9 +628,9 @@ Known gaps in what is built, each for an issue:
 
 ```
 apps/
-  api/            Hono on Workers: src/app.ts (createApp), src/worker.ts (the only env reader),
-                  src/routes/, src/oauth/, src/db/ (schema), src/relay/ (Durable Object),
-                  migrations/ (generated), tests/ (node:sqlite shim for D1)
+  api/            The Worker over the kit's @skysa/server: src/worker.ts (the only env reader),
+                  src/index.ts and src/relay.ts (the server's names, for a deployment's own entry),
+                  wrangler.toml (D1 migrations from node_modules/@skysa/server/migrations)
   web/            Vite + React: src/routes/ (file routes; routeTree.gen.ts is generated),
                   src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/, sources/, account/),
                   src/drawing/ (the editor: document/, tools/, panels/, Editor.tsx, Viewport.tsx, keys.ts),
@@ -679,7 +655,8 @@ Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
 The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
-Until a shared package exists, a fix to a carried-over layer is a fix in both repositories; the first fix that has to be made twice is the trigger for the package.
+Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server has moved (§6): a fix to it is a kit PR.
+Until the rest has moved, a fix to a carried-over layer still here is a fix in both repositories.
 
 ## 13. Distribution and licensing
 
@@ -692,6 +669,7 @@ Nothing of that deployment is in this repository, and nothing in this repository
 **Self-hosting.** `self-hosting.md`: one Cloudflare account, one Worker, one D1 database, the provider registrations, the secrets.
 
 **Dependencies.** MIT, Apache-2.0 or ISC only; a new one says why in its pull request.
+The kit's `@skysa/*` packages are the one exception: AGPL-3.0-only like this repository, under the same CLA, and pinned to an exact version ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md)).
 
 ## 14. Not planned
 

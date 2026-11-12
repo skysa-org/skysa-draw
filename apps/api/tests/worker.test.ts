@@ -3,11 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/worker.js';
 
 const env = {
-	APP_ORIGIN: 'https://notes.example.com',
+	APP_ORIGIN: 'https://draw.example.com',
 	SECRETS_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
-	AUTH_MODE: 'storage-first',
 	ENABLED_PROVIDERS: 'webdav',
 	WEBDAV_ALLOW_PRIVATE: 'false',
+	// As a deployment of 0.1.0 has it (skysa-org/skysa-notes#118).
+	AUTH_MODE: 'storage-first',
 	RELAY: 'false',
 } as unknown as Parameters<typeof worker.fetch>[1];
 
@@ -19,15 +20,15 @@ afterEach(() => {
 
 describe('the Worker entry', () => {
 	/**
-	 * Decided 2026-10-25 (#450): both settings still boot, the operator is told
-	 * once that they do nothing, and webdav, whose connect answers 404, is not
-	 * offered. One test, because the entry builds its app once per isolate and
-	 * keeps it.
+	 * Decided 2026-10-25 (#450), and kept when #118 stopped reading two of
+	 * them: the settings still boot, the operator is told once that they do
+	 * nothing, and webdav, whose connect answers 404, is not offered. One
+	 * test, because the entry builds its app once per isolate and keeps it.
 	 */
 	it('warns of settings that do nothing once, and does not offer webdav', async () => {
 		const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		const config = () =>
-			worker.fetch(new Request('https://notes.example.com/api/config'), env, ctx);
+			worker.fetch(new Request('https://draw.example.com/api/config'), env, ctx);
 
 		const first = await config();
 		await config();
@@ -36,7 +37,8 @@ describe('the Worker entry', () => {
 		expect((await first.json<{ providers: unknown }>()).providers).toEqual([]);
 		expect(warned.mock.calls.map(([line]) => String(line))).toEqual([
 			expect.stringMatching(/^Environment: ENABLED_PROVIDERS: webdav is not built/),
-			expect.stringMatching(/^Environment: WEBDAV_ALLOW_PRIVATE: deprecated/),
+			expect.stringMatching(/^Environment: WEBDAV_ALLOW_PRIVATE: no longer read/),
+			expect.stringMatching(/^Environment: AUTH_MODE: no longer read/),
 		]);
 	});
 });

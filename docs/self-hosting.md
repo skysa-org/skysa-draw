@@ -127,11 +127,13 @@ w secret put DROPBOX_CLIENT_SECRET
 deliberate: every OAuth redirect URI is derived from it, and a wrong guess sends
 users' consent to somewhere that is not you.
 
-`AUTH_MODE` and `ENABLED_PROVIDERS` are not secrets and live in `[vars]` in
-`wrangler.toml`. Edit them there. `WEBDAV_ALLOW_PRIVATE` is deprecated and does
-nothing — WebDAV is not built — so remove it if you have it; the Worker logs a
-warning at boot while it is set, and likewise for `webdav` in
-`ENABLED_PROVIDERS`, which is accepted but not offered.
+`ENABLED_PROVIDERS` is not a secret and lives in `[vars]` in `wrangler.toml`.
+Edit it there. Two settings are no longer read, so remove them if you have
+them: `AUTH_MODE`, which only ever had one value that ran, and
+`WEBDAV_ALLOW_PRIVATE`, since WebDAV is not built
+([skysa-org/skysa-notes#118](https://github.com/skysa-org/skysa-notes/issues/118)).
+The Worker logs a warning at boot while either is set, and likewise for
+`webdav` in `ENABLED_PROVIDERS`, which is accepted but not offered.
 
 `SECRETS_KEY_ID` defaults to `k1` and only needs setting when you rotate
 `SECRETS_KEY`, which is what it exists for. `MICROSOFT_TENANT` defaults to
@@ -277,8 +279,9 @@ The app words a refusal by its code in both places it can come. Your `reason`
 reaches only one of them: the storage panel, for an account that is already
 connected and refused a token later. An account refused as it first connects
 sees only the code's wording, because that refusal comes back in a URL, and a
-URL does not carry free text. `docs/ARCHITECTURE.md` §6, "Entitlement seam",
-has the details.
+URL does not carry free text. The kit's
+[ARCHITECTURE §6](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#backend),
+"Entitlement seam", has the details.
 
 Give it a `gate` too, and people see your message and one link where the
 connect buttons are, before a provider's consent screen ends in a refusal. A
@@ -362,9 +365,10 @@ long holds once your deployment's app has been updated.
 This goes in a Worker entry of your own. Copy `apps/api/src/worker.ts`, change
 its `createApp({ … })` call to pass `entitlements` as well, and point `main` in
 `wrangler.toml` at your copy. Beside the original in `apps/api/src`, its
-relative imports work as they are. Anywhere else, import `createApp` and
-`parseEnv` from `@skysa/draw-api` instead, and `ConnectionRelay` and
-`durableObjectRelay` from `@skysa/draw-api/relay`. Keep the copy's
+relative imports work as they are. Anywhere else, import `createApp`,
+`parseEnv`, `envWarnings` and `misconfigured` from `@skysa/draw-api` instead,
+`ConnectionRelay` and `durableObjectRelay` from `@skysa/draw-api/relay`, and
+`cell` from `@skysa/draw-core`. Keep the copy's
 `export { ConnectionRelay }` whether or not you run the relay: `wrangler.toml`
 binds that class, and a deploy whose entry does not export it is refused. The
 stock entry never sets a gate.
@@ -471,6 +475,43 @@ then `git checkout vX.Y.Z`); each release's notes say whether it carries a
 migration. The security of your instance is the security of the commit you
 deployed. See [`SECURITY.md`](../SECURITY.md).
 
+The D1 migrations come with the server, in the kit's `@skysa/server`, which
+`pnpm install` puts at `apps/api/node_modules/@skysa/server/migrations`.
+`apps/api/wrangler.toml` points `migrations_dir` there. A `wrangler.toml` of
+your own points it at that folder, from wherever your file is.
+
+### A database from 0.1.0
+
+0.1.0 kept a migration of its own, `0000_init`, which made the same two
+tables the kit's migrations make, under the name of the kit's first. Migrated
+as it is, such a database fails at the kit's second migration and changes
+nothing, since wrangler takes the kit's first for the one it applied. Reset it
+onto the kit's migrations instead: drop its two tables and wrangler's record
+of what it applied, then apply them all.
+
+```bash
+pnpm --filter @skysa/draw-api exec wrangler d1 execute skysa-draw --remote \
+  --command "DROP TABLE IF EXISTS grants; DROP TABLE IF EXISTS storage_connections; DROP TABLE IF EXISTS d1_migrations;"
+pnpm --filter @skysa/draw-api exec wrangler d1 migrations apply skysa-draw --remote
+```
+
+The database holds the connections to storage accounts and nothing else, so
+that is what goes. No drawing is in it, and the reset touches none of the
+drawings in the storage accounts. Each device finds its connection gone, as
+if it had been revoked from another device, and asks to connect again. Until
+it does, it lets go of the drawings it had synced, which connecting brings
+back, and keeps any it had not sent yet, shown as waiting.
+
+Two other things go with it. The refresh tokens it held are dropped, not
+revoked: each account's earlier grant to the app stays listed at its provider
+until the account's owner removes it there. And the record of which devices
+were revoked goes too, so a revoked device's credential could be used to
+connect again; like any new device, it would have to go through the
+provider's consent for an account it can sign in to.
+
+A local database from before, made by `pnpm db:migrate`, is reset the same way
+with `--local` in place of `--remote`, or by deleting `apps/api/.wrangler/state`.
+
 ## When it will not boot
 
 The Worker refuses to start rather than starting up wrong. Every failure is
@@ -488,7 +529,7 @@ them, not just the first. The three that catch people:
 implemented and will not be"*. Sign-in separate from storage was dropped in
 skysa-notes in September 2026 and never existed here: on this instance a person
 **is** their storage account, and accepting the setting would leave you
-believing connections were gated behind a sign-in when they were not.
-`storage-first` is the only value, and the variable itself will go when the
-layer this app carries from skysa-notes drops it
+believing connections were gated behind a sign-in when they were not. Any
+other value boots, and the Worker asks at boot for the variable to be removed:
+it is no longer read
 ([skysa-org/skysa-notes#118](https://github.com/skysa-org/skysa-notes/issues/118)).
