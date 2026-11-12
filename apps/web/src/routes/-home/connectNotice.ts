@@ -18,8 +18,8 @@ import {
  * What the app says on the way back from connecting storage (`?connect=…`),
  * and asking again for a connect code the operator's gate turned down. The
  * server sends the browser back to where it was with the outcome in the query
- * (`back` in `apps/api/src/routes/connect.ts`): `?connect=ok`, or a reason,
- * and `&code=` for the kind of no an operator's policy gave.
+ * (`back` in the kit's `packages/server/src/routes/connect.ts`): `?connect=ok`,
+ * or a reason, and `&code=` for the kind of no an operator's policy gave.
  */
 
 export const CONNECT_OUTCOMES = [

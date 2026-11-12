@@ -22,7 +22,10 @@ import { type CredentialRecord, type DrawDatabase, PENDING_CREDENTIAL_ID } from 
  * `components/account/Devices.tsx` shows the server's view of the grants, which carries no hashes.
  */
 
-/** The `sk1_` version prefix, hashed along with the rest. See `apps/api/src/credentials.ts`. */
+/**
+ * The `sk1_` version prefix, hashed along with the rest. See the kit's
+ * `packages/server/src/credentials.ts`.
+ */
 const CREDENTIAL_PREFIX = 'sk1_';
 
 /** 32 bytes of `crypto.getRandomValues`, base64url, unpadded: 43 characters. */
