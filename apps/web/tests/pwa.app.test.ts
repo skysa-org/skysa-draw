@@ -29,6 +29,7 @@ describe('the service worker, in this app', () => {
 	it('answers a deep link into the app with the shell', () => {
 		// What the app opens is in the query (`routes/index.tsx`).
 		expect(shellAnswers('/')).toBe(true);
+		expect(shellAnswers('/?f=Work&d=abc')).toBe(true);
 		expect(shellAnswers('/?connect=ok')).toBe(true);
 	});
 
@@ -49,6 +50,10 @@ describe('the service worker, in this app', () => {
 	});
 
 	it('answers no POST itself', () => {
+		// It is no share target, and nothing else posts to it.
 		expect(ruleFor(`${APP}/share`, 'POST')).toBeUndefined();
+		expect(workbox.runtimeCaching?.filter((rule) => (rule.method ?? 'GET') !== 'GET')).toEqual(
+			[]
+		);
 	});
 });
