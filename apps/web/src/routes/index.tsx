@@ -23,7 +23,7 @@ import {
  * the open folder — and, when a drawing is open, the editor filling the
  * window with the library in a drawer (docs/ARCHITECTURE.md §7, "The
  * interface"). What is open is in the query, so a link opens it and the
- * service worker answers it with the shell (`pwa.ts`): `/?f=Work&d=<id>`.
+ * service worker answers it with the shell (`pwaApp.ts`): `/?f=Work&d=<id>`.
  *
  * And what the way back from connecting storage says (`?connect=ok`, or a
  * reason, with `&code=` for an operator's no), and the operator's page asking

@@ -564,17 +564,19 @@ The catalog, the code and the docs are US English; British English, if it is wan
 
 ## 8. PWA specifics
 
-Carried over.
+The service worker and the manifest are built by the kit's `@skysa/pwa` from what this app hands it (`PwaApp`, made in `apps/web/pwaApp.ts`) and from its brand (below).
+How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#pwa-specifics): `generateSW`, the app shell precached, `NetworkOnly` for `/api/*` and the provider origins so drawing content never sits in the HTTP cache, nothing inline written into the page (§9), a waiting worker that takes over only when the user says (`registerType: 'prompt'`, so a new build never swaps itself in under a half-drawn stroke), and the checklist a browser applies before it offers to install, which is a test there.
+What follows is this app's own.
 
-- `vite-plugin-pwa` with `registerType: 'prompt'` and `injectRegister: false`: a new build never swaps itself in under a half-drawn stroke, and nothing inline is written into the page (§9).
-  `UpdatePrompt` offers the reload; its `beforeUpdate` is where the sync layer will pause its requests.
-- The shell is precached; `/api/*` and the provider origins are `NetworkOnly`, never cached: drawing content must never sit in the HTTP cache.
-- Every route of the app is answered with the shell, including `/?f=…&d=…`; any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
-  `tests/pwa.test.ts` holds the installability checklist.
+- `UpdatePrompt` offers the reload; its `beforeUpdate` is where the sync layer will pause its requests.
+- The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
+  `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
+- It is no share target.
 
 **Brand.**
-What the app is called and how it looks come from a `brand.json` at build time (`apps/web/brand.ts`): the default brand in `apps/web/brand/` ("Draw", in gray, the pen-stroke icons drawn by `brand/icons.mjs`), or a deployment's own, pointed at with `DRAW_BRAND`.
-Name, short name, description, colors for both themes, six icons, optional fonts; the schema is `brand.schema.json`, and `tests/brand.test.ts` stops a build with a brand that would install without its icon.
+What the app is called and how it looks come from a `brand.json` at build time: the default brand in `apps/web/brand/` ("Draw", in gray, the pen-stroke icons drawn by `brand/icons.mjs`), or a deployment's own, pointed at with `DRAW_BRAND`.
+The default is the app's, handed to the build (`DEFAULT_BRAND` in `pwaApp.ts`), and `tests/brand.app.test.ts` holds it to what is said here.
+Name, short name, description, colors for both themes, six icons, optional fonts; the kit reads and checks it, stopping a build with a brand that would install without its icon, and its JSON Schema is the kit's (`@skysa/pwa/brand.schema.json`).
 The brand is never data identity: the app folder, the marker, the database and the cookie names stay whatever it says.
 
 ## 9. Security checklist
@@ -635,8 +637,8 @@ apps/
                   src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/, sources/, account/),
                   src/drawing/ (the editor: document/, tools/, panels/, Editor.tsx, Viewport.tsx, keys.ts),
                   src/i18n/, src/sync/ (scheduler, SyncStore), src/api/, src/errors/, src/hooks/, src/styles/,
-                  brand/ (default brand, icons.mjs), brand.ts, pwa.ts, public/_headers,
-                  scripts/bundleBudget.mjs, tests/
+                  brand/ (default brand, icons.mjs), pwaApp.ts (what the kit's @skysa/pwa builds from),
+                  public/_headers, scripts/size.mjs (the size budget, measured by @skysa/pwa/budget), tests/
 packages/
   core/           src/drawing/ (the file), src/names/, src/paths.ts, src/providers/ (+ gdrive/),
                   src/sync/ (the engine; document.ts is its seam),

@@ -1,18 +1,18 @@
 import { readFileSync } from 'node:fs';
 
+import { brandPlugin, loadBrand, pwaOptions } from '@skysa/pwa';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-import { brandPlugin, loadBrand } from './brand.js';
-import { pwaOptions } from './pwa.js';
+import { DEFAULT_BRAND, DRAW_PWA } from './pwaApp.js';
 
 const API_DEV_ORIGIN = 'http://localhost:8787';
 
 // What the app is called and how it looks (docs/ARCHITECTURE.md §8, "Brand"): a
 // deployment's own `brand.json` when `DRAW_BRAND` names one, else `brand/`'s.
-const brand = loadBrand(process.env.DRAW_BRAND);
+const brand = loadBrand(process.env.DRAW_BRAND ?? DEFAULT_BRAND);
 
 const { version } = JSON.parse(
 	readFileSync(new URL('./package.json', import.meta.url), 'utf8')
@@ -30,7 +30,7 @@ export default defineConfig({
 		tanstackRouter({ target: 'react', autoCodeSplitting: true }),
 		react(),
 		brandPlugin(brand),
-		VitePWA(pwaOptions(brand)),
+		VitePWA(pwaOptions(brand, DRAW_PWA)),
 	],
 	server: {
 		port: 5173,

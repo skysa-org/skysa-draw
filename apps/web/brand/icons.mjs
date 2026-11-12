@@ -1,7 +1,7 @@
 // The default brand's icons, drawn in plain Node with no dependencies: a tile
 // of the brand color with a pen stroke across it, at the six names and sizes
-// in `BRAND_ICONS` (`brand.ts`). How `icons/` was made, and how to make a set
-// on another color:
+// in `BRAND_ICONS` (the kit's `@skysa/pwa`). How `icons/` was made, and how
+// to make a set on another color:
 //
 //   node apps/web/brand/icons.mjs apps/web/brand/icons '#4B5563'
 //

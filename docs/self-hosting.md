@@ -217,7 +217,7 @@ DRAW_BRAND="$PWD/../my-brand/brand.json" pnpm run deploy
 
 ```jsonc
 {
-	"$schema": "<path to this repo>/apps/web/brand/brand.schema.json",
+	"$schema": "<path to this repo>/apps/web/node_modules/@skysa/pwa/brand.schema.json",
 	"name": "Acme Draw",
 	"shortName": "Acme Draw", // under a home-screen icon: 12 characters at most
 	"description": "Acme's drawings, in your own storage.",
