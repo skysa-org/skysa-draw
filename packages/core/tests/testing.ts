@@ -1,7 +1,7 @@
 /**
  * Core's test doubles and helpers, for the apps' tests: `@skysa/draw-core/testing`.
  * Kept out of the main entry so nothing the app ships can reach them, and the
- * lint rule in `eslint.config.js` keeps it that way.
+ * kit's lint (`@skysa/eslint-config`) keeps it that way.
  */
 export {
 	createFakeProvider,

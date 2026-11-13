@@ -27,7 +27,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
 | License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
-| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), moving into the shared kit both apps run on; the server has moved | Each product exports its own API and core to the parent project |
+| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), moving into the shared kit both apps run on; the server, the PWA build and the lint's shared rules have moved | Each product exports its own API and core to the parent project |
 
 ## 2. Architecture overview
 
@@ -648,16 +648,20 @@ packages/
 docs/             this file, history.md, decisions/, self-hosting.md, google-oauth.md
 .changeset/       one version for the three packages
 .github/          CI (verify, changeset check, generated files, size, minimum Node), release, CLA
+eslint.config.js  the kit's lint, skysa() from @skysa/eslint-config, with this app's own blocks;
+                  tsconfig.base.json and .prettierrc.json name the kit's settings, and
+                  tsconfig.json holds vitest.config.ts, which the kit's lint reads with types
 ```
 
 Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor nor the API client, `api/`, `errors/` and `hooks/` import neither the store nor the sync layer nor the UI, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
 Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
+The lint's shared rules, the compiler's settings and Prettier's are the kit's, `@skysa/eslint-config`; `eslint.config.js` hands its `skysa()` this app's own blocks: the layers above, core's bans on Node, on `apps/*` and on the browser's globals, the Worker entry's rules (no Node, no `cloudflare:*`, `process` and `console` in `worker.ts` alone; §6), the app's words (§7), the canvas's carve-out, and the cell rule's word for where a cell comes from; `tsconfig.base.json` and `.prettierrc.json` name the kit's.
 
 ## 12. Carried over from skysa-notes
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
 The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
-Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server has moved (§6): a fix to it is a kit PR.
+Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server (§6), the PWA build (§8) and the lint's shared rules (§11) have moved: a fix to any of them is a kit PR.
 Until the rest has moved, a fix to a carried-over layer still here is a fix in both repositories.
 
 ## 13. Distribution and licensing
