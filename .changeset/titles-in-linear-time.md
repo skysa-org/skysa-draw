@@ -5,7 +5,7 @@
 
 Renaming a drawing whose title closes itself, `<title/>`, no longer takes away everything up to the next `</title>`, such as a layer whose shapes have titles of their own: such a title is an empty one, and is filled where it is.
 A title that could end in two places is not read, and a rename puts a new title ahead of it and takes nothing away: one whose start tag ends in a bare value that runs into its `/>`, as `<title id=t/>`, and one whose first `</title>` something in it holds or runs past.
-That something is a comment, a CDATA section, a processing instruction, a tag whose quoted value holds it, a `<` before a name that no `>` closes, or an element of the title's own name; one of its name that closes itself, `<title/>`, is passed over.
+That something is a comment, a CDATA section, a processing instruction, a tag whose quoted value holds it, a `<` before a name that no `>` closes, an element of the title's own name, or an end tag of its name that is not one, as `</title x>`; one of its name that closes itself, `<title/>`, is passed over.
 On 0.1.0, renaming such a title could take away the layers after it, or leave an end tag with nothing to close, so that no XML parser read the file.
 Giving a drawing its id no longer writes into another attribute's value that holds the same characters, which could leave a file that is no longer a drawing.
 Where a root has the id attribute twice, the one read is the one replaced.

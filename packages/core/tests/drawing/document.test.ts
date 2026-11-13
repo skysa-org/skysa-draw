@@ -439,12 +439,23 @@ describe('readDrawingTitle', () => {
 		).toBe('t');
 	});
 
-	it('ends at the first end tag that closes, space before its > and all', () => {
-		expect(
-			readDrawingTitle(
-				`<svg xmlns="${SVG_NAMESPACE}"><title>a</title b> c</title\n></title></svg>`
-			)
-		).toBe('a</title b> c');
+	it('ends at its end tag, space before its > and all, and not where a malformed one is', () => {
+		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
+		expect(readDrawingTitle(`${root}<title>a</title\n><g/></svg>`)).toBe('a');
+		// An HTML parser ends it at `</title b>`, and XML at neither: it is not
+		// read, and a rename puts a new title ahead of it and takes nothing away.
+		for (const rest of [
+			'<title>a</title b> c</title\n><g/></svg>',
+			'<title>a</title/>c</title><g/></svg>',
+		]) {
+			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
+			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
+				`${root}\n  <title>New</title>${rest}`
+			);
+		}
+		expect(readDrawingTitle(`${root}<title>a</titles> b</title><g/></svg>`)).toBe(
+			'a</titles> b'
+		);
 	});
 
 	it('reads its start tag as the root’s is, so a quoted > does not end it', () => {

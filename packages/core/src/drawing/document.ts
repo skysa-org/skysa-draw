@@ -9,9 +9,12 @@
  * Read with a hand-rolled scanner rather than `DOMParser`: core runs in Node
  * and in Workers, where there is none, and nothing here needs the tree. Only
  * the prolog and the root's start tag are read, however large the drawing, and
- * the first `<title>` after it for the name. What is written is the same root
- * tag with one attribute changed, so a file another tool made keeps every byte
- * of its own.
+ * the first `<title>` after it for the name. What is written changes only what
+ * it is about: `withDrawingId` adds or replaces one attribute of the root tag,
+ * and `withDrawingTitle` the title's text, so a file another tool made keeps
+ * every other byte of its own, but where a tag that closed itself is opened.
+ * A title a rename makes SVG's, and a root `withDrawingViewport` sizes for an
+ * export, have their start tag written again, each attribute after one space.
  */
 
 import { LAYER_ATTRIBUTES, layerId, type LayerKind } from './layers.js';
@@ -549,11 +552,13 @@ interface TitleElement {
  * Whether a title named `name` that opens before `from` ends at `until`, where
  * its first `</name>` starts, as XML reads it: whether no comment, CDATA
  * section, processing instruction or start tag in its text holds that end tag,
- * as a quoted value can, or starts before it and never closes; and no element
- * of its own name opens in it, whose end tag that one would be. One of its
- * name that closes itself is passed over. A `<` before a name that starts no
- * tag a `>` closes is one a tool could read either way, so it is not passed
- * either. Walked from `<` to `<`, each tag once, no further than `until`.
+ * as a quoted value can, or starts before it and never closes; no element of
+ * its own name opens in it, whose end tag that one would be; and no end tag of
+ * its name that a `>` does not close comes first, as `</title x>`, which an
+ * HTML parser ends it at. One of its name that closes itself is passed over.
+ * A `<` before a name that starts no tag a `>` closes is one a tool could read
+ * either way, so it is not passed either. Walked from `<` to `<`, each tag
+ * once, no further than `until`.
  */
 const endsAt = (text: string, name: string, from: number, until: number): boolean => {
 	// Just past a start tag at `at`, its attributes passed over rather than
@@ -570,13 +575,16 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
 		const opensOwnName = text.slice(at + 1, nameEnd) === name && close?.selfClosing === false;
 		return close === undefined || opensOwnName ? undefined : close.end;
 	};
-	// Past what starts at a `<`: a section or a tag; `undefined` where it does not end.
+	// Past what starts at a `<`: a section or a tag; `undefined` where it does
+	// not end, or is an end tag of the title's name before `until`.
 	const past = (at: number): number | undefined =>
-		text.startsWith('<![CDATA[', at)
-			? closedBy(text, ']]>', at + 9)
-			: text.startsWith('<!--', at) || text.startsWith('<?', at)
-				? commentOrInstructionEnd(text, at)
-				: tagEnd(at);
+		text.startsWith(`</${name}`, at) && NOT_NAME.test(text.charAt(at + name.length + 2))
+			? undefined
+			: text.startsWith('<![CDATA[', at)
+				? closedBy(text, ']]>', at + 9)
+				: text.startsWith('<!--', at) || text.startsWith('<?', at)
+					? commentOrInstructionEnd(text, at)
+					: tagEnd(at);
 	const reached = skipped(text, text.indexOf('<', from), (_, at) => {
 		if (at === -1 || at >= until) return undefined;
 		const after = past(at);
@@ -595,10 +603,11 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
  * Where it could end in two places, it is not read, and a rename puts a new
  * title ahead of it and takes nothing away: one whose last value is bare and
  * runs into `/>` (`endsInBareSlash`) may close itself or not; and where a
- * comment, CDATA section or processing instruction in it holds its first
- * `</title>`, or starts before it and never closes, XML ends it elsewhere
- * (`endsAt`), and a tool that knows none of them there. So does one that
- * holds an element of its own name, whose end tag comes first.
+ * comment, CDATA section, processing instruction or tag's quoted value in it
+ * holds its first `</title>`, or starts before it and never closes, XML ends
+ * it elsewhere (`endsAt`), and a tool that knows none of them there. So does
+ * one that holds an element of its own name, whose end tag comes first, or an
+ * end tag of its name that is not one, as `</title x>`, which HTML ends it at.
  *
  * SVG's title, under whatever prefix binds SVG; or a `title` with no prefix
  * in no namespace, as this app's 0.1.0 wrote one under an `svg:svg` root, and
