@@ -1,4 +1,5 @@
-import { type BlendMode, cell, type LayerKind, layerNumber, SVG_NAMESPACE } from '@skysa/draw-core';
+import { type BlendMode, type LayerKind, layerNumber, SVG_NAMESPACE } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import {
 	attributesOf,

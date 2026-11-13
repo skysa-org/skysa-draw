@@ -1,0 +1,126 @@
+import type { AppSchedulerOptions, ClientDevice } from '@skysa/client/testing';
+import { DRAW_FORMAT, syncsHidden } from '@skysa/draw-core';
+import { joinPath, parentPath } from '@skysa/storage';
+
+import { bindConnection, detachConnection, showConnection } from '../../src/store/connection.js';
+import { createDrawing, saveDrawing } from '../../src/store/drawings.js';
+import { clientStoreOf } from '../../src/sync/dexiePorts.js';
+import { createDrawingsSync } from '../../src/sync/drawingsSync.js';
+import { SYNC_LOCK } from '../../src/sync/lock.js';
+import { holdCredential } from './connection.js';
+import { watchedDatabase } from './db.js';
+import { drawingById, fileAdded, lazily, queuedRow, svgOf } from './drawingRows.js';
+import { holding, otherTab } from './otherTab.js';
+
+/** What this app hands its scheduler of its own. */
+const APP: AppSchedulerOptions = { lockName: SYNC_LOCK, document: DRAW_FORMAT, syncsHidden };
+
+/**
+ * A device over this app's database, fresh for each call: the client's
+ * suites (`ClientDevice`, `@skysa/client/testing`) run over it as the app runs
+ * them, through the ports in `sync/dexiePorts.ts`. Its scheduler is the app's,
+ * with the files beside drawings attached; a document is a drawing, made and
+ * saved as the editor makes and saves one, its words in an SVG (`svgOf`), since
+ * the engine is handed this app's format, and so is one another device writes
+ * (`written`); an op is queued as a row of the
+ * queue, the shape every writer in `store/` leaves (`queuedRow`). The database
+ * is watched, as the app's is, so a suite can see what a tab waits on.
+ */
+export const dexieDevice = (): ClientDevice => {
+	const db = watchedDatabase();
+	return {
+		store: clientStoreOf(db),
+		app: APP,
+		written: svgOf,
+		schedule: (options) => createDrawingsSync({ ...APP, ...options, db }),
+		create: async (connectionId, name, body) => {
+			const drawing = await createDrawing(db, {
+				connectionId,
+				title: name,
+				text: svgOf(body),
+			});
+			return { id: drawing.id, path: drawing.path };
+		},
+		edit: async (connectionId, id, body, { lazy = false } = {}) => {
+			// This app queues no write lazily; an app that does stands in.
+			if (lazy) await lazily(db, id, svgOf(body));
+			else await saveDrawing(db, id, svgOf(body), { connectionId });
+		},
+		attach: async (connectionId, documentId, name, bytes) => {
+			// This app adds no file beside a drawing yet; what adding one will do
+			// stands in (`fileAdded`).
+			const drawing = await drawingById(db, documentId);
+			if (drawing === undefined) throw new Error(`No drawing with id ${documentId}`);
+			await fileAdded(db, {
+				connectionId,
+				path: joinPath(parentPath(drawing.path), name),
+				bytes: bytes.buffer,
+			});
+		},
+		queued: async (connectionId) =>
+			(await db.opQueue.where('connectionId').equals(connectionId).sortBy('seq')).map(
+				(op) => ({
+					seq: op.seq ?? 0,
+					lazy: op.lazy === true,
+				})
+			),
+		lastSyncAt: async (connectionId) => (await db.syncState.get(connectionId))?.lastSyncAt,
+		bind: async (connectionId, credential) => {
+			await bindConnection(db, { connectionId, provider: 'dropbox' });
+			await holdCredential(db, connectionId, credential === undefined ? {} : { credential });
+		},
+		show: async (connectionId) => {
+			await showConnection(db, connectionId);
+		},
+		queue: (connectionId, op, { lazy = false } = {}) =>
+			db.opQueue.add({
+				...queuedRow(op),
+				connectionId,
+				attempts: 0,
+				queuedAt: 0,
+				...(lazy ? { lazy: true as const } : {}),
+			}),
+		keptToken: async (connectionId) => {
+			const state = await db.syncState.get(connectionId);
+			return state?.accessToken === undefined || state.accessTokenExpiresAt === undefined
+				? undefined
+				: { accessToken: state.accessToken, expiresAt: state.accessTokenExpiresAt };
+		},
+		keepElsewhere: async (connectionId, token) => {
+			await db.syncState.update(connectionId, {
+				accessToken: token.accessToken,
+				accessTokenExpiresAt: token.expiresAt,
+			});
+		},
+		letGo: async (connectionId, { unsent = false } = {}) => {
+			// What keeps a source detached rather than forgotten is a drawing it
+			// never sent: one is made here unless the test has queued something
+			// already.
+			const queued = await db.opQueue.where('connectionId').equals(connectionId).count();
+			if (unsent && queued === 0) await createDrawing(db, { connectionId, title: 'Unsent' });
+			await detachConnection(db, { connectionId });
+		},
+		reconnect: (connectionId) =>
+			// One transaction, which a live query may never show the middle of.
+			db.transaction('rw', db.tables, async () => {
+				await detachConnection(db, { connectionId });
+				await bindConnection(db, { connectionId, provider: 'dropbox' });
+				await holdCredential(db, connectionId);
+			}),
+		connection: async (connectionId) => {
+			const state = await db.syncState.get(connectionId);
+			if (state === undefined) return undefined;
+			if (state.detached !== undefined) return 'detached';
+			return state.resumeUnverified === true ? 'resumed' : 'live';
+		},
+		importing: async (connectionId) =>
+			(await db.syncState.get(connectionId))?.importing !== undefined,
+		holdUp: async () => {
+			const other = await otherTab(db);
+			return holding(other, [...other.objectStoreNames], 'readwrite');
+		},
+		dropCredential: async (connectionId) => {
+			await db.credentials.delete(connectionId);
+		},
+	};
+};

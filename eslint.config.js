@@ -16,17 +16,18 @@ import globals from 'globals';
  */
 
 /**
- * The kit's cell rule, with this app's word for where a cell comes from: core's
- * own `cell()`, until it is the kit's (`@skysa/storage`) with the rest of
- * core's shared layers. Set in every block below that sets the rule, and in one
- * over all of src, since a block replaces the kit's list rather than adding to
- * it.
+ * What a layer below the sync layer may take from the kit's client, which
+ * holds the sync layer now (the scheduler, the API client, the relay): its
+ * emitter and store, and what `also` names.
  */
-const CELL = CELL_SYNTAX.map((rule) => ({
-	...rule,
-	message:
-		'a value that changes is a cell (skysa-notes#457): cell() and Cell<T>, from @skysa/draw-core, or from src/cell.js inside core.',
-}));
+const CLIENT_BELOW_SYNC = (also = []) => {
+	const names = ['createEmitter', 'createStore', ...also];
+	return {
+		name: '@skysa/client',
+		allowImportNames: names,
+		message: `the kit’s client holds the sync layer: below it, take only ${names.join(', ')}.`,
+	};
+};
 
 /** What nothing in packages/core/src may import. */
 const CORE_IMPORTS = [
@@ -37,6 +38,16 @@ const CORE_IMPORTS = [
 	{
 		group: ['@skysa/draw-web', '@skysa/draw-api', '**/apps/**'],
 		message: 'packages/core must not import from apps/*.',
+	},
+	{
+		// The kit's engine and what is above it are handed this app's folder and
+		// format (skysa-notes' record 0018); core, which is this app's, sits
+		// beside storage.
+		group: ['sync', 'client', 'server', 'pwa'].flatMap((kit) => [
+			`@skysa/${kit}`,
+			`@skysa/${kit}/*`,
+		]),
+		message: 'packages/core uses of the kit only @skysa/protocol and @skysa/storage.',
 	},
 ];
 
@@ -85,20 +96,18 @@ export default skysa({
 	// Handed in rather than detected; keep in sync with apps/web's react dependency.
 	react: { files: ['apps/web/**/*.{ts,tsx}'], version: '19.3.0' },
 	blocks: [
-		{
-			// A value that changes is a cell, in every package's src, by this
-			// app's word for where it comes from (`CELL`, above).
-			files: ['**/src/**/*.ts', '**/src/**/*.tsx'],
-			rules: { 'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX, ...CELL] },
-		},
-
 		// ---- The app's words ------------------------------------------------
 
 		{
 			// The cell rule too, since this sets the rule again for every .tsx.
 			files: ['apps/web/src/**/*.tsx'],
 			rules: {
-				'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX, ...INLINE_WORDS, ...CELL],
+				'no-restricted-syntax': [
+					'error',
+					...RESTRICTED_SYNTAX,
+					...INLINE_WORDS,
+					...CELL_SYNTAX,
+				],
 			},
 		},
 
@@ -123,26 +132,9 @@ export default skysa({
 			},
 		},
 		{
-			// A provider moves bytes and names for the sync engine; it knows nothing
-			// of the engine. What both need — a conflict copy's name, say — lives
-			// below them both, in names/ (skysa-notes#449). Repeats core's patterns, since a
-			// rule set here replaces the one above rather than adding to it.
-			files: ['packages/core/src/providers/**/*.ts'],
-			rules: {
-				'no-restricted-imports': [
-					'error',
-					{
-						patterns: [
-							...CORE_IMPORTS,
-							NOT_ABOVE(['sync'], 'a provider does not import the sync engine.'),
-						],
-					},
-				],
-			},
-		},
-		{
-			// names/ sits below providers, sync and drawing, which all name files
-			// by it; reaching up into any of them would bring the cycle back.
+			// names/ sits below the drawing file, which names files by it;
+			// reaching up into it would bring the cycle back. The names the sync
+			// engine and the adapters use are the kit's (`@skysa/storage`).
 			files: ['packages/core/src/names/**/*.ts'],
 			rules: {
 				'no-restricted-imports': [
@@ -150,49 +142,7 @@ export default skysa({
 					{
 						patterns: [
 							...CORE_IMPORTS,
-							NOT_ABOVE(
-								['sync', 'providers', 'drawing'],
-								'names/ sits below sync, providers and drawing.'
-							),
-						],
-					},
-				],
-			},
-		},
-		{
-			// The drawing file sits below the engine and the providers, which read it;
-			// reaching up into either would bring the cycle back.
-			files: ['packages/core/src/drawing/**/*.ts'],
-			rules: {
-				'no-restricted-imports': [
-					'error',
-					{
-						patterns: [
-							...CORE_IMPORTS,
-							NOT_ABOVE(
-								['sync', 'providers'],
-								'the drawing file sits below the sync engine and the providers.'
-							),
-						],
-					},
-				],
-			},
-		},
-		{
-			// The engine meets the drawing file in one module, the document seam
-			// (docs/ARCHITECTURE.md §7, "Sync engine").
-			files: ['packages/core/src/sync/**/*.ts'],
-			ignores: ['packages/core/src/sync/document.ts'],
-			rules: {
-				'no-restricted-imports': [
-					'error',
-					{
-						patterns: [
-							...CORE_IMPORTS,
-							NOT_ABOVE(
-								['drawing'],
-								'the engine reads a drawing only through sync/document.ts, the document seam.'
-							),
+							NOT_ABOVE(['drawing'], 'names/ sits below drawing.'),
 						],
 					},
 				],
@@ -256,7 +206,7 @@ export default skysa({
 				'no-restricted-syntax': [
 					'error',
 					...RESTRICTED_SYNTAX,
-					...CELL,
+					...CELL_SYNTAX,
 					{
 						selector:
 							"MemberExpression[object.name='globalThis'][property.name='process']",
@@ -284,10 +234,11 @@ export default skysa({
 				'no-restricted-imports': [
 					'error',
 					{
+						paths: [CLIENT_BELOW_SYNC(['CredentialRecord', 'PENDING_CREDENTIAL_ID'])],
 						patterns: [
 							NOT_ABOVE(
-								['api', 'components', 'drawing', 'routes', 'sync'],
-								'the store is the data layer: it does not import the API client, the sync layer, the UI or the editor.'
+								['components', 'drawing', 'routes', 'sync'],
+								'the store is the data layer: it does not import the sync layer, the UI or the editor.'
 							),
 						],
 					},
@@ -317,6 +268,7 @@ export default skysa({
 				'no-restricted-imports': [
 					'error',
 					{
+						paths: [CLIENT_BELOW_SYNC()],
 						patterns: [
 							NOT_ABOVE(
 								['components', 'drawing', 'store', 'routes', 'sync'],
@@ -328,21 +280,20 @@ export default skysa({
 			},
 		},
 		{
-			// The API client, the words for where a request failed, and plain React
-			// hooks: below the store's callers and the screens. errors/ reads api/.
-			files: [
-				'apps/web/src/api/**/*.{ts,tsx}',
-				'apps/web/src/errors/**/*.{ts,tsx}',
-				'apps/web/src/hooks/**/*.{ts,tsx}',
-			],
+			// The words for where a request failed, and plain React hooks: below
+			// the store's callers and the screens. errors/ reads the error of the
+			// API client, which is the kit's now, as it read the client when it
+			// was the app's.
+			files: ['apps/web/src/errors/**/*.{ts,tsx}', 'apps/web/src/hooks/**/*.{ts,tsx}'],
 			rules: {
 				'no-restricted-imports': [
 					'error',
 					{
+						paths: [CLIENT_BELOW_SYNC(['ApiError'])],
 						patterns: [
 							NOT_ABOVE(
 								['components', 'drawing', 'routes', 'store', 'sync'],
-								'api/, errors/ and hooks/ sit below the store and the sync layer: they do not import them or the UI.'
+								'errors/ and hooks/ sit below the store and the sync layer: they do not import them or the UI.'
 							),
 						],
 					},
@@ -359,6 +310,7 @@ export default skysa({
 				'no-restricted-imports': [
 					'error',
 					{
+						paths: [CLIENT_BELOW_SYNC()],
 						patterns: [
 							NOT_ABOVE(
 								['routes', 'sync'],

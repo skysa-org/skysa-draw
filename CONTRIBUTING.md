@@ -82,10 +82,8 @@ What is expected of a change:
 - **No `let`, no loops, no mutation** outside tests; the lint rules say so. The
   few loops kept (a byte scan where recursion would go too deep) sit behind a
   disable comment that says why. Each workaround has one helper: a value that
-  changes is a `cell()` from `@skysa/draw-core` (`packages/core/src/cell.ts`).
-  skysa-notes has the others — `createEmitter` for a set of listeners,
-  `useLatest` for the latest prop inside a callback — and they come across
-  as they are needed rather than ahead of it.
+  changes is a `cell()` from the kit's `@skysa/storage`, and the latest prop
+  inside a callback is `useLatest` (`apps/web/src/hooks/useLatest.ts`).
 - **Check the vendor docs** rather than assuming, for anything about a provider
   API — scopes, endpoints, conflict semantics — and put the URL in a comment.
 

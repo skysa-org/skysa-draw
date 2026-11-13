@@ -1,11 +1,7 @@
-import {
-	basename,
-	contentHash,
-	isDrawingText,
-	parentPath,
-	readDrawingId,
-	withDrawingId,
-} from '@skysa/draw-core';
+import { isDrawingText, readDrawingId, withDrawingId } from '@skysa/draw-core';
+import { basename, contentHash, parentPath } from '@skysa/storage';
+import type { NewSyncOp } from '@skysa/sync';
+import Dexie from 'dexie';
 
 import {
 	activeConnectionId,
@@ -16,7 +12,7 @@ import {
 } from '../../src/store/db.js';
 import { drawingRecordFromFile } from '../../src/store/drawings.js';
 import { foldersOf } from '../../src/store/folders.js';
-import { queueUpload } from '../../src/store/queue.js';
+import { queueUpload, queueWrite } from '../../src/store/queue.js';
 import { rowsOf } from '../../src/store/rows.js';
 import { isLive } from '../../src/store/rowStates.js';
 
@@ -36,6 +32,34 @@ export const updateDrawing = async (
 ): Promise<void> => {
 	await db.drawings.where('id').equals(id).modify(changes);
 };
+
+/**
+ * An op the kit hands a test (`NewSyncOp`) as this app's queue holds it: its
+ * `noteId` is the row's `drawingId` (`QueuedOp`).
+ */
+export const queuedRow = ({ noteId, ...op }: NewSyncOp & { noteId?: string }) =>
+	noteId === undefined ? op : { ...op, drawingId: noteId };
+
+/**
+ * A change to a drawing's text made the way an app that queues writes lazily
+ * makes one, with its write queued lazy. This app makes none
+ * (docs/ARCHITECTURE.md §7, "When a push goes").
+ */
+export const lazily = (db: DrawDatabase, id: string, text: string): Promise<DrawingRecord> =>
+	db.transaction('rw', db.drawings, db.opQueue, async () => {
+		const drawing = await drawingById(db, id);
+		if (drawing === undefined) throw new Error(`No drawing with id ${id}`);
+		const file = withDrawingId(text, id);
+		const row: DrawingRecord = {
+			...drawing,
+			text: file,
+			dirty: 1,
+			contentHash: await Dexie.waitFor(contentHash(file)),
+		};
+		await db.drawings.put(row);
+		await queueWrite(db, row, undefined, 'lazy');
+		return row;
+	});
 
 /**
  * A drawing's text for a test that only needs one drawing to differ from

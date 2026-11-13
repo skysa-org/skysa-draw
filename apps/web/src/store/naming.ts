@@ -1,6 +1,6 @@
+import { DRAWING_EXTENSION, uniqueFilename } from '@skysa/draw-core';
 import {
 	basename,
-	DRAWING_EXTENSION,
 	foldName,
 	joinPath,
 	normalizePath,
@@ -8,8 +8,7 @@ import {
 	pathSegments,
 	replaceBasename,
 	ROOT,
-	uniqueFilename,
-} from '@skysa/draw-core';
+} from '@skysa/storage';
 
 /**
  * Finding a free name for a drawing, shared by every writer that puts one

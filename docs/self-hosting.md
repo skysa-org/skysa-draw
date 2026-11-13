@@ -368,7 +368,7 @@ its `createApp({ … })` call to pass `entitlements` as well, and point `main` i
 relative imports work as they are. Anywhere else, import `createApp`,
 `parseEnv`, `envWarnings` and `misconfigured` from `@skysa/draw-api` instead,
 `ConnectionRelay` and `durableObjectRelay` from `@skysa/draw-api/relay`, and
-`cell` from `@skysa/draw-core`. Keep the copy's
+`cell` from the kit's `@skysa/storage`. Keep the copy's
 `export { ConnectionRelay }` whether or not you run the relay: `wrangler.toml`
 binds that class, and a deploy whose entry does not export it is refused. The
 stock entry never sets a gate.

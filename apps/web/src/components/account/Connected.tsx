@@ -1,8 +1,13 @@
+import {
+	answer,
+	type Asked,
+	type Grant,
+	type InstanceConfig,
+	type SchedulerStatus,
+} from '@skysa/client';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useRef, useState } from 'react';
 
-import type { Grant, InstanceConfig } from '../../api/client.js';
-import { answer, type Asked } from '../../api/instanceConfig.js';
 import { t } from '../../i18n/t.js';
 import { connectedSources } from '../../store/connection.js';
 import { useDb } from '../../store/database.js';
@@ -16,7 +21,6 @@ import {
 	type UnsentAnswer,
 } from '../../sync/account.js';
 import { useSyncStatus } from '../../sync/runtime.js';
-import type { SchedulerStatus } from '../../sync/scheduler.js';
 import type { AccountSlot } from '../sources/SourcePanel.js';
 import type { Client, Sync } from './clients.js';
 import { Devices, stillSignedIn, useGrants } from './Devices.js';
@@ -330,7 +334,7 @@ export const Connected = ({
 				sync={sync}
 				bound={bound}
 				label={label}
-				reconnectable={answer(config)?.authMode === 'storage-first'}
+				reconnectable={answer(config) !== undefined}
 				config={config}
 				returnTo={returnTo}
 				{...(navigate === undefined ? {} : { navigate })}

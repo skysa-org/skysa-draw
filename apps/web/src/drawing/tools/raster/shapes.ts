@@ -1,4 +1,5 @@
-import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
+import { SVG_NAMESPACE } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';
 import { type Box, constrainLine, constrainRect, distance, rectFrom } from '../vector/geometry.js';

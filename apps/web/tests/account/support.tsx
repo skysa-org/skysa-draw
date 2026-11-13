@@ -4,6 +4,12 @@
  * the steps through their menus.
  */
 import {
+	type ApiClient,
+	beginConnect,
+	type InstanceConfig,
+	type SchedulerStatus,
+} from '@skysa/client';
+import {
 	createMemoryHistory,
 	createRootRoute,
 	createRouter,
@@ -14,22 +20,19 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import type userEvent from '@testing-library/user-event';
 import { expect, vi } from 'vitest';
 
-import type { ApiClient, InstanceConfig } from '../../src/api/client.js';
 import {
 	AccountPanel,
 	AccountProvider,
 	returnPath,
 } from '../../src/components/account/AccountPanel.js';
 import { SourcePanel } from '../../src/components/sources/SourcePanel.js';
-import { beginConnect } from '../../src/store/credentials.js';
 import { DatabaseProvider } from '../../src/store/database.js';
 import type { DrawDatabase } from '../../src/store/db.js';
 import type { Library } from '../../src/store/exportDrawings.js';
 import { createKeeping } from '../../src/store/keeping.js';
-import type { SchedulerStatus } from '../../src/sync/scheduler.js';
 import { holdCredential } from '../support/connection.js';
 
-const STORAGE_FIRST: InstanceConfig = { authMode: 'storage-first', providers: ['dropbox'] };
+const INSTANCE: InstanceConfig = { providers: ['dropbox'] };
 
 export const dropbox = {
 	id: 'c1',
@@ -60,7 +63,7 @@ export const clientWith = (answers: Answers = {}): Client & { asked: string[] } 
 	const asked: string[] = [];
 	return {
 		asked,
-		config: answers.config ?? (() => Promise.resolve(STORAGE_FIRST)),
+		config: answers.config ?? (() => Promise.resolve(INSTANCE)),
 		checkConnectCode:
 			answers.checkConnectCode ??
 			(() => Promise.resolve({ ok: true, value: { accepted: true, expiresIn: 900 } })),

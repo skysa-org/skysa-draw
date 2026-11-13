@@ -9,10 +9,6 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
-		},
-		"./testing": {
-			"types": "./tests/testing.ts",
-			"default": "./tests/testing.ts"
 		}
 	},
 	"main": "./src/index.ts",
@@ -36,9 +32,11 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"zod": "catalog:"
+		"@skysa/protocol": "1.1.0",
+		"@skysa/storage": "1.1.0"
 	},
 	"devDependencies": {
+		"@skysa/sync": "1.1.0",
 		"@types/node": "catalog:",
 		"vitest": "catalog:"
 	}

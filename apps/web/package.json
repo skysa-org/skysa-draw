@@ -13,7 +13,11 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@skysa/client": "1.1.0",
 		"@skysa/draw-core": "workspace:*",
+		"@skysa/protocol": "1.1.0",
+		"@skysa/storage": "1.1.0",
+		"@skysa/sync": "1.1.0",
 		"@tanstack/react-router": "^1.170.42",
 		"dexie": "^4.4.6",
 		"dexie-react-hooks": "^4.4.0",
@@ -23,7 +27,7 @@
 		"zod": "catalog:"
 	},
 	"devDependencies": {
-		"@skysa/pwa": "1.0.0",
+		"@skysa/pwa": "1.1.0",
 		"@tanstack/router-plugin": "^1.168.43",
 		"@testing-library/dom": "^10.4.2",
 		"@testing-library/react": "^16.3.3",

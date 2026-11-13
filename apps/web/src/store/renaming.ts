@@ -1,4 +1,4 @@
-import { createStore } from './emitter.js';
+import { createStore } from '@skysa/client';
 
 /**
  * A folder or a source being renamed, as it is typed, so that everything on

@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import type { EditorDocument, LayerInfo } from '../../document/model.js';
 import { canvasBox } from '../../export/box.js';

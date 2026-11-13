@@ -1,4 +1,5 @@
-import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
+import { SVG_NAMESPACE } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { hrefOf, imageOf } from '../tools/raster/surface.js';
 import { IDENTITY, invert, type Mat, multiply, parseTransform } from '../tools/vector/geometry.js';

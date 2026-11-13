@@ -1,4 +1,4 @@
-import { type Cell, cell } from '@skysa/draw-core';
+import { type Cell, cell } from '@skysa/storage';
 
 import { releaseCanvas } from '../tools/raster/area.js';
 import {

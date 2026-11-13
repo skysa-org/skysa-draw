@@ -1,4 +1,4 @@
-import type { ConnectGate } from '@skysa/draw-core';
+import type { ConnectGate } from '@skysa/protocol';
 
 import { t } from '../../i18n/t.js';
 import { IconButton } from '../ui/IconButton.js';

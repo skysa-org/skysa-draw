@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { editActionFor, isCommitKey, isTyping, nudgeFor } from '../keys.js';

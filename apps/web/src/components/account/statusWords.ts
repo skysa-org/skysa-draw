@@ -1,10 +1,17 @@
-import type { EntitlementCode, SyncProgress } from '@skysa/draw-core';
+import {
+	isLongRun,
+	type Refusal,
+	runBar,
+	type RunCount,
+	runCount,
+	type SchedulerStatus,
+	type StuckOp,
+} from '@skysa/client';
+import type { EntitlementCode } from '@skysa/protocol';
+import type { SyncProgress } from '@skysa/sync';
 
-import type { Refusal } from '../../api/client.js';
 import { saying } from '../../errors/reached.js';
 import { type MessageKey, t } from '../../i18n/t.js';
-import { isLongRun, runBar, type RunCount, runCount, runSentence } from '../../sync/progress.js';
-import type { SchedulerStatus, StuckOp } from '../../sync/scheduler.js';
 import { needsReconnect } from '../../sync/status.js';
 
 /**
@@ -106,6 +113,37 @@ const lineCount = (count: RunCount): string => {
 			return t('account.line.sending', { done: count.done, total: count.total });
 		case 'receiving':
 			return t('account.line.receiving', { done: count.done, total: count.total });
+	}
+};
+
+/**
+ * Whose words a run's count is said in: a sync's, in the storage panel, or a
+ * first import's, which uploads and downloads drawings rather than sending and
+ * receiving changes. Both say the listing alike.
+ */
+const MOVING = {
+	sync: { sending: 'connection.progress.sending', receiving: 'connection.progress.receiving' },
+	import: {
+		sending: 'connection.progress.uploading',
+		receiving: 'connection.progress.downloading',
+	},
+} as const satisfies Record<string, Record<'sending' | 'receiving', MessageKey>>;
+
+/** How far a run has got, in a sentence that names the source. */
+const runSentence = (progress: SyncProgress, label: string, as: keyof typeof MOVING): string => {
+	const count = runCount(progress);
+	switch (count.kind) {
+		case 'looking':
+			return t('connection.progress.looking', { provider: label, count: count.count });
+		case 'checking':
+			return t('connection.progress.checkingFound', { provider: label, count: count.count });
+		case 'sending':
+		case 'receiving':
+			return t(MOVING[as][count.kind], {
+				provider: label,
+				done: count.done,
+				total: count.total,
+			});
 	}
 };
 

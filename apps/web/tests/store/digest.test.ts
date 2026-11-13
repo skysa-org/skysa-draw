@@ -1,7 +1,8 @@
 // The worker's entry, loaded here as a worker loads it: it listens on `self`.
 import '../../src/store/digest.worker.js';
 
-import { contentHash, withDrawingId, withDrawingTitle } from '@skysa/draw-core';
+import { withDrawingId, withDrawingTitle } from '@skysa/draw-core';
+import { contentHash } from '@skysa/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as Digest from '../../src/store/digest.js';

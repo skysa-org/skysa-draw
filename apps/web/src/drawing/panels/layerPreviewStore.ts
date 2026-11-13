@@ -1,4 +1,4 @@
-import { type Cell, cell } from '@skysa/draw-core';
+import { type Cell, cell } from '@skysa/storage';
 
 import { isLayerElement } from '../document/layers.js';
 import type { EditorDocument } from '../document/model.js';

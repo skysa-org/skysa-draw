@@ -23,7 +23,10 @@ export default defineConfig({
 			// half a point for runs that differ by a branch or two. They only go
 			// up: a pull request that raises a package's numbers raises these.
 			thresholds: {
-				'packages/core/src/**': { statements: 95, branches: 90, functions: 98, lines: 97 },
+				// The drawing file, its names and its pictures, once the engine, the
+				// adapters and the rules they share were the kit's (2026-11-12): what
+				// left was the most tested code, and `attachmentName` is not reached.
+				'packages/core/src/**': { statements: 91, branches: 83, functions: 96, lines: 94 },
 				// The Worker's entry alone, once the server was the kit's (2026-11-12):
 				// its one branch of fourteen left is a throw that is not an Error.
 				'apps/api/src/**': { statements: 99, branches: 92, functions: 99, lines: 99 },

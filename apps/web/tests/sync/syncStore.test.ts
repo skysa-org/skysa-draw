@@ -1,10 +1,13 @@
-import { conflictContent, contentHash, createSyncEngine, type RemoteEntry } from '@skysa/draw-core';
-import { createFakeProvider, describeSyncStoreContract } from '@skysa/draw-core/testing';
+import { conflictContent, DRAW_FORMAT, syncsHidden } from '@skysa/draw-core';
+import { contentHash, type RemoteEntry } from '@skysa/storage';
+import { createFakeProvider } from '@skysa/storage/testing';
+import { createSyncEngine } from '@skysa/sync';
+import { describeSyncStoreContract } from '@skysa/sync/testing';
 import { describe, expect, it } from 'vitest';
 
-// The suite lives beside the port it checks, in `packages/core`, and is not a
-// `*.test.ts` there so that it runs only where a store registers it. `core`
-// cannot import `apps/*`, so this store registers here instead.
+// The suite lives beside the port it checks, in the kit's `@skysa/sync`, and is
+// not a `*.test.ts` there so that it runs only where a store registers it. The
+// kit cannot import this app, so this store registers here instead.
 import type { DrawDatabase, OpQueueRecord } from '../../src/store/db.js';
 import {
 	createDrawing,
@@ -22,7 +25,7 @@ import {
 	UnverifiedResumeError,
 } from '../../src/sync/store.js';
 import { freshDatabase } from '../support/db.js';
-import { drawingById, svgOf, updateDrawing } from '../support/drawingRows.js';
+import { drawingById, queuedRow, svgOf, updateDrawing } from '../support/drawingRows.js';
 
 const CONNECTION = 'dropbox-1';
 
@@ -61,7 +64,7 @@ const remote = (path: string, id = 'r1', version = 'v1'): RemoteEntry => ({
 	size: 1,
 });
 
-describeSyncStoreContract('Dexie', async () => {
+describeSyncStoreContract('Dexie', DRAW_FORMAT, async () => {
 	const db = freshDatabase();
 	const store = await boundStore(db, { connectionId: CONNECTION });
 	return {
@@ -119,9 +122,14 @@ describeSyncStoreContract('Dexie', async () => {
 			// In the app a queued delete always comes with its tombstone:
 			// `deleteDrawing` makes the one and the push queue the other.
 			if (op.op === 'delete') {
-				await updateDrawing(db, op.drawingId, { deletedLocally: 1, dirty: 1 });
+				await updateDrawing(db, op.noteId, { deletedLocally: 1, dirty: 1 });
 			}
-			return db.opQueue.add({ connectionId: CONNECTION, attempts: 0, queuedAt: 0, ...op });
+			return db.opQueue.add({
+				connectionId: CONNECTION,
+				attempts: 0,
+				queuedAt: 0,
+				...queuedRow(op),
+			});
 		},
 		withdrawOp: (seq) => db.opQueue.delete(seq),
 	};
@@ -179,21 +187,19 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await deleteDrawing(db, 'n2', { connectionId: CONNECTION });
 
 		read.drawings = 0;
-		const under = await store.drawingsUnder('Work');
+		const under = await store.notesUnder('Work');
 		// In id order, as the whole-table read gave them; the tombstone too.
 		expect(under.map((drawing) => drawing.id)).toEqual(['n1', 'n2', 'n3']);
 		expect(read.drawings).toBe(3);
 
-		expect((await store.drawingsUnder('Work/')).map((drawing) => drawing.id)).toEqual([
+		expect((await store.notesUnder('Work/')).map((drawing) => drawing.id)).toEqual([
 			'n1',
 			'n2',
 			'n3',
 		]);
-		expect((await store.drawingsUnder('Work/Deep')).map((drawing) => drawing.id)).toEqual([
-			'n1',
-		]);
-		expect(await store.drawingsUnder('Wor')).toEqual([]);
-		expect((await store.drawingsUnder('')).map((drawing) => drawing.id).sort()).toEqual([
+		expect((await store.notesUnder('Work/Deep')).map((drawing) => drawing.id)).toEqual(['n1']);
+		expect(await store.notesUnder('Wor')).toEqual([]);
+		expect((await store.notesUnder('')).map((drawing) => drawing.id).sort()).toEqual([
 			'n1',
 			'n2',
 			'n3',
@@ -245,7 +251,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'Shopping.svg',
 					content: file,
@@ -255,7 +261,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 			],
 		});
 
-		expect((await store.drawingById('n1'))?.content).toBe(file);
+		expect((await store.noteById('n1'))?.content).toBe(file);
 		const row = await drawingById(db, 'n1');
 		expect(row?.title).toBe('Shopping');
 		expect(row?.text).toBe(file);
@@ -270,7 +276,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'before\n',
@@ -282,7 +288,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 
 		await saveDrawing(db, 'n1', svgOf('after'), { connectionId: CONNECTION });
 
-		const drawing = await store.drawingById('n1');
+		const drawing = await store.noteById('n1');
 		expect(drawing?.dirty).toBe(true);
 		expect(drawing?.content).toBe((await drawingById(db, 'n1'))?.text);
 		expect(drawing?.content).toContain('<desc>after</desc>');
@@ -293,7 +299,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		const store = await boundStore(db, { connectionId: CONNECTION });
 		const created = await createDrawing(db, { connectionId: CONNECTION, text: svgOf('hello') });
 
-		expect((await store.drawingById(created.id))?.content).toBe(created.text);
+		expect((await store.noteById(created.id))?.content).toBe(created.text);
 	});
 
 	it('finds the live drawing at a path a tombstone still holds', async () => {
@@ -324,7 +330,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 				row(liveId),
 			]);
 
-			expect((await store.drawingByPath('Plans.svg'))?.id).toBe(liveId);
+			expect((await store.noteByPath('Plans.svg'))?.id).toBe(liveId);
 		}
 	});
 
@@ -347,7 +353,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'x\n',
@@ -361,7 +367,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'y\n',
@@ -392,7 +398,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'x\n',
@@ -404,7 +410,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await deleteDrawing(db, 'n1');
 		const queued = await store.pendingOps();
 
-		await store.applyChanges({ changes: [{ kind: 'reupload-drawing', id: 'n1' }] });
+		await store.applyChanges({ changes: [{ kind: 'reupload-note', id: 'n1' }] });
 
 		const row = await drawingById(db, 'n1');
 		expect(row?.deletedLocally).toBe(1);
@@ -471,7 +477,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 			cursor: 'c1',
 		});
 
-		expect(await store.drawingById('n1')).toBeDefined();
+		expect(await store.noteById('n1')).toBeDefined();
 		expect(await store.cursor()).toBe('c1');
 	});
 
@@ -483,7 +489,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'mine\n',
@@ -491,7 +497,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 					syncedHash: 'hash',
 				},
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n2',
 					path: 'b.svg',
 					content: 'other\n',
@@ -508,7 +514,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 					{
 						kind: 'conflict',
 						resolution: {
-							drawingId: 'n1',
+							noteId: 'n1',
 							remoteContent: 'theirs\n',
 							remoteHash: 'hash',
 							remote: remote('a.svg', 'r1', 'v2'),
@@ -522,8 +528,8 @@ describe('the Dexie sync store, beyond the contract', () => {
 			})
 		).rejects.toThrow();
 
-		expect((await store.drawingById('n1'))?.content).toBe('mine\n');
-		expect((await store.drawingById('n2'))?.content).toBe('other\n');
+		expect((await store.noteById('n1'))?.content).toBe('mine\n');
+		expect((await store.noteById('n2'))?.content).toBe('other\n');
 		expect(await store.cursor()).toBe('c1');
 	});
 
@@ -535,7 +541,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 			changes: [
 				{ kind: 'ensure-folder', path: 'Work', remoteId: 'f1' },
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'Work/a.svg',
 					content: 'x\n',
@@ -555,11 +561,11 @@ describe('the Dexie sync store, beyond the contract', () => {
 		});
 
 		expect(await mine.cursor()).toBeUndefined();
-		expect(await mine.drawingById('n1')).toBeUndefined();
-		expect(await mine.drawingByPath('Work/a.svg')).toBeUndefined();
-		expect(await mine.drawingByRemoteId('r1')).toBeUndefined();
-		expect(await mine.allDrawings()).toEqual([]);
-		expect(await mine.drawingsUnder('')).toEqual([]);
+		expect(await mine.noteById('n1')).toBeUndefined();
+		expect(await mine.noteByPath('Work/a.svg')).toBeUndefined();
+		expect(await mine.noteByRemoteId('r1')).toBeUndefined();
+		expect(await mine.allNotes()).toEqual([]);
+		expect(await mine.notesUnder('')).toEqual([]);
 		expect(await mine.folderByPath('Work')).toBeUndefined();
 		expect(await mine.folderByRemoteId('f1')).toBeUndefined();
 		expect(await mine.foldersWithRemote()).toEqual([]);
@@ -569,11 +575,11 @@ describe('the Dexie sync store, beyond the contract', () => {
 		// And a change about a drawing it does not own leaves that drawing alone.
 		await mine.applyChanges({
 			changes: [
-				{ kind: 'delete-drawing', id: 'n1' },
+				{ kind: 'delete-note', id: 'n1' },
 				{ kind: 'delete-folder', path: 'Work' },
 			],
 		});
-		expect(await theirs.drawingById('n1')).toBeDefined();
+		expect(await theirs.noteById('n1')).toBeDefined();
 		expect(await theirs.folderByPath('Work')).toBeDefined();
 
 		// Nor does a folder move of its own reach the other account's queue.
@@ -581,7 +587,7 @@ describe('the Dexie sync store, beyond the contract', () => {
 			changes: [{ kind: 'move-folder', from: 'Work', to: 'Archive' }],
 		});
 		expect((await theirs.pendingOps()).map((op) => op.path)).toEqual(['Work/a.svg']);
-		expect((await theirs.drawingById('n1'))?.path).toBe('Work/a.svg');
+		expect((await theirs.noteById('n1'))?.path).toBe('Work/a.svg');
 	});
 
 	it('keeps the client id a connection already has when it stores a cursor', async () => {
@@ -611,7 +617,7 @@ const pulled = async (content = 'x\n') => {
 	await store.applyChanges({
 		changes: [
 			{
-				kind: 'upsert-drawing',
+				kind: 'upsert-note',
 				id: 'n1',
 				path: 'a.svg',
 				content,
@@ -635,7 +641,7 @@ describe('a pull that lands after the user has typed', () => {
 			store.applyChanges({
 				changes: [
 					{
-						kind: 'upsert-drawing',
+						kind: 'upsert-note',
 						id: 'n1',
 						path: 'a.svg',
 						content: 'v2\n',
@@ -658,14 +664,14 @@ describe('a pull that lands after the user has typed', () => {
 		await saveDrawing(db, 'n1', svgOf('typed meanwhile'), { connectionId: CONNECTION });
 
 		await expect(
-			store.applyChanges({ changes: [{ kind: 'delete-drawing', id: 'n1' }] })
+			store.applyChanges({ changes: [{ kind: 'delete-note', id: 'n1' }] })
 		).rejects.toThrow();
 		expect((await drawingById(db, 'n1'))?.text).toContain('typed meanwhile');
 	});
 
 	it('makes the conflict copy from what was typed, not from what was read', async () => {
 		const { db, store } = await pulled();
-		const before = (await store.drawingById('n1'))?.content ?? '';
+		const before = (await store.noteById('n1'))?.content ?? '';
 		await saveDrawing(db, 'n1', svgOf('typed meanwhile'), { connectionId: CONNECTION });
 
 		await store.applyChanges({
@@ -673,7 +679,7 @@ describe('a pull that lands after the user has typed', () => {
 				{
 					kind: 'conflict',
 					resolution: {
-						drawingId: 'n1',
+						noteId: 'n1',
 						remoteContent: 'theirs\n',
 						remoteHash: 'hash',
 						remote: remote('a.svg', 'r1', 'v2'),
@@ -706,7 +712,7 @@ describe('another connection’s drawing under the same id', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: theirs.id,
 					path: 'a.svg',
 					content: 'remote\n',
@@ -728,7 +734,7 @@ describe('another connection’s drawing under the same id', () => {
 			changes: [
 				{ kind: 'ensure-folder', path: 'Work', remoteId: 'f1' },
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'Work/a.svg',
 					content: 'x\n',
@@ -748,15 +754,15 @@ describe('another connection’s drawing under the same id', () => {
 
 		await mine.applyChanges({
 			changes: [
-				{ kind: 'detach-drawing', id: 'n1' },
-				{ kind: 'displace-drawing', id: 'n1', path: 'moved.svg' },
+				{ kind: 'detach-note', id: 'n1' },
+				{ kind: 'displace-note', id: 'n1', path: 'moved.svg' },
 				{ kind: 'move-folder', from: 'Work', to: 'Archive', remoteId: 'f9' },
 			],
 		});
-		await expect(mine.completeOp(seq, { kind: 'purged', drawingId: 'n1' })).rejects.toThrow();
+		await expect(mine.completeOp(seq, { kind: 'purged', noteId: 'n1' })).rejects.toThrow();
 		await expect(
 			mine.resolveConflict(seq, {
-				drawingId: 'n1',
+				noteId: 'n1',
 				remoteContent: 'y\n',
 				remoteHash: 'hash',
 				remote: remote('Work/a.svg'),
@@ -766,7 +772,7 @@ describe('another connection’s drawing under the same id', () => {
 			})
 		).rejects.toThrow();
 
-		const drawing = await theirs.drawingById('n1');
+		const drawing = await theirs.noteById('n1');
 		expect(drawing?.path).toBe('Work/a.svg');
 		expect(drawing?.remoteId).toBe('r1');
 		expect((await theirs.folderByPath('Work'))?.remoteId).toBe('f1');
@@ -781,8 +787,8 @@ describe('another connection’s drawing under the same id', () => {
 			attempts: 0,
 			queuedAt: 0,
 		});
-		await mine.completeOp(own, { kind: 'purged', drawingId: 'n1' });
-		expect(await theirs.drawingById('n1')).toMatchObject({ remoteId: 'r1', dirty: false });
+		await mine.completeOp(own, { kind: 'purged', noteId: 'n1' });
+		expect(await theirs.noteById('n1')).toMatchObject({ remoteId: 'r1', dirty: false });
 		expect((await theirs.pendingOps()).map((op) => op.seq)).toEqual([seq]);
 		expect(await mine.opBySeq(seq)).toBeUndefined();
 		expect(await theirs.opBySeq(seq)).toMatchObject({ seq, op: 'delete' });
@@ -803,6 +809,8 @@ describe('two connected sources holding one drawing id', () => {
 		const provider = createFakeProvider();
 		await provider.ensureRoot();
 		const engine = createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
 			provider,
 			store,
 			now: () => new Date('2026-09-15T14:32:00Z'),
@@ -870,6 +878,8 @@ describe('a drawing deleted here', () => {
 		const provider = createFakeProvider();
 		await provider.ensureRoot();
 		const engine = createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
 			provider,
 			store,
 			now: () => new Date('2026-09-15T14:32:00Z'),
@@ -897,14 +907,14 @@ describe('a drawing deleted here', () => {
 		const [remove] = await store.pendingOps();
 		await restored(db, 'n1');
 
-		await store.completeOp(remove?.seq ?? -1, { kind: 'purged', drawingId: 'n1' });
+		await store.completeOp(remove?.seq ?? -1, { kind: 'purged', noteId: 'n1' });
 
 		const row = await drawingById(db, 'n1');
 		expect(row?.deletedLocally).toBe(0);
 		expect(row?.remoteId).toBeUndefined();
 		expect(row?.dirty).toBe(1);
 		// The file is gone, so the drawing is owed one: exactly one.
-		expect(await store.pendingOps()).toMatchObject([{ op: 'write', drawingId: 'n1' }]);
+		expect(await store.pendingOps()).toMatchObject([{ op: 'write', noteId: 'n1' }]);
 	});
 
 	it('goes when the remote deletes it too', async () => {
@@ -914,7 +924,7 @@ describe('a drawing deleted here', () => {
 		const { db, store } = await pulled();
 		await deleteDrawing(db, 'n1');
 
-		await store.applyChanges({ changes: [{ kind: 'delete-drawing', id: 'n1' }], cursor: 'c2' });
+		await store.applyChanges({ changes: [{ kind: 'delete-note', id: 'n1' }], cursor: 'c2' });
 
 		expect(await drawingById(db, 'n1')).toBeUndefined();
 		expect(await store.cursor()).toBe('c2');
@@ -933,7 +943,7 @@ describe('a drawing deleted here', () => {
 		const { db, store } = await pulled();
 		await saveDrawing(db, 'n1', svgOf('edited then deleted'), { connectionId: CONNECTION });
 		const [write] = await store.pendingOps();
-		const read = (await store.drawingById('n1'))?.content ?? '';
+		const read = (await store.noteById('n1'))?.content ?? '';
 		// A second write, owed to an edit made while the first was in flight.
 		await db.opQueue.add({
 			connectionId: CONNECTION,
@@ -947,7 +957,7 @@ describe('a drawing deleted here', () => {
 		const remove = (await db.opQueue.toArray()).find((op) => op.op === 'delete')?.seq;
 
 		await store.resolveConflict(write?.seq ?? -1, {
-			drawingId: 'n1',
+			noteId: 'n1',
 			remoteContent: 'theirs\n',
 			remoteHash: 'hash',
 			remote: remote('a.svg', 'r1', 'v2'),
@@ -973,7 +983,7 @@ describe('a drawing deleted here', () => {
 			changes: [
 				{ kind: 'ensure-folder', path: 'Work', remoteId: 'f1' },
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'Work/a.svg',
 					content: 'x\n',
@@ -992,12 +1002,12 @@ describe('a drawing deleted here', () => {
 	it('is clean as far as a pull is concerned, and written back clean', async () => {
 		const { db, store } = await pulled();
 		await deleteDrawing(db, 'n1');
-		expect((await store.drawingById('n1'))?.dirty).toBe(false);
+		expect((await store.noteById('n1'))?.dirty).toBe(false);
 
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'v2\n',
@@ -1019,7 +1029,7 @@ describe('where a change puts a drawing', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n2',
 					path: 'b.svg',
 					content: 'b\n',
@@ -1027,7 +1037,7 @@ describe('where a change puts a drawing', () => {
 					syncedHash: 'hash',
 				},
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n3',
 					path: 'c.svg',
 					content: 'c\n',
@@ -1035,23 +1045,23 @@ describe('where a change puts a drawing', () => {
 					syncedHash: 'hash',
 				},
 				{
-					kind: 'move-drawing',
+					kind: 'move-note',
 					id: 'n1',
 					path: 'Moved/a.svg',
 					remote: remote('Moved/a.svg'),
 				},
-				{ kind: 'displace-drawing', id: 'n2', path: 'Displaced/b.svg' },
+				{ kind: 'displace-note', id: 'n2', path: 'Displaced/b.svg' },
 				{ kind: 'ensure-folder', path: 'Deep/Er/Est', remoteId: 'f1' },
 			],
 		});
 		await updateDrawing(db, 'n3', { dirty: 1 });
-		const content = (await store.drawingById('n3'))?.content ?? '';
+		const content = (await store.noteById('n3'))?.content ?? '';
 		await store.applyChanges({
 			changes: [
 				{
 					kind: 'conflict',
 					resolution: {
-						drawingId: 'n3',
+						noteId: 'n3',
 						remoteContent: 'theirs\n',
 						remoteHash: 'hash',
 						remote: remote('Remote/c.svg', 'r3', 'v2'),
@@ -1074,21 +1084,21 @@ describe('where a change puts a drawing', () => {
 			'Remote',
 		]);
 		// The remote takes the path it claims.
-		expect((await store.drawingById('n3'))?.path).toBe('Remote/c.svg');
+		expect((await store.noteById('n3'))?.path).toBe('Remote/c.svg');
 	});
 
 	it('keeps what the app knows about a drawing the remote wins a conflict over', async () => {
 		const { db, store } = await pulled();
 		await updateDrawing(db, 'n1', { createdAt: 42 });
 		await saveDrawing(db, 'n1', svgOf('mine'), { connectionId: CONNECTION });
-		const content = (await store.drawingById('n1'))?.content ?? '';
+		const content = (await store.noteById('n1'))?.content ?? '';
 
 		await store.applyChanges({
 			changes: [
 				{
 					kind: 'conflict',
 					resolution: {
-						drawingId: 'n1',
+						noteId: 'n1',
 						remoteContent: 'theirs\n',
 						remoteHash: 'hash',
 						remote: remote('a.svg', 'r1', 'v2'),
@@ -1118,10 +1128,10 @@ describe('where a change puts a drawing', () => {
 		});
 		await store.completeOp(seq, {
 			kind: 'moved',
-			drawingId: 'n1',
+			noteId: 'n1',
 			remote: remote('b.svg', 'r1', 'v2'),
 		});
-		expect((await store.drawingById('n1'))?.path).toBe('b.svg');
+		expect((await store.noteById('n1'))?.path).toBe('b.svg');
 
 		await store.applyChanges({
 			changes: [{ kind: 'ensure-folder', path: 'Work', remoteId: 'f1' }],
@@ -1144,7 +1154,7 @@ describe('where a change puts a drawing', () => {
 			store.applyChanges({
 				changes: [
 					{
-						kind: 'upsert-drawing',
+						kind: 'upsert-note',
 						id: 'n1',
 						path: 'Work/a.svg',
 						content: 'x\n',
@@ -1166,7 +1176,7 @@ describe('where a change puts a drawing', () => {
 		await store.applyChanges({
 			changes: [
 				{
-					kind: 'upsert-drawing',
+					kind: 'upsert-note',
 					id: 'n1',
 					path: 'a.svg',
 					content: 'x\n',
@@ -1179,7 +1189,7 @@ describe('where a change puts a drawing', () => {
 		await db.syncState.update(CONNECTION, { resumeUnverified: true });
 
 		await expect(
-			store.applyChanges({ changes: [{ kind: 'delete-drawing', id: 'n1' }], cursor: 'c2' })
+			store.applyChanges({ changes: [{ kind: 'delete-note', id: 'n1' }], cursor: 'c2' })
 		).rejects.toThrow(UnverifiedResumeError);
 
 		expect(await db.drawings.count()).toBe(1);
@@ -1216,7 +1226,15 @@ describe('a queued op read back (skysa-notes #447)', () => {
 
 		const ops = await store.pendingOps();
 
-		expect(ops).toEqual(rows.map((row, at) => ({ ...row, seq: at + 1, attempts: 2 })));
+		// Under the port's names: a row's `drawingId` is the op's `noteId` (`QueuedOp`).
+		expect(ops).toEqual(
+			rows.map(({ drawingId, ...row }: Record<string, unknown>, at) => ({
+				...row,
+				...(drawingId === undefined ? {} : { noteId: drawingId }),
+				seq: at + 1,
+				attempts: 2,
+			}))
+		);
 	});
 
 	it('reads a row that fits no kind as malformed, and the rest as they are', async () => {
@@ -1243,7 +1261,7 @@ describe('a queued op read back (skysa-notes #447)', () => {
 				attempts: 0,
 				problem: expect.stringContaining('teleport') as unknown,
 			},
-			{ op: 'write', seq: later + 1, drawingId: 'n1', path: 'a.svg', attempts: 0 },
+			{ op: 'write', seq: later + 1, noteId: 'n1', path: 'a.svg', attempts: 0 },
 		]);
 		expect(await store.opBySeq(lost)).toMatchObject({ op: 'malformed' });
 		// Kept, for the engine to fail and the user to be told of.

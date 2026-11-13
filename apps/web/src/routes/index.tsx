@@ -1,4 +1,5 @@
-import { ENTITLEMENT_CODES, normalizePath, ROOT } from '@skysa/draw-core';
+import { ENTITLEMENT_CODES } from '@skysa/protocol';
+import { normalizePath, ROOT } from '@skysa/storage';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { z } from 'zod';
 

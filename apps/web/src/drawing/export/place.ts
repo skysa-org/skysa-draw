@@ -1,13 +1,12 @@
 import {
 	DEFAULT_DRAWING_SIZE,
 	type DrawingSize,
-	extensionOf,
 	imageInfo,
 	isDrawingText,
-	mediaOf,
 	type PictureInfo,
 	readDrawingSize,
 } from '@skysa/draw-core';
+import { extensionOf, mediaOf } from '@skysa/storage';
 
 import { addLayer, compound, renameLayer, replaceRasterImage } from '../document/commands.js';
 import type { Command, EditorDocument } from '../document/model.js';
@@ -106,7 +105,7 @@ const fitted = (size: DrawingSize, box: Box): Box => {
 	};
 };
 
-/** A name's extension, as core reads one (`names/extension.ts`): not a leading dot. */
+/** A name's extension, as the kit's `extensionOf` reads one: not a leading dot. */
 const EXTENSION = /\.[^./\\\s]{1,16}$/u;
 
 /** The layer's name: a file's name without its extension. A blob pasted has none. */

@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { toHex } from '../../../components/ui/color.js';
 import { editLayer } from '../../document/commands.js';

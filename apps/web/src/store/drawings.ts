@@ -1,17 +1,13 @@
 import {
-	basename,
 	emptyDrawing,
 	isDrawingText,
-	joinPath,
-	parentPath,
 	readDrawingId,
 	readDrawingTitle,
-	replaceBasename,
-	ROOT,
 	titleFromFilename,
 	uniqueFilename,
 	withDrawingTitle,
 } from '@skysa/draw-core';
+import { basename, joinPath, parentPath, replaceBasename, ROOT } from '@skysa/storage';
 import Dexie from 'dexie';
 
 import {

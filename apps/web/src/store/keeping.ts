@@ -1,5 +1,6 @@
+import { createStore } from '@skysa/client';
+
 import type { DrawDatabase } from './db.js';
-import { createStore } from './emitter.js';
 
 /**
  * Asking the browser to keep this device's drawings.

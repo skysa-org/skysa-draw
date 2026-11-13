@@ -1,15 +1,15 @@
+import { conflictPath } from '@skysa/draw-core';
+import type { ProviderKind } from '@skysa/protocol';
 import {
 	ancestorPaths,
 	basename,
 	conflictFilePath,
-	conflictPath,
 	isNotFoundError,
 	isUnreadableError,
 	joinPath,
 	parentPath,
-	type ProviderKind,
 	type StorageProvider,
-} from '@skysa/draw-core';
+} from '@skysa/storage';
 import type { PromiseExtended } from 'dexie';
 
 import {

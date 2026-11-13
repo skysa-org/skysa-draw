@@ -1,5 +1,4 @@
-import type { ApiClient } from '../../api/client.js';
-import type { SyncScheduler } from '../../sync/scheduler.js';
+import type { ApiClient, SyncScheduler } from '@skysa/client';
 
 /**
  * The parts of the API client and the scheduler the account panel uses. The

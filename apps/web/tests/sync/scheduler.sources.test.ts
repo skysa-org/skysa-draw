@@ -1,7 +1,8 @@
+import { reaches, stopSchedulers } from '@skysa/client/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { FileRead } from '../../src/sync/fileReads.js';
-import { bound, reaches, started, stopSchedulers } from '../support/scheduler.js';
+import { bound, started } from '../support/scheduler.js';
 
 afterEach(stopSchedulers);
 

@@ -1,4 +1,5 @@
-import { bytesHash, withDrawingId } from '@skysa/draw-core';
+import { withDrawingId } from '@skysa/draw-core';
+import { bytesHash } from '@skysa/storage';
 
 /**
  * What the digest worker does (`./digest.worker.ts` runs it, `./digest.ts`

@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 import { useId, useState } from 'react';
 
 import { useApply } from '../../components/ui/Applying.js';

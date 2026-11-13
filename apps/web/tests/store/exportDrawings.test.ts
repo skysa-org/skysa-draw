@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { contentHash, createSyncEngine, isHidden } from '@skysa/draw-core';
-import { createFakeProvider } from '@skysa/draw-core/testing';
+import { DRAW_FORMAT, syncsHidden } from '@skysa/draw-core';
+import { contentHash, isHidden } from '@skysa/storage';
+import { createFakeProvider } from '@skysa/storage/testing';
+import { createSyncEngine } from '@skysa/sync';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { bindConnection } from '../../src/store/connection.js';
@@ -1073,6 +1075,8 @@ describe('a whole source', () => {
 		const provider = createFakeProvider();
 		await provider.ensureRoot();
 		await createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
 			provider,
 			store: createDexieSyncStore(db, { connectionId: 'dropbox-1' }),
 		}).sync();

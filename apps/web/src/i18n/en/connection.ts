@@ -30,9 +30,9 @@ export const connection = {
 	},
 	/**
 	 * How far a long run has got, as a sentence that names the source
-	 * (`runSentence` in `sync/progress.ts`). A sync sends and receives changes;
-	 * a first import uploads and downloads drawings. Both say the listing alike.
-	 * `{done}` of `{total}` so far.
+	 * (`runSentence` in `components/account/statusWords.ts`). A sync sends and
+	 * receives changes; a first import uploads and downloads drawings. Both say
+	 * the listing alike. `{done}` of `{total}` so far.
 	 */
 	progress: {
 		looking: {

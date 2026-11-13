@@ -16,7 +16,6 @@ import { raster } from './raster.js';
 import { redEye } from './redEye.js';
 import { regions } from './regions.js';
 import { remove } from './remove.js';
-import { scheduler } from './scheduler.js';
 import { selection } from './selection.js';
 import { shell } from './shell.js';
 import { sources } from './sources.js';
@@ -50,7 +49,6 @@ export const en = {
 	exporting,
 	image,
 	connection,
-	scheduler,
 	account,
 	connect,
 	sources,

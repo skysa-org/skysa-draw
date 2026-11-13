@@ -1,4 +1,4 @@
-import { type Cell, cell } from '@skysa/draw-core';
+import { type Cell, cell } from '@skysa/storage';
 
 /**
  * A value the viewport's handlers write and React reads through

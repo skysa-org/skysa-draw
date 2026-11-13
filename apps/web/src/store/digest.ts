@@ -1,4 +1,4 @@
-import { cell, contentHash } from '@skysa/draw-core';
+import { cell, contentHash } from '@skysa/storage';
 
 import { type DigestReply, type DigestRequest, fileOf } from './digestAnswer.js';
 

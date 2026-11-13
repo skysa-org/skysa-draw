@@ -1,5 +1,5 @@
-import type { InstanceConfig } from '../../api/client.js';
-import { answer, type Asked } from '../../api/instanceConfig.js';
+import { answer, type Asked, type InstanceConfig } from '@skysa/client';
+
 import { t } from '../../i18n/t.js';
 import type { SyncStateRecord } from '../../store/db.js';
 import type { Unsynced } from '../../store/unsynced.js';
@@ -56,8 +56,7 @@ export const Detached = ({
 	const reconnectable =
 		provider !== undefined &&
 		CONNECTABLE.includes(provider) &&
-		settings?.authMode === 'storage-first' &&
-		settings.providers.includes(provider);
+		settings?.providers.includes(provider) === true;
 	return (
 		<>
 			{/*

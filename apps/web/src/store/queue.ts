@@ -1,13 +1,7 @@
-import {
-	ancestorPaths,
-	foldName,
-	type NewSyncOp,
-	parentPath,
-	pathSegments,
-} from '@skysa/draw-core';
+import { ancestorPaths, foldName, parentPath, pathSegments } from '@skysa/storage';
 import Dexie, { type PromiseExtended } from 'dexie';
 
-import type { DrawDatabase, DrawingRecord, FileRecord, OpQueueRecord } from './db.js';
+import type { DrawDatabase, DrawingRecord, FileRecord, OpQueueRecord, QueuedOp } from './db.js';
 import { isTombstone } from './rowStates.js';
 
 /**
@@ -27,6 +21,12 @@ import { isTombstone } from './rowStates.js';
  *   op, so one queued write covers every edit made before it runs, and a drawing
  *   edited again while its write is in flight is left dirty by the store and
  *   owed a fresh write (`settle` in `sync/store.ts`).
+ * - **A write may be lazy.** An app whose changes come every few seconds
+ *   queues them lazily, and the scheduler sends a lazy write with the next
+ *   sync rather than straight after (docs/ARCHITECTURE.md §7, "When a push
+ *   goes"). This app queues none. An edit that finds only a lazy write queued
+ *   replaces it with one that is not, at the back of the queue, which is how
+ *   the scheduler sees it.
  * - **A move says where the drawing is going, so a second rename replaces it.**
  *   Two moves queued for one drawing would move the file to the first name and
  *   back again, and a write addressed to the second name would find nothing
@@ -88,33 +88,10 @@ type QueueDb = Pick<DrawDatabase, 'opQueue'>;
  *
  * Here rather than in the scheduler because it is a fact about the queue, and
  * more than the scheduler asks it: `store/unsynced.ts` has to say "these cannot
- * be sent right now" by the same rule the status line does, or the two disagree
- * about the same op.
+ * be sent right now" by the same rule the status line does (`outOfAttempts`,
+ * the engine's), or the two disagree about the same op.
  */
 export const MAX_OP_ATTEMPTS = 8;
-
-/**
- * Whether an op has been given up on for now, and is holding up everything
- * queued behind it. The one statement of the rule: the engine stops a batch at
- * `attempts >= maxAttempts` (`drainOps` in
- * `packages/core/src/sync/push/drain.ts`), the scheduler names the op by it,
- * and what is unsynced is called blocked by it.
- *
- * Never an `rmdir`, because the engine makes the same exception: one that is
- * out of attempts is completed as done and stepped over — it tidies an empty
- * directory away, nothing behind it depends on that, and it is not the user's
- * work. Calling it blocked here would tell the user their drawings cannot be sent
- * while the engine is about to send them.
- *
- * An `upload` is the other exception, and only half of one. The engine steps
- * over it too, so it holds nothing up — but it is the only copy of the file,
- * so it is kept, and the run ends `blocked` on its account (`drained` in the
- * engine). So it counts here: the status line and this rule must agree.
- */
-export const outOfAttempts = (
-	op: Pick<OpQueueRecord, 'op' | 'attempts'>,
-	maxAttempts: number = MAX_OP_ATTEMPTS
-): boolean => op.op !== 'rmdir' && op.attempts >= maxAttempts;
 
 // Every helper here returns the promise Dexie made rather than being an `async`
 // function. They run inside the writers' transactions, often straight after a
@@ -157,28 +134,44 @@ const atPath = (
 
 const nothing = (): Queued => Dexie.Promise.resolve();
 
-const add = (db: QueueDb, op: NewSyncOp & { connectionId: string }): Queued =>
+const add = (db: QueueDb, op: QueuedOp & Pick<OpQueueRecord, 'connectionId' | 'lazy'>): Queued =>
 	db.opQueue.add({ attempts: 0, queuedAt: Date.now(), ...op }).then(() => undefined);
+
+/** When a write is to be sent: soon after it was made, or with the next sync. */
+export type Timing = 'soon' | 'lazy';
 
 /**
  * The drawing's contents have changed. One queued write is enough, however many
- * edits land before it runs. `except` is an op that is finishing, which does not
- * count as still queued.
+ * edits land before it runs, and it is lazy only while every one of them was.
+ * `except` is an op that is finishing, which does not count as still queued.
  */
-export const queueWrite = (db: QueueDb, drawing: DrawingRecord, except?: number): Queued =>
+export const queueWrite = (
+	db: QueueDb,
+	drawing: DrawingRecord,
+	except?: number,
+	timing: Timing = 'soon'
+): Queued => {
 	// A tombstone owes the remote its delete and nothing else.
-	isTombstone(drawing)
-		? nothing()
-		: opsFor(db, drawing).then((queued) =>
-				queued.some((op) => op.op === 'write' && op.seq !== except)
-					? undefined
-					: add(db, {
-							connectionId: drawing.connectionId,
-							op: 'write',
-							drawingId: drawing.id,
-							path: drawing.path,
-						})
-			);
+	if (isTombstone(drawing)) return nothing();
+	return opsFor(db, drawing).then((ops) => {
+		const queued = ops.filter((op) => op.op === 'write' && op.seq !== except);
+		const lazy = timing === 'lazy';
+		if (queued.length > 0 && (lazy || queued.some((op) => op.lazy !== true))) {
+			return undefined;
+		}
+		// Withdrawn even while it is on its way: the store finds the drawing
+		// changed again when it lands, and this write is owed it.
+		return db.opQueue.bulkDelete(seqsOf(queued)).then(() =>
+			add(db, {
+				connectionId: drawing.connectionId,
+				op: 'write',
+				drawingId: drawing.id,
+				path: drawing.path,
+				...(lazy ? { lazy: true as const } : {}),
+			})
+		);
+	});
+};
 
 /**
  * The drawing is now at `drawing.path`, having been at `from`. Replaces any move

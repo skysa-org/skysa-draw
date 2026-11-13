@@ -1,3 +1,4 @@
+import { hashCredential } from '@skysa/client';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -9,7 +10,6 @@ import {
 	finishImport,
 	showConnection,
 } from '../../src/store/connection.js';
-import { hashCredential } from '../../src/store/credentials.js';
 import { PENDING_CREDENTIAL_ID } from '../../src/store/db.js';
 import { createDrawing } from '../../src/store/drawings.js';
 import { freshDatabase } from '../support/db.js';
@@ -60,9 +60,7 @@ describe('the account panel, with nothing connected', () => {
 	});
 
 	it('asks the server what it offers once, for the sources and the panel together', async () => {
-		const config = vi.fn(() =>
-			Promise.resolve({ authMode: 'storage-first' as const, providers: ['dropbox' as const] })
-		);
+		const config = vi.fn(() => Promise.resolve({ providers: ['dropbox' as const] }));
 		renderPanel(clientWith({ config }), freshDatabase());
 
 		await screen.findByText(NOTHING_CONNECTED);

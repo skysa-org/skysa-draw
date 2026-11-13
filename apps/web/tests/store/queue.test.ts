@@ -1,5 +1,7 @@
-import { createSyncEngine, isHidden, type StorageProvider } from '@skysa/draw-core';
-import { createFakeProvider, type FakeProvider } from '@skysa/draw-core/testing';
+import { DRAW_FORMAT, syncsHidden } from '@skysa/draw-core';
+import { isHidden, type StorageProvider } from '@skysa/storage';
+import { createFakeProvider, type FakeProvider } from '@skysa/storage/testing';
+import { createSyncEngine } from '@skysa/sync';
 import { describe, expect, it } from 'vitest';
 
 import type { DrawDatabase, OpQueueRecord } from '../../src/store/db.js';
@@ -16,7 +18,7 @@ import { rowsOf } from '../../src/store/rows.js';
 import { isLive } from '../../src/store/rowStates.js';
 import { createDexieSyncStore, type DexieSyncStoreOptions } from '../../src/sync/store.js';
 import { freshDatabase } from '../support/db.js';
-import { importedFile, svgOf, updateDrawing } from '../support/drawingRows.js';
+import { importedFile, lazily, svgOf, updateDrawing } from '../support/drawingRows.js';
 
 const CONNECTION = 'dropbox-1';
 const scope = { connectionId: CONNECTION };
@@ -179,7 +181,13 @@ const connected = async () => {
 	const fake = createFakeProvider();
 	await fake.ensureRoot();
 	const engineOver = (provider: StorageProvider) =>
-		createSyncEngine({ provider, store, now: () => new Date('2026-09-16T10:00:00Z') });
+		createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
+			provider,
+			store,
+			now: () => new Date('2026-09-16T10:00:00Z'),
+		});
 	return { db, store, fake, engine: engineOver(fake), engineOver };
 };
 
@@ -400,6 +408,117 @@ describe('local changes made while a push is in flight', () => {
 	});
 });
 
+/** What is queued, as `op path`, with ` (lazy)` after a lazy write, in order. */
+const queuedOps = async (db: DrawDatabase): Promise<string[]> =>
+	(await db.opQueue.orderBy('seq').toArray()).map(
+		(op) => `${op.op} ${op.path}${op.lazy === true ? ' (lazy)' : ''}`
+	);
+
+describe('a lazy write, and an edit’s (§7, "When a push goes")', () => {
+	// This app queues no write lazily; an app whose changes come every few
+	// seconds does, and the queue keeps the rules for both (`queueWrite`).
+	it('queues a lazy change lazily, once however many there are', async () => {
+		const { db, engine } = await connected();
+		const drawing = await createDrawing(db, {
+			...scope,
+			title: 'Plan',
+			text: svgOf('# Plan\n'),
+		});
+		await engine.sync();
+
+		await lazily(db, drawing.id, svgOf('# Plan\n\none\n'));
+		await lazily(db, drawing.id, svgOf('# Plan\n\ntwo\n'));
+
+		expect(await queuedOps(db)).toEqual([`write ${drawing.path} (lazy)`]);
+	});
+
+	it('puts an edit’s write in place of a lazy one, at the back of the queue', async () => {
+		const { db, fake, engine } = await connected();
+		const drawing = await createDrawing(db, {
+			...scope,
+			title: 'Plan',
+			text: svgOf('# Plan\n'),
+		});
+		const other = await createDrawing(db, {
+			...scope,
+			title: 'Other',
+			text: svgOf('# Other\n'),
+		});
+		await engine.sync();
+		await lazily(db, drawing.id, svgOf('# Plan\n\none\n'));
+		await lazily(db, other.id, svgOf('# Other\n\none\n'));
+
+		await saveDrawing(db, drawing.id, svgOf('# Plan\n\ntwo\n'), scope);
+
+		expect(await queuedOps(db)).toEqual([
+			`write ${other.path} (lazy)`,
+			`write ${drawing.path}`,
+		]);
+		expect((await engine.sync()).status).toBe('ok');
+		await expectMirrored(db, fake);
+		expect(fake.contentAt(drawing.path)).toContain('two');
+	});
+
+	it('leaves an edit’s write as it is when a lazy change follows it', async () => {
+		const { db, engine } = await connected();
+		const drawing = await createDrawing(db, {
+			...scope,
+			title: 'Plan',
+			text: svgOf('# Plan\n'),
+		});
+		await engine.sync();
+		await saveDrawing(db, drawing.id, svgOf('# Plan\n\none\n'), scope);
+
+		await lazily(db, drawing.id, svgOf('# Plan\n\ntwo\n'));
+
+		expect(await queuedOps(db)).toEqual([`write ${drawing.path}`]);
+	});
+
+	it('owes a lazy write for a lazy change made while the last one’s was on its way', async () => {
+		const { db, fake, engineOver } = await connected();
+		const drawing = await createDrawing(db, {
+			...scope,
+			title: 'Plan',
+			text: svgOf('# Plan\n'),
+		});
+		await engineOver(fake).sync();
+		await lazily(db, drawing.id, svgOf('# Plan\n\none\n'));
+		const engine = engineOver(
+			inFlight(fake, 'write', () => lazily(db, drawing.id, svgOf('# Plan\n\ntwo\n')))
+		);
+
+		await engine.sync();
+
+		expect(await queuedOps(db)).toEqual([`write ${drawing.path} (lazy)`]);
+		expect((await engine.sync()).status).toBe('ok');
+		await expectMirrored(db, fake);
+		expect(fake.contentAt(drawing.path)).toContain('two');
+	});
+
+	it('sends an edit made while a lazy write was on its way, and not lazily', async () => {
+		const { db, fake, engineOver } = await connected();
+		const drawing = await createDrawing(db, {
+			...scope,
+			title: 'Plan',
+			text: svgOf('# Plan\n'),
+		});
+		await engineOver(fake).sync();
+		await lazily(db, drawing.id, svgOf('# Plan\n\none\n'));
+		const engine = engineOver(
+			inFlight(fake, 'write', () =>
+				saveDrawing(db, drawing.id, svgOf('# Plan\n\ntwo\n'), scope)
+			)
+		);
+
+		await engine.sync();
+
+		expect(await queuedOps(db)).toEqual([`write ${drawing.path}`]);
+		expect((await engine.sync()).status).toBe('ok');
+		await expectMirrored(db, fake);
+		expect(fake.contentAt(drawing.path)).toContain('two');
+	});
+});
+
 describe('an op the user has moved on from, settled', () => {
 	it('leaves a queued move where it stands behind the write it follows', async () => {
 		const db = freshDatabase();
@@ -411,7 +530,7 @@ describe('an op the user has moved on from, settled', () => {
 
 		await store.completeOp(write!.seq, {
 			kind: 'pushed',
-			drawingId: drawing.id,
+			noteId: drawing.id,
 			// Where the write found the file, which is not where the drawing is.
 			remote: {
 				remoteId: renamed?.remoteId ?? '',
@@ -580,10 +699,18 @@ describe('a drawing deleted before its write was ever sent, on two devices', () 
 		});
 		await deleteDrawing(mine, dropped.id);
 
-		const other = createSyncEngine({ provider: fake, store: theirsStore, now });
+		const other = createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
+			provider: fake,
+			store: theirsStore,
+			now,
+		});
 		// Their push happens while my file is at the path, if mine ever puts
 		// one there — which is the whole question.
 		const engine = createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
 			provider: inFlight(fake, 'write', () => other.push()),
 			store: mineStore,
 			now,

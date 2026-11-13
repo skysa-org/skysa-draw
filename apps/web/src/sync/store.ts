@@ -1,24 +1,18 @@
+import { conflictContent } from '@skysa/draw-core';
+import { basename, isWithin, normalizePath, parentPath, rebasePath, ROOT } from '@skysa/storage';
 import {
-	basename,
-	conflictContent,
 	type ConflictResolution,
 	isFileChange,
-	isWithin,
-	type NewSyncOp,
-	normalizePath,
 	type OpOutcome,
-	parentPath,
 	type PullBatch,
 	type PullChange,
-	rebasePath,
-	ROOT,
-	type SyncDrawing,
 	type SyncFile,
 	type SyncFolder,
+	type SyncNote,
 	type SyncOp,
 	type SyncStore,
 	type UnreadableFile,
-} from '@skysa/draw-core';
+} from '@skysa/sync';
 import Dexie from 'dexie';
 import { z } from 'zod';
 
@@ -31,6 +25,7 @@ import {
 	type FileRecord,
 	type FolderRecord,
 	type OpQueueRecord,
+	type QueuedOp,
 	type SyncStateRecord,
 } from '../store/db.js';
 import { deletedHere } from '../store/deletedHere.js';
@@ -50,12 +45,17 @@ import { writerTables } from '../store/scopes.js';
  * One store per connection: every read and write here is scoped to
  * `connectionId`, so two accounts never see each other's drawings, folders, ops or
  * cursor. The engine's promises that the type cannot state are checked by the
- * contract suite in `packages/core/tests/sync/storeContract.ts`, registered
- * against this store in `apps/web/tests/sync/syncStore.test.ts`.
+ * kit's contract suite (`describeSyncStoreContract`, `@skysa/sync/testing`),
+ * registered against this store in `apps/web/tests/sync/syncStore.test.ts`.
  *
  * Tombstones are drawings like any other here. The port asks every read to see a
  * drawing whose delete is still queued, because the row is what carries the
  * `remoteId` the delete needs; the UI is what hides them.
+ *
+ * Its documents are drawings, and it is the app's, not the kit's
+ * (skysa-notes' record 0018): it holds each file's text whole in a
+ * drawing's row, so a conflict copy is a drawing's (`conflictContent`,
+ * `DRAW_FORMAT`'s) rather than a format's it is handed.
  */
 
 /**
@@ -107,7 +107,7 @@ type Scope = Pick<
  */
 const isDirty = (drawing: DrawingRecord): boolean => drawing.dirty === 1 && isLive(drawing);
 
-const toSyncDrawing = (drawing: DrawingRecord): SyncDrawing => ({
+const toSyncNote = (drawing: DrawingRecord): SyncNote => ({
 	id: drawing.id,
 	path: drawing.path,
 	content: drawingFile(drawing),
@@ -132,9 +132,9 @@ const toSyncFolder = (folder: FolderRecord): SyncFolder => ({
  */
 const queued = { seq: z.number(), path: z.string(), attempts: z.number() };
 const opSchema = z.discriminatedUnion('op', [
-	z.object({ ...queued, op: z.literal('write'), drawingId: z.string() }),
-	z.object({ ...queued, op: z.literal('move'), drawingId: z.string(), targetPath: z.string() }),
-	z.object({ ...queued, op: z.literal('delete'), drawingId: z.string() }),
+	z.object({ ...queued, op: z.literal('write'), noteId: z.string() }),
+	z.object({ ...queued, op: z.literal('move'), noteId: z.string(), targetPath: z.string() }),
+	z.object({ ...queued, op: z.literal('delete'), noteId: z.string() }),
 	z.object({ ...queued, op: z.literal('mkdir') }),
 	z.object({ ...queued, op: z.literal('rmdir'), remoteId: z.string().optional() }),
 	z.object({
@@ -152,9 +152,17 @@ const opSchema = z.discriminatedUnion('op', [
 	z.object({ ...queued, op: z.literal('delete-file'), remoteId: z.string() }),
 ]) satisfies z.ZodType<Exclude<SyncOp, { op: 'malformed' }>>;
 
+/**
+ * A row's fields under the port's names: the drawing an op is for is the kit's
+ * `noteId`, its word for any app's document, where this table has always said
+ * `drawingId` (`QueuedOp`).
+ */
+const portShaped = ({ drawingId, ...record }: OpQueueRecord) =>
+	drawingId === undefined ? record : { ...record, noteId: drawingId };
+
 export const toSyncOp = (record: OpQueueRecord): SyncOp => {
 	if (record.seq === undefined) throw new Error('A queued op was read back without its seq');
-	const read = opSchema.safeParse(record);
+	const read = opSchema.safeParse(portShaped(record));
 	return read.success
 		? read.data
 		: {
@@ -227,7 +235,7 @@ const listed = (file: UnreadableFile): ListedFile => ({
 /** Every file a batch or a resolution will write, so each is digested once, up front. */
 const contentsOf = (changes: readonly PullChange[]): string[] =>
 	changes.flatMap((change) => {
-		if (change.kind === 'upsert-drawing') return [change.content];
+		if (change.kind === 'upsert-note' || change.kind === 'merge-note') return [change.content];
 		if (change.kind === 'conflict') {
 			return [change.resolution.remoteContent, change.resolution.copyContent];
 		}
@@ -302,7 +310,7 @@ export const createDexieSyncStore = (
 	 * drawing's with its body. The engine asks once or more for every drawing a
 	 * round names (`displaceOccupant`), so a whole-table read cost a round
 	 * the drawings it moved times the drawings held: minutes, on a phone, after a
-	 * folder move on another device. Paths are compared as `drawingByPath`
+	 * folder move on another device. Paths are compared as `noteByPath`
 	 * compares them, as stored. Everything beneath `a/b` sorts from `a/b/` up
 	 * to `a/b0`, `0` being the character after `/`; `a/b 2` and `a/b.svg`
 	 * sort before it, `a/bc` after. Sorted by id, as the whole-table read
@@ -431,7 +439,7 @@ export const createDexieSyncStore = (
 		await scope.folders.put(folderRow(connectionId, path, now()));
 	};
 
-	const queue = async (scope: Scope, op: NewSyncOp): Promise<void> => {
+	const queue = async (scope: Scope, op: QueuedOp): Promise<void> => {
 		await scope.opQueue.add({ connectionId, attempts: 0, queuedAt: now(), ...op });
 	};
 
@@ -472,7 +480,7 @@ export const createDexieSyncStore = (
 		resolution: ConflictResolution,
 		hashes: ReadonlyMap<string, string>
 	): Promise<void> => {
-		const drawing = await requireDrawing(scope, resolution.drawingId);
+		const drawing = await requireDrawing(scope, resolution.noteId);
 		// The remote takes the path it claims, which need not be where the local
 		// drawing was: a drawing can be moved and edited between syncs.
 		await ensureFolderChain(scope, parentPath(resolution.remote.path));
@@ -495,7 +503,7 @@ export const createDexieSyncStore = (
 		// bytes. A queued write would put the old content straight back on the
 		// remote under a new version. A queued move is the user's rename, and
 		// stays.
-		const ops = await opsFor(scope, { connectionId, id: resolution.drawingId });
+		const ops = await opsFor(scope, { connectionId, id: resolution.noteId });
 		await scope.opQueue.bulkDelete(
 			ops
 				.filter((op) => op.op === 'write')
@@ -503,7 +511,7 @@ export const createDexieSyncStore = (
 		);
 		// And its origin is where the remote says the file is, whatever it was
 		// when the rename was queued.
-		await originIsNow(scope, resolution.drawingId, resolution.remote.path);
+		await originIsNow(scope, resolution.noteId, resolution.remote.path);
 
 		// Deleted by the time the conflict lands — a write that was queued before
 		// the delete, meeting a remote change on the way out. The delete wins
@@ -952,7 +960,7 @@ export const createDexieSyncStore = (
 
 	const upsertDrawing = async (
 		scope: Scope,
-		change: Extract<PullChange, { kind: 'upsert-drawing' }>,
+		change: Extract<PullChange, { kind: 'upsert-note' }>,
 		{ hashes }: Prepared
 	): Promise<void> => {
 		// A file arriving is a drawing that is here again, whatever this tab did to
@@ -981,6 +989,55 @@ export const createDexieSyncStore = (
 		});
 		// The remote has just said where this drawing's file is.
 		await originIsNow(scope, change.id, change.path);
+	};
+
+	/**
+	 * A drawing both sides changed, which the app's merge made one: it takes the
+	 * merged text and is bound to the remote's file. Refused where the drawing no
+	 * longer holds what the merge was made from — an edit saved while the
+	 * engine was at the network — so the batch rolls back with its cursor and
+	 * the next pull merges again from the drawing as it is. An edit is never
+	 * written over. This app passes no merge, so only a test makes one here.
+	 */
+	const mergeDrawing = async (
+		scope: Scope,
+		change: Extract<PullChange, { kind: 'merge-note' }>,
+		{ hashes }: Prepared
+	): Promise<void> => {
+		const drawing = await requireDrawing(scope, change.id);
+		if (drawingFile(drawing) !== change.base) {
+			throw new Error(`Drawing ${change.id} changed after its merge was made`);
+		}
+		await ensureFolderChain(scope, parentPath(change.path));
+		await scope.drawings.put({
+			...drawingRecordFromFile({
+				id: drawing.id,
+				connectionId,
+				path: change.path,
+				source: change.content,
+				hash: hashFor(hashes, change.content),
+				existing: drawing,
+				now: now(),
+			}),
+			remoteId: change.remote.remoteId,
+			remoteVersion: change.remote.version,
+			syncedHash: change.syncedHash,
+			// What the remote has not got yet is still owed.
+			dirty: change.clean ? 0 : 1,
+		});
+		await rebaseOwnOps(scope, drawing.id, drawing.path, change.path);
+		await originIsNow(scope, drawing.id, change.remote.path);
+		const ops = await opsFor(scope, { connectionId, id: drawing.id });
+		const writes = ops.filter((op) => op.op === 'write');
+		// The remote holds all of it: a queued write would send its own bytes
+		// back under a new version, as one a conflict leaves would.
+		if (change.clean) {
+			await withdraw(scope, writes);
+			return;
+		}
+		if (writes.length === 0) {
+			await queue(scope, { op: 'write', drawingId: drawing.id, path: change.path });
+		}
 	};
 
 	const deleteDrawing = async (scope: Scope, id: string): Promise<void> => {
@@ -1055,8 +1112,11 @@ export const createDexieSyncStore = (
 			return;
 		}
 		switch (change.kind) {
-			case 'upsert-drawing':
+			case 'upsert-note':
 				await upsertDrawing(scope, change, prepared);
+				return;
+			case 'merge-note':
+				await mergeDrawing(scope, change, prepared);
 				return;
 			case 'adopt-version': {
 				const drawing = await requireDrawing(scope, change.id);
@@ -1073,7 +1133,7 @@ export const createDexieSyncStore = (
 				await originIsNow(scope, change.id, change.remote.path);
 				return;
 			}
-			case 'move-drawing': {
+			case 'move-note': {
 				const drawing = await requireDrawing(scope, change.id);
 				await ensureFolderChain(scope, parentPath(change.path));
 				await scope.drawings.put({
@@ -1086,15 +1146,15 @@ export const createDexieSyncStore = (
 				await rebaseOwnOps(scope, drawing.id, drawing.path, change.path);
 				return;
 			}
-			case 'delete-drawing':
+			case 'delete-note':
 				await deleteDrawing(scope, change.id);
 				return;
-			case 'detach-drawing': {
+			case 'detach-note': {
 				const drawing = await ownDrawing(scope, change.id);
 				if (drawing !== undefined) await scope.drawings.put(withoutRemote(drawing));
 				return;
 			}
-			case 'displace-drawing': {
+			case 'displace-note': {
 				const drawing = await ownDrawing(scope, change.id);
 				if (drawing === undefined) return;
 				// Contents and dirty flag untouched: it is only moving out of the way.
@@ -1106,7 +1166,7 @@ export const createDexieSyncStore = (
 			case 'ensure-folder':
 				await ensureFolder(scope, change.path, change.remoteId);
 				return;
-			case 'reupload-drawing':
+			case 'reupload-note':
 				await reuploadDrawing(scope, change.id);
 				return;
 			case 'reupload-folder':
@@ -1143,18 +1203,20 @@ export const createDexieSyncStore = (
 	 * Record what an op achieved, against the drawing as it now stands.
 	 *
 	 * The engine held the op while it was at the network, and the user may have
-	 * gone on meanwhile — typed, renamed, restored. `withdrawn` says the op
-	 * itself is gone from the queue, which only a later change of the user's
-	 * does (`store/queue.ts`): a second rename replaces a queued move, a restore
-	 * withdraws a delete. Whatever the op did on the remote is recorded either
-	 * way, and anything the drawing has done since is owed an op of its own.
+	 * gone on meanwhile — typed, renamed, restored. `op` is the op as it is
+	 * queued now, and `undefined` if it is gone from the queue, which only a
+	 * later change of the user's does (`store/queue.ts`): a second rename
+	 * replaces a queued move, a restore withdraws a delete. Whatever the op did
+	 * on the remote is recorded either way, and anything the drawing has done
+	 * since is owed an op of its own.
 	 */
 	const settle = async (
 		scope: Scope,
 		seq: number,
 		outcome: OpOutcome,
-		withdrawn: boolean
+		op: OpQueueRecord | undefined
 	): Promise<void> => {
+		const withdrawn = op === undefined;
 		if (outcome.kind === 'done') return;
 		// The folder's directory exists now, and the row records which one it
 		// is, so a later `rmdir` can name it. Only if the row is still at that
@@ -1169,7 +1231,7 @@ export const createDexieSyncStore = (
 			return;
 		}
 		if (outcome.kind === 'purged') {
-			const drawing = await ownDrawing(scope, outcome.drawingId);
+			const drawing = await ownDrawing(scope, outcome.noteId);
 			if (drawing === undefined) return;
 			if (isTombstone(drawing)) {
 				await scope.drawings.delete(drawingKey(drawing));
@@ -1189,7 +1251,7 @@ export const createDexieSyncStore = (
 			await settleFile(scope, outcome, withdrawn);
 			return;
 		}
-		const drawing = await requireDrawing(scope, outcome.drawingId);
+		const drawing = await requireDrawing(scope, outcome.noteId);
 		const remote = {
 			remoteId: outcome.remote.remoteId,
 			remoteVersion: outcome.remote.version,
@@ -1219,7 +1281,10 @@ export const createDexieSyncStore = (
 			...(same ? { dirty: 0 as const } : {}),
 		};
 		await scope.drawings.put(pushed);
-		if (!same) await queueWrite(scope, pushed, seq);
+		// As lazy as the write that is landing: a lazy change made while it was
+		// on its way waits for the next sync as the one before it did. An edit
+		// has queued a write that is not lazy already.
+		if (!same) await queueWrite(scope, pushed, seq, op?.lazy === true ? 'lazy' : 'soon');
 		// Renamed while its write was in flight — before it had a file to move,
 		// if this write is what created it. The file is where the write put it;
 		// the drawing stays where the user put it, and moves there.
@@ -1240,12 +1305,12 @@ export const createDexieSyncStore = (
 	return {
 		cursor: async () => (await db.syncState.get(connectionId))?.cursor,
 
-		drawingById: async (id) => {
+		noteById: async (id) => {
 			const drawing = await ownDrawing(db, id);
-			return drawing === undefined ? undefined : toSyncDrawing(drawing);
+			return drawing === undefined ? undefined : toSyncNote(drawing);
 		},
 
-		drawingByPath: async (path) => {
+		noteByPath: async (path) => {
 			const drawings = await db.drawings
 				.where('[connectionId+path]')
 				.equals([connectionId, path])
@@ -1256,19 +1321,18 @@ export const createDexieSyncStore = (
 			// arriving at that path written into a row its queued delete is about
 			// to purge — taking the file on the remote with it.
 			const drawing = drawings.find(isLive) ?? drawings[0];
-			return drawing === undefined ? undefined : toSyncDrawing(drawing);
+			return drawing === undefined ? undefined : toSyncNote(drawing);
 		},
 
-		drawingByRemoteId: async (remoteId) => {
+		noteByRemoteId: async (remoteId) => {
 			const drawings = await db.drawings.where('remoteId').equals(remoteId).toArray();
 			const drawing = drawings.find((each) => each.connectionId === connectionId);
-			return drawing === undefined ? undefined : toSyncDrawing(drawing);
+			return drawing === undefined ? undefined : toSyncNote(drawing);
 		},
 
-		allDrawings: async () => (await drawingsOf(db)).map(toSyncDrawing),
+		allNotes: async () => (await drawingsOf(db)).map(toSyncNote),
 
-		drawingsUnder: async (folderPath) =>
-			(await drawingsWithin(db, folderPath)).map(toSyncDrawing),
+		notesUnder: async (folderPath) => (await drawingsWithin(db, folderPath)).map(toSyncNote),
 
 		folderByRemoteId: async (remoteId) => {
 			const folder = (await foldersOf(db)).find((each) => each.remoteId === remoteId);
@@ -1344,7 +1408,7 @@ export const createDexieSyncStore = (
 				// Gone is not an error: a change the user made while the op was
 				// in flight withdrew it. See `settle`.
 				const op = await queuedOp(db, seq);
-				await settle(db, seq, outcome, op === undefined);
+				await settle(db, seq, outcome, op);
 				if (op !== undefined) await db.opQueue.delete(seq);
 			}),
 

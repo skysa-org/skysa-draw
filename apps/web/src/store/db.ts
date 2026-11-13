@@ -1,4 +1,6 @@
-import type { ProviderKind, SyncOperation } from '@skysa/draw-core';
+import type { CredentialRecord } from '@skysa/client';
+import type { ProviderKind } from '@skysa/protocol';
+import type { NewSyncOp, SyncOperation } from '@skysa/sync';
 import Dexie, { type Table } from 'dexie';
 
 import { letGoWhenFrozen } from './frozenTab.js';
@@ -50,7 +52,7 @@ export interface DrawingRecord {
 	/**
 	 * SHA-256 of the file as this drawing and its remote file last agreed on it —
 	 * pulled or pushed — unlike `contentHash`, which follows every edit. Only the
-	 * sync store writes it; see `SyncDrawing.syncedHash` in `@skysa/draw-core`.
+	 * sync store writes it; see `SyncNote.syncedHash` in `@skysa/sync`.
 	 * Absent reads as "cannot say".
 	 */
 	syncedHash?: string;
@@ -178,24 +180,9 @@ export interface Detached {
 	reason: 'disconnected' | 'revoked' | 'interrupted';
 }
 
-/**
- * A credential this device holds, keyed by the connection it reaches — or by
- * `PENDING_CREDENTIAL_ID` while a flow is out and there is no connection yet.
- * The plaintext lives here and nowhere else on this device
- * (`store/credentials.ts`).
- */
-export interface CredentialRecord {
-	/** A connection id, or `PENDING_CREDENTIAL_ID`. */
-	id: string;
-	/** `sk1_…`. Never logged, never rendered, never put in a URL. */
-	credential: string;
-	/** Which provider the flow was for, so a pending row can be shown for what it is. */
-	provider: ProviderKind;
-	createdAt: number;
-}
-
-/** The one flow that may be out at a time, matching the server's one flow cookie. */
-export const PENDING_CREDENTIAL_ID = 'pending';
+// A credential this device holds is a row of `credentials`, defined beside the
+// functions over it, which are the kit's (`@skysa/client`).
+export { type CredentialRecord, PENDING_CREDENTIAL_ID } from '@skysa/client';
 
 /**
  * App-wide settings. A table rather than `localStorage` because the store is
@@ -210,8 +197,8 @@ interface PreferenceRecord {
  * A file beside a drawing that is not one: one row for every such file the
  * remote has, and for every file added here and not yet uploaded (no
  * `remoteId`). Its bytes, where the device holds them, are in `fileBytes`.
- * `SyncFile` in `packages/core/src/sync/store.ts` says what each kind of row
- * may and may not have done to it.
+ * `SyncFile` in `@skysa/sync` (the kit's `packages/sync/src/store.ts`) says
+ * what each kind of row may and may not have done to it.
  */
 export interface FileRecord {
 	connectionId: string;
@@ -265,7 +252,23 @@ export interface OpQueueRecord {
 	attempts: number;
 	lastError?: string;
 	queuedAt: number;
+	/**
+	 * A write to be sent with the next sync rather than straight after
+	 * (`queueWrite`'s `timing`). Set on writes only, and on none in this app.
+	 */
+	lazy?: true;
 }
+
+/** An op as a row holds it: `noteId` is `drawingId` (`QueuedOp`). */
+type AsRow<Op> = Op extends { noteId: string } ? Omit<Op, 'noteId'> & { drawingId: string } : Op;
+
+/**
+ * An op to queue, as the queue's rows hold it: the kit's (`NewSyncOp`), whose
+ * `noteId` is its word for any app's document, under the name this table has
+ * always given it, and its index is on, `drawingId` (skysa-notes' record 0018).
+ * The store reads a row back under the kit's names (`toSyncOp`).
+ */
+export type QueuedOp = AsRow<NewSyncOp>;
 
 export type DrawDatabase = Dexie & {
 	drawings: Table<DrawingRecord, DrawingKey>;
@@ -323,7 +326,7 @@ export const createDatabase = (name: string): DrawDatabase => {
 	// created at a name a deleted one still holds is two rows at one key, by
 	// design; and a pull batch passes through states where two drawings
 	// briefly share a path, which a unique index would reject, failing the
-	// batch for ever (`PullChange` in `packages/core/src/sync/store.ts`). No
+	// batch for ever (`PullChange` in `@skysa/sync`). No
 	// live drawing is knowingly put where another one is, and that is kept by
 	// the writers (`freeName`/`freePath` in `store/naming.ts`).
 	//

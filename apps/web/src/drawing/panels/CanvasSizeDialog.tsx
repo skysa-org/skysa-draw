@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 import { useState } from 'react';
 
 import { DialogForm } from '../../components/ui/DialogForm.js';

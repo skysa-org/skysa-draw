@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { t } from '../../../i18n/t.js';
 import { inToolOptions } from '../optionsRegion.js';
