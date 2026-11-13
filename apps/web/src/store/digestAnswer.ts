@@ -3,8 +3,8 @@ import { bytesHash } from '@skysa/storage';
 
 /**
  * What the digest worker does (`./digest.worker.ts` runs it, `./digest.ts`
- * asks it): a drawing's text in, its `contentHash` out, worked out as core
- * works it out — the text's UTF-8 bytes, their SHA-256, lowercase hex — so
+ * asks it): a drawing's text in, its `contentHash` out, worked out as the
+ * kit's works it out — the text's UTF-8 bytes, their SHA-256, lowercase hex — so
  * the two are the same hash for every text, a lone surrogate and all. Where
  * an id is asked for, it is written into the text first (`withDrawingId`),
  * and the hash is the file's that makes: a save's whole digest, so the page

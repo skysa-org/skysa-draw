@@ -46,5 +46,8 @@ describe('a hidden folder at the root', () => {
 			pushed: 0,
 			conflicts: [],
 		});
+		expect(world.store.notes()).toEqual([]);
+		expect(world.store.files()).toEqual([]);
+		expect(world.store.folders()).toEqual([]);
 	});
 });

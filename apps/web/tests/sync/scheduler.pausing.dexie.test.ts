@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { heldUpOf } from '../../src/store/heldUp.js';
 import { dexieDevice } from '../support/dexieDevice.js';
+import { svgOf } from '../support/drawingRows.js';
 import { holding, otherTab } from '../support/otherTab.js';
 import { bound, type Harness, started } from '../support/scheduler.js';
 
@@ -69,8 +70,8 @@ describe('a run held up on another tab, in this app', () => {
 		const db = await bound();
 		const h = started(db);
 		await reaches(h.scheduler, 'idle');
-		await h.remote.fake.write('one.svg', 'one\n', {});
-		await h.remote.fake.write('two.svg', 'two\n', {});
+		await h.remote.fake.write('one.svg', svgOf('one'), {});
+		await h.remote.fake.write('two.svg', svgOf('two'), {});
 		const other = await otherTab(db);
 		const release = holding(other, ['fileBytes'], 'readwrite');
 		const held = db.fileBytes.count();

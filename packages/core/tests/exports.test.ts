@@ -38,7 +38,6 @@ const SURFACE = [
 	'alwaysAllowed',
 	'attachmentName',
 	'conflictContent',
-	'conflictFilename',
 	'conflictPath',
 	'drawingFilename',
 	'emptyDrawing',

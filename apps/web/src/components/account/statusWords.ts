@@ -97,7 +97,7 @@ export const syncCount = (
 	if (!isLongRun(progress)) return undefined;
 	return {
 		text: lineCount(runCount(progress)),
-		sentence: runSentence(progress, label, 'sync'),
+		sentence: runSentence(progress, label),
 		bar: runBar(progress),
 	};
 };
@@ -116,21 +116,8 @@ const lineCount = (count: RunCount): string => {
 	}
 };
 
-/**
- * Whose words a run's count is said in: a sync's, in the storage panel, or a
- * first import's, which uploads and downloads drawings rather than sending and
- * receiving changes. Both say the listing alike.
- */
-const MOVING = {
-	sync: { sending: 'connection.progress.sending', receiving: 'connection.progress.receiving' },
-	import: {
-		sending: 'connection.progress.uploading',
-		receiving: 'connection.progress.downloading',
-	},
-} as const satisfies Record<string, Record<'sending' | 'receiving', MessageKey>>;
-
 /** How far a run has got, in a sentence that names the source. */
-const runSentence = (progress: SyncProgress, label: string, as: keyof typeof MOVING): string => {
+const runSentence = (progress: SyncProgress, label: string): string => {
 	const count = runCount(progress);
 	switch (count.kind) {
 		case 'looking':
@@ -138,8 +125,13 @@ const runSentence = (progress: SyncProgress, label: string, as: keyof typeof MOV
 		case 'checking':
 			return t('connection.progress.checkingFound', { provider: label, count: count.count });
 		case 'sending':
+			return t('connection.progress.sending', {
+				provider: label,
+				done: count.done,
+				total: count.total,
+			});
 		case 'receiving':
-			return t(MOVING[as][count.kind], {
+			return t('connection.progress.receiving', {
 				provider: label,
 				done: count.done,
 				total: count.total,

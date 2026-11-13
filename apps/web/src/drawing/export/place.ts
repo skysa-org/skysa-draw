@@ -6,7 +6,7 @@ import {
 	type PictureInfo,
 	readDrawingSize,
 } from '@skysa/draw-core';
-import { extensionOf, mediaOf } from '@skysa/storage';
+import { extensionAt, extensionOf, mediaOf } from '@skysa/storage';
 
 import { addLayer, compound, renameLayer, replaceRasterImage } from '../document/commands.js';
 import type { Command, EditorDocument } from '../document/model.js';
@@ -105,15 +105,14 @@ const fitted = (size: DrawingSize, box: Box): Box => {
 	};
 };
 
-/** A name's extension, as the kit's `extensionOf` reads one: not a leading dot. */
-const EXTENSION = /\.[^./\\\s]{1,16}$/u;
-
-/** The layer's name: a file's name without its extension. A blob pasted has none. */
+/**
+ * The layer's name: a file's name without its extension, where the kit's
+ * `extensionAt` says it starts (never at a leading dot). A blob pasted has none.
+ */
 const stemOf = (blob: Blob): string | undefined => {
 	if (!(blob instanceof File)) return undefined;
 	const name = blob.name.trim();
-	const at = name.search(EXTENSION);
-	const stem = (at > 0 ? name.slice(0, at) : name).trim();
+	const stem = name.slice(0, extensionAt(name)).trim();
 	return stem === '' ? undefined : stem;
 };
 

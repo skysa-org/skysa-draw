@@ -36,8 +36,13 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
  * declaration and processing instructions, comments and a document type
  * declaration with or without an internal subset. Nothing follows the group
  * in the pattern, so a run of whitespace is matched once and never tried again.
+ * A doctype's own whitespace is read by one part of it alone: `[^>[]*` where
+ * there is no subset, `\s*` after one. Were both to reach the same run, as
+ * `[^>[]*` and a `\s*` ahead of every `>` did, a doctype never closed would be
+ * tried at every way of splitting its run between them, which is seconds for
+ * a file of spaces another tool left half written.
  */
-const PROLOG = /^(?: |\s+|<\?[\s\S]*?\?>|<!--[\s\S]*?-->|<!DOCTYPE[^>[]*(?:\[[\s\S]*?\])?\s*>)*/;
+const PROLOG = /^(?: |\s+|<\?[\s\S]*?\?>|<!--[\s\S]*?-->|<!DOCTYPE[^>[]*(?:\[[\s\S]*?\]\s*)?>)*/;
 
 /** An attribute: a name, and a value in double quotes, single quotes or bare. */
 const ATTRIBUTE = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;

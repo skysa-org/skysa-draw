@@ -33,7 +33,8 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 
 Three packages in a pnpm workspace, one version between them (`.changeset/README.md`):
 
-- `packages/core` — framework-free TypeScript that runs in the browser, in Node and in Workers: the drawing file's rules (§3), paths and names, the provider adapter interface and the three adapters (§4, §5), the marker file, the relay protocol and the types an operator's policy is written against.
+- `packages/core` — framework-free TypeScript that runs in the browser, in Node and in Workers: the drawing file's rules (§3), the names this app gives its files, and what it hands the kit of its own, its folder (`DRAW_FOLDER`, §3) and its format (`DRAW_FORMAT`, §7).
+  The paths, the provider adapters (§4, §5), the marker and the protocol are the kit's (`@skysa/storage`, `@skysa/protocol`); core passes the protocol on, the types an operator's policy is written against among it.
   It imports nothing from `apps/*` and nothing of Node or the DOM; ESLint and a second `tsc` pass with no Node types keep it so.
 - `apps/web` — the PWA: Vite, React, TanStack Router, Dexie over IndexedDB, vite-plugin-pwa.
   It boots and renders from IndexedDB, talks to the providers directly from the browser for drawing content, and to `apps/api` only to connect an account and to mint access tokens.
@@ -226,7 +227,7 @@ fileBytes    [connectionId+id], connectionId, [pinned+lastUsedAt]
 - `createDrawing`: an empty canvas, or text brought in from a file, given this app's id if it has none; its filename the title's slug, unique in the folder; a `write` queued.
 - `saveDrawing`: the editor's text, with the drawing's own id written in whatever the text carried; a save of the same text is ignored; a compare-and-set, given the texts the editor last opened or saved as `expected`, so a row changed from elsewhere since is answered `changed` with nothing written; one `write` waits per drawing however many saves come, and the push sends what the row holds then.
   The hash is computed before the transaction opens: Web Crypto is a wait IndexedDB does not hold a transaction across.
-  For a big text the id is written in and the hash worked out in a worker (`store/digest.ts`), with core's `contentHash` on the page where there is no worker, it fails, or it has not answered in 30 s; under 64 KB the page does it, which costs less than the post.
+  For a big text the id is written in and the hash worked out in a worker (`store/digest.ts`), with the kit's `contentHash` on the page where there is no worker, it fails, or it has not answered in 30 s; under 64 KB the page does it, which costs less than the post.
   What is stored is the text as the worker hands it back, the same characters held a byte to a character where they are all ASCII, since a text the editor serialized can be held two bytes to a character and Chrome's IndexedDB writes and reads such a string many times slower: 60 ms a save, against 4, for a drawing of 15 MB.
   A queued write carries no content, so a save writes the text once, into the drawing's row.
 - `renameDrawing`: into the file's `<title>` and into the filename; a `move` queued where the name changed, and a `write`.
@@ -575,7 +576,7 @@ Carried over; the SVG-specific lines are new.
 - Refresh tokens are sealed in D1 under `SECRETS_KEY` and decrypted only in `POST /api/token`.
 - `Cache-Control: no-store` on every API response; `hono/csrf` on the same-origin routes; the flow cookie is `__Host-`.
 - No drawing content and no file names reach the Worker, the relay included.
-- Core decodes a drawing strictly as UTF-8 and refuses a NUL, so a binary misnamed `.svg` is unreadable rather than rewritten.
+- The kit's adapters decode a drawing strictly as UTF-8 and refuse a NUL, and `DRAW_FORMAT` refuses a `.svg` that is not an SVG document, so a binary or a text misnamed `.svg` is unreadable rather than rewritten.
 
 ## 10. Build record
 

@@ -9,7 +9,7 @@ import { type DigestReply, type DigestRequest, fileOf } from './digestAnswer.js'
  * 15 MB text is 20 to 30 ms of `TextEncoder` and `digest` here, and a few
  * to post there. The hash is the same either way, and where there is no
  * worker — under jsdom and Node, in a test — or it fails in any way, the text
- * is digested here, by core's `contentHash` itself.
+ * is digested here, by the kit's `contentHash` itself.
  *
  * One worker, started on the first text big enough to need it and kept,
  * since a save comes every few seconds while the user draws; its requests are

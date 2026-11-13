@@ -75,6 +75,25 @@ describe('isDrawingText', () => {
 		expect(readDrawingId(large)).toBeUndefined();
 		expect(performance.now() - started).toBeLessThan(200);
 	});
+
+	it('answers at once of a doctype that never closes', () => {
+		// The whitespace in it could be read two ways, and each was tried: a
+		// pattern quadratic in it, which for this text was seconds.
+		const unclosed = `<!DOCTYPE svg${' '.repeat(200_000)}`;
+		const started = performance.now();
+		expect(isDrawingText(unclosed)).toBe(false);
+		expect(readDrawingId(unclosed)).toBeUndefined();
+		expect(readDrawingProlog(unclosed)).toBeUndefined();
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
+	it('still reads a doctype with an internal subset and space before its close', () => {
+		expect(
+			readDrawingProlog(
+				'<!DOCTYPE svg [ <!ENTITY a "b"> ]  \n >\n<svg xmlns="http://www.w3.org/2000/svg"/>'
+			)
+		).toBe('<!DOCTYPE svg [ <!ENTITY a "b"> ]  \n >\n');
+	});
 });
 
 describe('readDrawingProlog', () => {

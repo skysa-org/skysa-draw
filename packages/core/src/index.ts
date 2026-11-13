@@ -54,7 +54,7 @@ export {
 	uniqueFilename,
 	UNTITLED_SLUG,
 } from './names/slug.js';
-export { conflictFilename, conflictPath, isDrawingName } from './names/drawings.js';
+export { conflictPath, isDrawingName } from './names/drawings.js';
 // The kit's protocol (`@skysa/protocol`, skysa-notes' record 0018),
 // as this barrel offered it before the kit: the app imports it from there, but
 // an operator's code outside this repo imports it from here, the types its

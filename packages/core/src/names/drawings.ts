@@ -7,8 +7,4 @@ import { DRAWING_EXTENSION } from '../config.js';
  * copy of one keeps it. For the app's own code; the engine and the providers
  * are handed the format and ask it instead (skysa-notes' record 0018).
  */
-export const {
-	isDocumentName: isDrawingName,
-	conflictFilename,
-	conflictPath,
-} = documentNames(DRAWING_EXTENSION);
+export const { isDocumentName: isDrawingName, conflictPath } = documentNames(DRAWING_EXTENSION);
