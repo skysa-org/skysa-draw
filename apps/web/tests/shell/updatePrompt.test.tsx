@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -68,6 +68,13 @@ const heldEditor = () => {
 	};
 };
 
+/** The new worker in control, as the registration tells the bar. */
+const takeOver = () => {
+	act(() => {
+		registration.options.onNeedReload?.();
+	});
+};
+
 describe("the new build's bar", () => {
 	it('pauses syncing before it asks the new build to take over', async () => {
 		const user = userEvent.setup();
@@ -96,7 +103,7 @@ describe("the new build's bar", () => {
 			render(<UpdatePrompt reload={reload} />);
 
 			// The new worker has taken over: in this window, whichever pressed Reload.
-			registration.options.onNeedReload?.();
+			takeOver();
 			await new Promise((resolve) => setTimeout(resolve, 50));
 			expect(reload).not.toHaveBeenCalled();
 			editor.release();
@@ -108,29 +115,37 @@ describe("the new build's bar", () => {
 		}
 	});
 
-	it('says it is updating while the drawing is written, and never that it is slow', async () => {
-		const editor = heldEditor();
-		try {
-			render(<UpdatePrompt reload={vi.fn()} slowAfter={10} />);
+	it.each([
+		['whose Reload was pressed', true],
+		['whose Reload was not pressed', false],
+	] as const)(
+		'says it is updating while the drawing is written, and never that it is slow, in a window %s',
+		async (_, pressed) => {
+			const user = userEvent.setup();
+			const editor = heldEditor();
+			try {
+				render(<UpdatePrompt reload={vi.fn()} slowAfter={200} />);
+				if (pressed) await user.click(screen.getByRole('button', { name: 'Reload' }));
 
-			registration.options.onNeedReload?.();
+				// Before the bar would have said Reload was slow.
+				takeOver();
 
-			expect(await screen.findByText('Updating…')).toBeDefined();
-			await new Promise((resolve) => setTimeout(resolve, 50));
-			expect(screen.getByText('Updating…')).toBeDefined();
-			expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
-		} finally {
-			editor.release();
-			editor.withdraw();
+				expect(await screen.findByText('Updating…')).toBeDefined();
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				expect(screen.getByText('Updating…')).toBeDefined();
+			} finally {
+				editor.release();
+				editor.withdraw();
+			}
 		}
-	});
+	);
 
 	it("reloads however settling went, the page being the new build's", async () => {
 		settling.rejects = true;
 		const reload = vi.fn();
 		render(<UpdatePrompt reload={reload} />);
 
-		registration.options.onNeedReload?.();
+		takeOver();
 
 		await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
 	});

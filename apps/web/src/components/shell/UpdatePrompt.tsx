@@ -38,7 +38,7 @@ export const UpdatePrompt = ({
 }: {
 	beforeUpdate?: () => Promise<void>;
 	slowAfter?: number;
-	/** The browser's reload, but in a test. */
+	/** The browser's reload, but in a test; read once, as the registration's options are. */
 	reload?: () => void;
 }) => {
 	const [updating, setUpdating] = useState<'no' | 'asked' | 'slow' | 'settling'>('no');
