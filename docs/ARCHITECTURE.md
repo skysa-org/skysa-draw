@@ -269,7 +269,7 @@ When the row is deleted under unsaved edits, by another tab or a pull, the edits
 A save the delete beat counts as unsaved; edits already saved go with the delete.
 The user's own delete goes through the open drawing, which marks it intended before the row goes, so it leaves nothing behind.
 `saveDrawing` is a compare-and-set: the editor passes what it last opened or saved as `expected`, and a row changed from elsewhere since is answered `changed` with nothing written; the edits are then kept as a copy, as above, and a save still in flight counts as unsaved until it lands.
-The save that is answered `changed` reads the row and hands it to the editor as the live query would, so the edits are kept though the change has not reached the editor yet, and as it closes never will; handed the change twice, the editor keeps one copy, not two.
+A save that writes nothing, answered `changed` or refused, as by a row deleted under it, reads the row and hands it to the editor as the live query would, so the edits are kept though the change or the delete has not reached the editor yet, and as it closes never will; handed it twice, the editor keeps them once.
 
 ### Where the user is, in the URL
 

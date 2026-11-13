@@ -1332,6 +1332,26 @@ describe('the editor saving', () => {
 		);
 	});
 
+	it('keeps the edits in its place when the save it closes with finds the drawing deleted elsewhere', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		// The delete lands as the editor closes, once its live query has gone.
+		vi.spyOn(document, 'settle').mockImplementationOnce(async () => {
+			await deleteDrawing(db, made.id);
+		});
+
+		view.unmount();
+
+		await waitFor(async () =>
+			expect((await liveRows(db)).map((row) => row.id)).not.toContain(made.id)
+		);
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(1));
+		const [kept] = await liveRows(db);
+		expect(kept?.text).toBe(withDrawingId(mine, kept?.id ?? ''));
+	});
+
 	it('keeps one copy, not two, when the change reaches the editor as its save finds it', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');

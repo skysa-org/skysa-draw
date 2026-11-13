@@ -168,19 +168,21 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 				});
 			if (outcome === 'changed') {
 				// Nothing was written. The row as the store has it is handed to
-				// `offer`, as the live query would hand it (`changedElsewhere`).
+				// `offer`, as the live query would hand it (`offerStored`).
 				saved.current = saved.current.filter((each) => each !== text);
 				if (state.current.document === document) set({ saving: 'idle' });
-				await changedElsewhere();
+				await offerStored();
 				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
-		})().catch(() => {
+		})().catch(async () => {
 			// The one failure this increment knows is the drawing deleted under a
 			// pending save, whose edits `keepDeleted` keeps, or the user's own
-			// delete takes; a store that refuses for another reason is a notice
-			// still to be built (§10).
+			// delete takes, as the row as the store has it says (`offerStored`);
+			// a store that refuses for another reason is a notice still to be
+			// built (§10).
 			if (state.current.document === document) set({ saving: 'idle' });
+			await offerStored().catch(() => undefined);
 		});
 		inFlight.current = work;
 		return work;
@@ -406,12 +408,13 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
-	 * The row changed from elsewhere under a save, which wrote nothing: the row
-	 * as the store has it is offered as the live query offers it, so that the
-	 * edits are kept by the conflict rule though the change has not reached the
-	 * editor yet, and as it closes never will. Offered twice, they are kept once.
+	 * A save wrote nothing, the row changed or deleted from elsewhere under it:
+	 * the row as the store has it is offered as the live query offers it, so
+	 * that the edits are kept by the conflict rule, or in the row's place,
+	 * though the change has not reached the editor yet, and as it closes never
+	 * will. Offered twice, they are kept once.
 	 */
-	const changedElsewhere = async (): Promise<void> => {
+	const offerStored = async (): Promise<void> => {
 		offer(foundOf(await getDrawing(db, id)));
 	};
 
@@ -443,7 +446,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * for it too; then the pending save; then a copy being kept, since the
 	 * edits are its: one under way already, which has stopped the save's
 	 * timer, or one the save set off by finding the row changed
-	 * (`changedElsewhere`). Edits a save before it left behind — the
+	 * (`offerStored`). Edits a save before it left behind — the
 	 * store refused it — are tried once more, since nothing else would try
 	 * them until the next change, and a copy that sets off meanwhile is waited
 	 * for in turn. Kept in a drawing of their own, or going with the user's
