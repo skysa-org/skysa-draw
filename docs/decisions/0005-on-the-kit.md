@@ -19,24 +19,25 @@ What went where, at kit 1.1.0:
 |---|---|
 | `apps/api/src` but `worker.ts`, its tests but the Worker's own and the migrations', the migrations | `@skysa/server` (#5) |
 | The protocol: `api.ts`, `relay.ts`, `entitlements.ts`, the provider kinds | `@skysa/protocol` (#8) |
-| The adapters, the naming and path rules but the slug and this app's own names, the marker, hashing, `json`, `cell`, `bytes`, the media types and the attachments' names | `@skysa/storage` (#8) |
+| The adapters, the naming and path rules but the slug, the attachments' names and this app's own names, the marker, hashing, `json`, `cell`, `bytes`, the media types (`contentTypeOf`, from `files/attachments.ts`) | `@skysa/storage` (#8) |
 | The sync engine, its store contract and its simulation kit; not the document seam, which is `DRAW_FORMAT` now | `@skysa/sync` (#8) |
 | The web app's API client and instance config, tokens, providers, relay, scheduler, progress, wake lock, the hand-off before an update (`beforeUpdate`, now `makeWay`), credentials, connect code and emitter | `@skysa/client` (#8) |
 | `brand.ts`, `pwa.ts` and the bundle budget's script | `@skysa/pwa` (#6) |
 | The shared lint rules, the compiler's settings and Prettier's | `@skysa/eslint-config` (#7) |
 
 The table names the layers; the pull requests list every file.
-Some files were made on the way, to hand the kit what is this app's: among them `apps/web/pwaApp.ts` (#6), and `drawing/format.ts`, `names/drawings.ts`, `sync/dexiePorts.ts`, `sync/drawingsSync.ts` and `sync/lock.ts` (#8); and `apps/api/src/index.ts` and `relay.ts`, which pass on the server's names (#5).
-What stays this app's: the drawing file and its layers (`drawing/`), the names it gives its files (`names/`, the slug's 215-byte cap among them), the pictures, the Dexie schema and the store over it, the editor, the screens and the catalog.
+Some files were made on the way, to hand the kit what is this app's: among them `apps/web/pwaApp.ts` (#6), and `packages/core/src/drawing/format.ts`, `packages/core/src/names/drawings.ts`, and `apps/web/src/sync/dexiePorts.ts`, `drawingsSync.ts` and `lock.ts` (#8); and `apps/api/src/index.ts` and `relay.ts`, which pass on the server's names (#5).
+What stays this app's: the drawing file and its layers (`packages/core/src/drawing/`), the names it gives its files (`packages/core/src/names/`, the slug's 215-byte cap among them), the pictures, the Dexie schema and the store over it, the editor, the screens and the catalog.
 What it hands the kit:
 
-- `DRAW_FORMAT` (`drawing/format.ts`), the format: `.svg`, `image/svg+xml`, the `draw:id` a file claims, a conflict copy's contents, and a `.svg` that is not an SVG document held as unreadable.
-- `DRAW_FOLDER` (`config.ts`), the folder: `skysa-draw`, Drive's tag `drawapp`, and the marker `.drawapp.json` naming `skysa-draw` at version 1.
-- Its database, as the client's ports (`sync/dexiePorts.ts`, which `sync/drawingsSync.ts` hands the kit's scheduler), as the engine's `SyncStore` (`sync/store.ts`), and as the `CredentialStore` every client call that reads a credential takes (the database itself, for its `credentials` table); and the lock it has always taken, by the same name (`sync/lock.ts`).
+- `DRAW_FORMAT` (`packages/core/src/drawing/format.ts`), the format: `.svg`, `image/svg+xml`, the `draw:id` a file claims, a conflict copy's contents, and a `.svg` that is not an SVG document held as unreadable.
+- `DRAW_FOLDER` (`packages/core/src/config.ts`), the folder: `skysa-draw`, Drive's tag `drawapp`, and the marker `.drawapp.json` naming `skysa-draw` at version 1.
+- Its database, as the client's ports (`apps/web/src/sync/dexiePorts.ts`, which `sync/drawingsSync.ts` hands the kit's scheduler), as the engine's `SyncStore` (`apps/web/src/sync/store.ts`), and as the `CredentialStore` every client call that reads a credential takes (the database itself, for its `credentials` table); and the lock it has always taken, by the same name (`apps/web/src/sync/lock.ts`).
 - Its own lint blocks, which `eslint.config.js` passes to the kit's `skysa()`.
 
 Nothing a user holds changed: the folder, the marker and the tag, `.svg` and its media type, a conflict copy's name, the lock `skysa-draw:sync:<id>`, and the database's name and version.
-`packages/core/tests/folderSpec.test.ts` reads and writes the marker this app wrote before the move, byte for byte; "0.1.0" in these records means those builds, since `main` carried that version from the first commit's tag until the move.
+`packages/core/tests/folderSpec.test.ts` reads and writes the marker this app wrote before the move, byte for byte.
+"0.1.0" in these records means the builds before the move, before #5: `main` has carried that version number since the first commit's tag and still does until its next release, so a database is told apart by what it holds, as `self-hosting.md` says, not by the number.
 The server's database is the one thing that does not carry over as it is.
 The kit's migrations make the same two tables this app's one migration did, but that migration had the name of the kit's first, so wrangler takes the kit's first as applied, and a database migrated as it is fails at the kit's second.
 A 0.1.0 database is reset onto the kit's migrations rather than marked as having applied them (decided 2026-11-12): it holds connections and nothing else, no drawing is touched, and each device connects again.

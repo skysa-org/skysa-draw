@@ -1,11 +1,11 @@
 # Build history
 
 The product is built in numbered phases, and this is the record of them: what each one delivered and what was learned doing it.
-The move onto the shared kit was not a phase of the product, and has a section of its own, in its place in time.
+The move onto the shared kit was not a phase of the product, and has a section of its own; the work merged between Phase 3 and it has no entry yet.
 Everything here is merged unless a line says otherwise; from Phase 1 on, none of it is in a release yet.
 
 This is history, so it is not kept current.
-Each phase says what was true when it shipped, and a later phase may have replaced it.
+Each phase says what was true when it was merged, and a later phase may have replaced it.
 For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` here means a section of that file.
 
 ## Phase 0 — Scaffold (2026-11-03)

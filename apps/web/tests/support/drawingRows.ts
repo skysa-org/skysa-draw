@@ -43,7 +43,7 @@ export const queuedRow = ({ noteId, ...op }: NewSyncOp & { noteId?: string }) =>
 /**
  * A change to a drawing's text made the way an app that queues writes lazily
  * makes one, with its write queued lazy. This app makes none (the kit's
- * docs/ARCHITECTURE.md, "When a push goes").
+ * docs/ARCHITECTURE.md §7, "When a push goes").
  */
 export const lazily = (db: DrawDatabase, id: string, text: string): Promise<DrawingRecord> =>
 	db.transaction('rw', db.drawings, db.opQueue, async () => {
