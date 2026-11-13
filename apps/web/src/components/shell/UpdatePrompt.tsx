@@ -2,14 +2,10 @@ import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { t } from '../../i18n/t.js';
-import { FLUSH_WAIT_MS, settleEditors } from '../../store/heldEdits.js';
+import { settleEditors } from '../../store/heldEdits.js';
 
-/**
- * How long Reload may go unanswered before the prompt says what else to do:
- * past the wait on the open drawing that follows the take-over, so that it is
- * not told to close its windows while the drawing is still being written.
- */
-const SLOW_MS = FLUSH_WAIT_MS + 5_000;
+/** How long Reload may go unanswered before the prompt says what else to do. */
+const SLOW_MS = 10_000;
 
 const reloadPage = () => {
 	window.location.reload();
@@ -29,8 +25,11 @@ const reloadPage = () => {
  * vite-plugin-pwa's `controlling`). Each has its open drawing write what it
  * holds first, strokes still waiting on the autosave's pause among them,
  * which the reload would otherwise take with it, as a newer build closing
- * the database does (`settleEditors`). The reload follows however that went:
- * the page is the new worker's now, which does not serve the old build.
+ * the database does (`settleEditors`). Meanwhile it says it is updating, and
+ * never that it is slow: the take-over has come, and only the drawing is left
+ * to write. The reload follows however that went, a settle that rejects
+ * among it: the page is the new worker's now, which does not serve the old
+ * build.
  */
 export const UpdatePrompt = ({
 	beforeUpdate = () => Promise.resolve(),
@@ -42,18 +41,17 @@ export const UpdatePrompt = ({
 	/** The browser's reload, but in a test. */
 	reload?: () => void;
 }) => {
+	const [updating, setUpdating] = useState<'no' | 'asked' | 'slow' | 'settling'>('no');
 	const {
 		needRefresh: [needRefresh, setNeedRefresh],
 		updateServiceWorker,
 		// Read once, as the worker is registered.
 	} = useRegisterSW({
 		onNeedReload: () => {
-			void settleEditors().then(() => {
-				reload();
-			});
+			setUpdating('settling');
+			void settleEditors().then(reload, reload);
 		},
 	});
-	const [updating, setUpdating] = useState<'no' | 'asked' | 'slow'>('no');
 
 	useEffect(() => {
 		if (updating !== 'asked') return undefined;

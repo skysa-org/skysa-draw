@@ -1296,7 +1296,7 @@ describe('the editor saving', () => {
 	};
 
 	it.each(LEAVING)(
-		'settles as the page is %s, so a stroke still being encoded is saved with it',
+		'saves a stroke still being encoded as the page is %s, once it lands',
 		async (_, leave) => {
 			const { db, made } = await renderEditor('expanded');
 			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
@@ -1355,6 +1355,35 @@ describe('the editor saving', () => {
 				thaw();
 			}
 			expect(await settling).toEqual({ failing: [], rejected: 0 });
+		}
+	);
+
+	it.each(LEAVING)(
+		'settles afresh after the page is %s, rather than taking the answer of what leaving began',
+		async (_, leave) => {
+			const { db, made } = await renderEditor('expanded');
+			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+			const document = lastOpened();
+			// Raster work that leaving waits for, which has not landed.
+			const held: { release: () => void } = { release: () => undefined };
+			vi.spyOn(document, 'settle').mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						held.release = resolve;
+					})
+			);
+
+			try {
+				act(leave);
+				// Back, and drawing, and then asked to settle: by a take-over, say.
+				act(() => document.edit(stroke));
+
+				expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+				expect(await rowText(db, made.id)).toBe(stroke);
+			} finally {
+				held.release();
+				Reflect.deleteProperty(window.document, 'visibilityState');
+			}
 		}
 	);
 

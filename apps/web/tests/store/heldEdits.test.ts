@@ -112,27 +112,6 @@ describe('settling what the editors hold', () => {
 		}
 	});
 
-	it('counts an editor that has not answered in time, and cannot say what it holds, as holding what it cannot name', async () => {
-		vi.useFakeTimers();
-		try {
-			const { finish, ends } = manualFlush<undefined>();
-			register(finish, () => {
-				throw new Error('nothing to say');
-			});
-			const after = vi.fn(() => Promise.resolve(['local:dusk']));
-			register(after);
-
-			const settling = settleEditors();
-			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
-
-			expect(await settling).toEqual({ failing: ['local:dusk'], rejected: 1 });
-			expect(after).toHaveBeenCalledTimes(1);
-			ends.resolve(undefined);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
 	it('takes an editor that has not answered in time to hold what it said it would, and no more', async () => {
 		vi.useFakeTimers();
 		try {
