@@ -36,12 +36,12 @@ const SPACE = /\s/;
 
 /**
  * Where a run of whitespace from `from` ends: `from` itself where there is
- * none. A loop, as `prologEnd` is.
+ * none. A loop, as `skipped` is.
  */
 const spaceEnd = (text: string, from: number): number => {
-	// eslint-disable-next-line functional/no-let -- see `prologEnd`
+	// eslint-disable-next-line functional/no-let -- see `skipped`
 	let at = from;
-	// eslint-disable-next-line functional/no-loop-statements -- see `prologEnd`
+	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
 	while (at < text.length && SPACE.test(text.charAt(at))) at += 1;
 	return at;
 };
@@ -53,22 +53,34 @@ const closedBy = (text: string, close: string, from: number): number | undefined
 };
 
 /**
+ * The first `mark` from `from` that nothing but whitespace separates from a
+ * `>`: where it starts, and just past the `>`. A loop, as `skipped` is; the
+ * whitespace after one `mark` ends before the next, so each is read once.
+ */
+const markThenClose = (
+	text: string,
+	mark: string,
+	from: number
+): Readonly<{ at: number; end: number }> | undefined => {
+	// eslint-disable-next-line functional/no-let -- see `skipped`
+	let at = text.indexOf(mark, from);
+	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
+	while (at !== -1) {
+		const after = spaceEnd(text, at + mark.length);
+		if (text.charAt(after) === '>') return { at, end: after + 1 };
+		at = text.indexOf(mark, at + 1);
+	}
+	return undefined;
+};
+
+/**
  * Just past a doctype's internal subset and its `>`, from inside its `[`: the
  * first `]` that nothing but whitespace separates from a `>`. A `]` followed
  * by anything else, as one in a quoted value may be, does not end it; one in
  * a quoted value followed by `>` does, as it did when a pattern read this.
  */
-const subsetEnd = (text: string, from: number): number | undefined => {
-	// eslint-disable-next-line functional/no-let -- see `prologEnd`
-	let close = text.indexOf(']', from);
-	// eslint-disable-next-line functional/no-loop-statements -- see `prologEnd`
-	while (close !== -1) {
-		const after = spaceEnd(text, close + 1);
-		if (text.charAt(after) === '>') return after + 1;
-		close = text.indexOf(']', close + 1);
-	}
-	return undefined;
-};
+const subsetEnd = (text: string, from: number): number | undefined =>
+	markThenClose(text, ']', from)?.end;
 
 /**
  * Just past a doctype, from after its `<!DOCTYPE`: its `>`, or its subset's
@@ -88,7 +100,7 @@ const doctypeEnd = (text: string, from: number): number | undefined => {
  * processing instruction or the XML declaration, a comment, or a doctype.
  * `undefined` where none starts there, or one starts and never ends.
  */
-const itemEnd = (text: string, at: number): number | undefined => {
+const prologItemEnd = (text: string, at: number): number | undefined => {
 	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
 	if (text.startsWith('<?', at)) return closedBy(text, '?>', at + 2);
 	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
@@ -97,27 +109,38 @@ const itemEnd = (text: string, at: number): number | undefined => {
 };
 
 /**
- * Where the prolog ends: everything XML allows before the root element, a BOM,
- * whitespace, the XML declaration and processing instructions, comments and a
- * document type declaration with or without an internal subset. Each ends at
- * the first close that fits, as XML's own do.
+ * Just past the run of things from `from` that `item` reads one after another:
+ * where the next is none of them, or one that starts and never ends.
  *
- * Read with `indexOf` rather than a pattern, and in a loop rather than by
- * recursion, so it is linear in the text however it is written: a pattern for
- * this had a doctype never closed, before a long run of spaces, take seconds,
- * and a file another tool left half written is enough to make one. A prolog
- * of thousands of comments would run recursion out of stack.
+ * This file reads the prolog, and the whitespace and comments before a title,
+ * with `indexOf` rather than patterns, and in loops rather than by recursion,
+ * so that it is linear in the text however the text is written. Patterns for
+ * them took seconds over a file another tool left half written: a doctype
+ * never closed before a long run of spaces, a long run of spaces before no
+ * title. Recursion would run out of stack over thousands of comments.
  */
-const prologEnd = (text: string): number => {
+const skipped = (
+	text: string,
+	from: number,
+	item: (text: string, at: number) => number | undefined
+): number => {
 	// eslint-disable-next-line functional/no-let -- see above: linear, and no stack to run out of
-	let at = 0;
+	let at = from;
 	// eslint-disable-next-line functional/no-loop-statements -- see above
 	for (;;) {
-		const next = itemEnd(text, at);
+		const next = item(text, at);
 		if (next === undefined || next <= at) return at;
 		at = next;
 	}
 };
+
+/**
+ * Where the prolog ends: everything XML allows before the root element, a BOM,
+ * whitespace, the XML declaration and processing instructions, comments and a
+ * document type declaration with or without an internal subset. Each ends at
+ * the first close that fits, as XML's own do.
+ */
+const prologEnd = (text: string): number => skipped(text, 0, prologItemEnd);
 
 /** An attribute: a name, and a value in double quotes, single quotes or bare. */
 const ATTRIBUTE = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
@@ -245,9 +268,17 @@ export interface DrawingSize {
 
 const positive = (value: number): boolean => Number.isFinite(value) && value > 0;
 
-/** A length in user units: a number, with or without `px`. Anything else is not. */
+/**
+ * A length in user units: a number, with or without `px`. Anything else is not.
+ * Trimmed first, and each part read one way only, so a long value is answered
+ * in time to its length: whitespace on both sides of an optional `px` was two
+ * runs that could split a run of spaces, and `\d+\.?\d*` two that could split
+ * a run of digits.
+ */
+const USER_UNITS = /^([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?:\s*px)?$/i;
+
 const userUnits = (value: string | undefined): number | undefined => {
-	const match = /^\s*([+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(?:px)?\s*$/i.exec(value ?? '');
+	const match = USER_UNITS.exec((value ?? '').trim());
 	return match?.[1] === undefined ? undefined : Number(match[1]);
 };
 
@@ -292,24 +323,55 @@ const decodeReferences = (text: string): string =>
 		return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
 	});
 
+/** Just past whitespace or a comment at `at`: what may come before a title. */
+const leadItemEnd = (text: string, at: number): number | undefined => {
+	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
+	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
+	return undefined;
+};
+
+interface TitleElement {
+	/** Where what leads to it ends, which is where the element starts. */
+	readonly lead: number;
+	/** Where its text starts and ends. */
+	readonly start: number;
+	readonly end: number;
+	/** Just past its end tag. */
+	readonly close: number;
+}
+
+/**
+ * The first `<title>` after the root tag, which is where SVG puts a document's
+ * name and where this app writes it: past whatever whitespace and comments
+ * lead to it, each comment ending at its first `-->` as XML's do. Its start
+ * tag with or without attributes, and its end tag the first `</title` that
+ * nothing but whitespace separates from a `>`. `undefined` where the root's
+ * first child is something else, or the title is never closed.
+ */
+const firstTitle = (text: string, root: RootTag): TitleElement | undefined => {
+	const lead = skipped(text, root.end, leadItemEnd);
+	if (!text.startsWith('<title', lead)) return undefined;
+	const next = text.charAt(lead + 6);
+	if (next !== '>' && !SPACE.test(next)) return undefined;
+	const open = text.indexOf('>', lead + 6);
+	if (open === -1) return undefined;
+	const end = markThenClose(text, '</title', open + 1);
+	return end === undefined ? undefined : { lead, start: open + 1, end: end.at, close: end.end };
+};
+
 /**
  * The drawing's title: the text of the first `<title>` element directly after
- * the root tag, which is where SVG puts a document's name and where this app
- * writes it. `undefined` where there is none, or it is empty; the app then
- * names the drawing by its file (`titleFromFilename`).
+ * the root tag (`firstTitle`). `undefined` where there is none, or it is
+ * empty; the app then names the drawing by its file (`titleFromFilename`).
  */
 export const readDrawingTitle = (text: string): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root) || root.selfClosing) return undefined;
-	const match = /^(?:\s+|<!--[\s\S]*?-->)*<title(?:\s[^>]*)?>([\s\S]*?)<\/title\s*>/.exec(
-		text.slice(root.end)
-	);
-	const title = match?.[1] === undefined ? '' : decodeReferences(match[1]).trim();
+	const found = firstTitle(text, root);
+	const title =
+		found === undefined ? '' : decodeReferences(text.slice(found.start, found.end)).trim();
 	return title === '' ? undefined : title;
 };
-
-/** The first `<title>` after the root tag, with whatever whitespace and comments lead to it. */
-const FIRST_TITLE = /^((?:\s+|<!--[\s\S]*?-->)*)<title(?:\s[^>]*)?>[\s\S]*?<\/title\s*>/;
 
 const escapeText = (text: string): string =>
 	text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -334,11 +396,11 @@ export const withDrawingTitle = (text: string, title: string): string => {
 		return `${before}${opened}${element}</${name}>${text.slice(root.end)}`;
 	}
 	const after = text.slice(root.end);
-	const found = FIRST_TITLE.exec(after);
-	if (found !== null) {
-		const [whole, lead = ''] = found;
-		const kept = element === '' ? lead.replace(/\s+$/, '') : `${lead}${element}`;
-		return `${before}${tag}${kept}${after.slice(whole.length)}`;
+	const found = firstTitle(text, root);
+	if (found !== undefined) {
+		const lead = text.slice(root.end, found.lead);
+		const kept = element === '' ? lead.trimEnd() : `${lead}${element}`;
+		return `${before}${tag}${kept}${text.slice(found.close)}`;
 	}
 	return element === '' ? text : `${before}${tag}\n  ${element}${after}`;
 };

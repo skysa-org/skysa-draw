@@ -267,6 +267,26 @@ describe('readDrawingSize', () => {
 		expect(readDrawingSize('<html/>')).toBeUndefined();
 	});
 
+	it('reads a width and height with space around a px, as it always has', () => {
+		expect(
+			readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" width=" 1.5e2 px " height="+.5"/>`)
+		).toEqual({ width: 150, height: 0.5 });
+		expect(
+			readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" width="1 p x" height="1"/>`)
+		).toBeUndefined();
+	});
+
+	it('answers at once of a width that is a long run of digits or spaces and then not a length', () => {
+		// Each could be read many ways by the pattern this had, and each was tried.
+		const started = performance.now();
+		for (const width of [`1${' '.repeat(200_000)}x`, `${'1'.repeat(200_000)}x`]) {
+			expect(
+				readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" width="${width}" height="1"/>`)
+			).toBeUndefined();
+		}
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
 	it('takes no size from a viewBox that is not one', () => {
 		expect(
 			readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" viewBox="0 0 0 10"/>`)
@@ -302,6 +322,40 @@ describe('readDrawingTitle', () => {
 			readDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"><g><title>nested</title></g></svg>`)
 		).toBeUndefined();
 		expect(readDrawingTitle('<html><title>page</title></html>')).toBeUndefined();
+	});
+
+	it('ends a comment before it at its first close, as XML does', () => {
+		// What follows that close is text, not a comment, so the title is not the
+		// root's first child. A pattern once read past it to find one.
+		expect(
+			readDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"><!-- a --> b --><title>t</title></svg>`)
+		).toBeUndefined();
+		expect(
+			readDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"><!-- a -- b --><title>t</title></svg>`)
+		).toBe('t');
+	});
+
+	it('ends at the first end tag that closes, space before its > and all', () => {
+		expect(
+			readDrawingTitle(
+				`<svg xmlns="${SVG_NAMESPACE}"><title>a</title b> c</title\n></title></svg>`
+			)
+		).toBe('a</title b> c');
+	});
+
+	it('answers at once of what leads to no title, however long', () => {
+		// Whitespace and comments before a title could each be read many ways by
+		// the pattern this had, and each was tried: seconds for these.
+		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
+		const started = performance.now();
+		for (const rest of [
+			`${' '.repeat(200_000)}x`,
+			`<!--${'--><!--'.repeat(30_000)}x`,
+			`<title>${'</title '.repeat(30_000)}`,
+		]) {
+			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
+		}
+		expect(performance.now() - started).toBeLessThan(200);
 	});
 });
 
@@ -391,6 +445,13 @@ describe('withDrawingTitle', () => {
 		expect(withDrawingTitle(plain, '  ')).toBe(plain);
 		// The layer line stays where it was, so an untitled drawing is the same bytes either way.
 		expect(withDrawingTitle(emptyDrawing({ id: ID, title: 'Logo' }), '')).toBe(plain);
+	});
+
+	it('takes a title away after a long run of whitespace at once, and the run with it', () => {
+		const text = `<svg xmlns="${SVG_NAMESPACE}"><!-- c -->${' '.repeat(200_000)}<title>t</title></svg>`;
+		const started = performance.now();
+		expect(withDrawingTitle(text, '')).toBe(`<svg xmlns="${SVG_NAMESPACE}"><!-- c --></svg>`);
+		expect(performance.now() - started).toBeLessThan(200);
 	});
 
 	it('leaves a nested title alone, which is not the drawing’s', () => {
