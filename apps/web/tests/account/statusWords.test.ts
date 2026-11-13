@@ -10,10 +10,11 @@ import {
 
 /**
  * What the storage panel says about how syncing is going, as tables: the
- * scheduler's status in, the words out (`account/statusWords.ts`). The panel's
- * own tests (`AccountPanel.status.test.tsx`) keep where the words are drawn — the
- * line, its tooltip under who the account is, the sentence above the line, the
- * bar — and leave every wording to these.
+ * scheduler's status in, the words out (`components/account/statusWords.ts`). The panel's
+ * own tests (`AccountPanel.test.tsx`) check that the line and its tooltip are
+ * drawn, through a few of these words. Where the sentence above the line and
+ * the bar are drawn has no test in this app; skysa-notes has one
+ * (`AccountPanel.status.test.tsx`), not ported.
  */
 
 const status = (rest: Omit<SchedulerStatus, 'conflicts'>): SchedulerStatus => ({
@@ -250,7 +251,7 @@ describe('the sentence above the line', () => {
 			`Dropbox would not take the rename of Work/Plan.svg after 5 tries (insufficient permissions). ${queued}`,
 		],
 		[
-			'says a stuck change this version cannot read is one (#447)',
+			'says a stuck change this version cannot read is one (skysa-notes #447)',
 			stuck('malformed', { path: 'Away.svg', error: 'teleport' }),
 			'A change to Away.svg could not be sent to Dropbox after 5 tries: this version of the app cannot read it (teleport). Everything queued behind it is waiting. Updating the app may let it through.',
 		],

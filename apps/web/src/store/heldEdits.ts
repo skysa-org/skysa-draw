@@ -1,13 +1,15 @@
 /**
  * The edits the editors are holding, which the store cannot see.
  *
- * An editor keeps what was typed for a moment before it saves it, and keeps an
- * edit whose save failed until one goes through (`editor/shared/useAutosave.ts`). None
- * of that is in a row. So anything about to act on "what this device holds" has
- * to have the editors write first — a tab closing its database for a newer
- * build (`store/staleTab.ts`), and a source being let go, where a count of what
- * is unsynced taken from the store alone would leave out the sentence the user
- * has just typed (`store/unsynced.ts`).
+ * An editor keeps what was drawn for a moment before it saves it (here
+ * `drawing/useOpenDrawing.ts`, which does not register yet:
+ * docs/ARCHITECTURE.md §10), and skysa-notes' keeps an edit whose save failed
+ * until one goes through (its `useAutosave.ts`). None of that is in a row. So
+ * anything about to act on "what this device holds" has to have the editors
+ * write first — a tab closing its database for a newer build
+ * (`store/staleTab.ts`), and a source being let go, where a count of what is
+ * unsynced taken from the store alone would leave out the stroke the user has
+ * just drawn (`store/unsynced.ts`).
  *
  * A registry rather than a call into the editor, because `store/` knows nothing
  * of React and an editor comes and goes: each registers its own flush while it
@@ -25,11 +27,12 @@ export type HeldEditsFlush = () => Promise<unknown>;
 const unfinished = new Set<HeldEditsFlush>();
 
 /**
- * Work under way that leaves an edit with an editor when it is done: a file
- * being added to a drawing, which goes in once it is beside the drawing (skysa-notes #187).
- * Settling waits for it, so that the edit it leaves is among those written —
- * a drawing moved a moment after a file was pasted into it takes the file only
- * if its stored body links it (`carryLinkedFiles`).
+ * Work under way that leaves an edit with an editor when it is done. In
+ * skysa-notes it is a file being added to a note, which goes in once it is
+ * beside the note (skysa-notes #187), and a note moved a moment after a file
+ * was pasted into it takes the file only if its stored body links it
+ * (`carryLinkedFiles` there). Settling waits for it, so that the edit it
+ * leaves is among those written. Nothing in this app calls `settleAfter` yet.
  */
 const underway = new Set<Promise<unknown>>();
 
@@ -63,7 +66,7 @@ export interface SettledEditors {
 	 * The drawings that still have text here that could not be saved, by `drawingRef`,
 	 * as far as the editors said. A floor, not a census: a flush that answers
 	 * with no list is counted as holding none, because the registry cannot know
-	 * what it is not told. The editor's own flush (`Autosave.settle`) does
+	 * what it is not told. skysa-notes' editor's flush (`Autosave.settle`) does
 	 * answer with one. Named, so that whoever is about to remove a source's rows
 	 * can keep exactly these, whose row is not the whole of what the user wrote.
 	 */

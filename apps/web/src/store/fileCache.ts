@@ -14,7 +14,7 @@ import { isLiveSource } from './rowStates.js';
  * source that cannot read again, or may hold the only copy: a detached one has
  * no credential left to download with, and one resumed and not yet checked
  * against its remote may hold what the remote lost (`Unsynced.unverified`).
- * docs/ARCHITECTURE.md §8 has the budget.
+ * The budget is `CACHE_BUDGET_BYTES`, below.
  */
 
 /**

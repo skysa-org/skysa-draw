@@ -11,8 +11,7 @@ import type { DrawDatabase } from './db.js';
  * write after seven days of Safari use with no interaction with the site. For
  * a library with no storage connected, that store is the only copy there is,
  * and nothing inside the origin can tell afterward that it was cleared: the
- * next open looks like a new install (docs/ARCHITECTURE.md §8, "Keeping the
- * store").
+ * next open looks like a new install.
  *
  * `navigator.storage.persist()` is the request. Firefox answers it with a
  * permission prompt, so it is only ever made in answer to something the user

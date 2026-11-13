@@ -23,8 +23,8 @@ import { isTombstone } from './rowStates.js';
  *   owed a fresh write (`settle` in `sync/store.ts`).
  * - **A write may be lazy.** An app whose changes come every few seconds
  *   queues them lazily, and the scheduler sends a lazy write with the next
- *   sync rather than straight after (docs/ARCHITECTURE.md §7, "When a push
- *   goes"). This app queues none. An edit that finds only a lazy write queued
+ *   sync rather than straight after (the kit's docs/ARCHITECTURE.md §7, "When
+ *   a push goes"). This app queues none. An edit that finds only a lazy write queued
  *   replaces it with one that is not, at the back of the queue, which is how
  *   the scheduler sees it.
  * - **A move says where the drawing is going, so a second rename replaces it.**
@@ -216,8 +216,8 @@ export const queueMove = (db: QueueDb, drawing: DrawingRecord, from: string): Qu
  * same name meanwhile. The write puts *this* device's file at the path first,
  * the other device's write then binds its drawing to that file rather than making
  * one, and the delete behind it takes the other device's drawing away with it —
- * a drawing nobody deleted, gone from every device. The two-browser soak found it
- * (`apps/web/tests/soak.test.ts`).
+ * a drawing nobody deleted, gone from every device. skysa-notes' two-browser
+ * soak found it.
  *
  * A write already at the network is withdrawn from the queue only, which is
  * what `settle` handles: the file it creates is still recorded on the row, so

@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { DRAW_FORMAT } from '../../src/drawing/format.js';
 import { svg } from '../support/drawings.js';
 
-// GAP: the kit's simulation kit has these, but `@skysa/sync/testing` does not
-// export them (kit 1.1.0).
+// The kit's simulation kit has these of its own (`remoteAt` and `editHere`,
+// in its `packages/sync/tests/kit/remote.ts` and `userActions.ts`), but
+// `@skysa/sync/testing` does not export them; once it does, these go.
 type World = ReturnType<typeof syncWorld>['world'];
 const remoteAt = (provider: World['provider'], path: string) =>
 	provider.snapshot().find((entry) => entry.path === path);

@@ -1,10 +1,11 @@
 # Build history
 
 The product is built in numbered phases, and this is the record of them: what each one delivered and what was learned doing it.
-Everything here is shipped unless a line says otherwise.
+The move onto the shared kit was not a phase of the product, and has a section of its own; the work merged between Phase 3 and it has no entry yet.
+Everything here is merged unless a line says otherwise; from Phase 1 on, none of it is in a release yet.
 
 This is history, so it is not kept current.
-Each phase says what was true when it shipped, and a later phase may have replaced it.
+Each phase says what was true when it was merged, and a later phase may have replaced it.
 For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` here means a section of that file.
 
 ## Phase 0 — Scaffold (2026-11-03)
@@ -41,3 +42,14 @@ For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` her
 - `saveDrawing` became a compare-and-set, and the editor counts a save still in flight as unsaved, so a change that arrives meanwhile keeps the edits as a copy.
 - Tests: core 7128, web 2352, API 423; the largest chunk grew from 121 kB to 210 kB of its 350 kB budget, the sync layer loading with the app.
 
+## On the kit (2026-11-12 – 2026-11-13)
+- The layers record 0002 carried over moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit), as step 4 of [skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), and record 0005 supersedes 0002 (`decisions/0005-on-the-kit.md`).
+  Every kit package at 1.1.0, one exact version (`apps/web/tests/kitVersion.test.ts`).
+- Rehearsed whole first, in a tree never pushed, against kit 1.0.0; the gaps it found, with two from this app's build, became kit 1.1.0 (skysa-kit#14–#17): `conflictStamp` exported, a test device that writes a document as the app does, a brand plugin no longer named after skysa-notes, and a description no longer escaped twice.
+- Then four pull requests: the server (#5), with `apps/api/src` down to `worker.ts` and two new files that pass on the server's names, and the migrations the kit's; the PWA build (#6); the lint, the compiler's settings and Prettier's (#7), this app's own rules passed to the kit's `skysa()`; and the protocol, the adapters and naming rules, the engine and the web app's sync client together (#8), not apart as planned, since this app's scheduler predated the seams the kit's engine has.
+- What this app hands the kit: its folder, `DRAW_FOLDER`, with the 0.1.0 marker pinned byte for byte (`packages/core/tests/folderSpec.test.ts`); its format, `DRAW_FORMAT`; its database as the client's ports (`sync/dexiePorts.ts`), the engine's `SyncStore` and the client's `CredentialStore`; and its lock.
+  Nothing a user holds changed.
+- A 0.1.0 server database is reset onto the kit's migrations (`self-hosting.md`, "A database from 0.1.0"), since its one migration had the name of the kit's first.
+- Checked at each step: every test this app ran before still here or in the kit, matched by title with the renames reversed; the built manifest the same bytes; the bundle within its budget; each file's effective lint config compared with main's.
+- CodeQL, run on #8, found quadratic patterns in reading a drawing's title and size, which main had too (#9): they are scanners now, in time to the file's length, a root or a title read up to a million attributes, and a title that XML and HTML would end in different places is not read (`decisions/0001-the-drawing-file.md`, amended).
+- Tests: core 204, web 4189, API 11; the engine's, the adapters' and the server's are the kit's.

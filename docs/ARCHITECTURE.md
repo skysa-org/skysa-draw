@@ -8,7 +8,7 @@ Open work is in GitHub issues.
 A `§` in the code or the records means a section of this file.
 Where a section says "see the record", the record holds the whole reasoning and this file holds the decision.
 
-The repository started as a copy of the content-agnostic layers of [skysa-notes](https://github.com/skysa-org/skysa-notes), whose architecture document this one follows section for section, so that a reader of either finds the other familiar (§12).
+The repository started as a copy of the content-agnostic layers of [skysa-notes](https://github.com/skysa-org/skysa-notes), whose architecture document this one follows section for section, so that a reader of either finds the other familiar; those layers are now the shared kit both apps run on (§12).
 
 ## 1. Core decisions (settled)
 
@@ -27,7 +27,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
 | License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
-| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), now the shared kit both apps run on | Each product exports its own API and core to the parent project |
+| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), now the shared kit both apps run on, at one exact version (`decisions/0005-on-the-kit.md`) | Each product exports its own API and core to the parent project, and a fix to a shared layer is made once |
 
 ## 2. Architecture overview
 
@@ -602,8 +602,14 @@ Known gaps in what is built, each for an issue:
 - A clip follows only the clipped layer's own `transform` (`decisions/0003-layers.md`), so once the layer below is dragged into another group, moving the group that holds only one of them moves the clip's shape; a loose clipped element moved by the vector select tool is wrapped first, and its clip moves with it.
 - The Image menu's turns, flips and Image size leave the root's own `mask`, `clip-path` and `filter` as they are, do not see a `transform` set in a style or a stylesheet, and do not follow a `textPath`, `feImage` or `mpath` reference; Image size with Resample redraws a picture with the browser's smoothing, which Firefox does not refine.
 - The pen finishes a path when the tool changes by watching the overlay being emptied, and listens for Enter and Escape on the document between clicks, since the viewport tells a tool only about strokes; a tool key pressed during a pen drag leaves the path open until Enter or Escape; a `finish` member of the tool contract, called by the viewport, would replace both.
-- A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
+- A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` would cover a release once the editor registers with it (below), but not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
+- A save, or a new drawing, the store refuses for any reason but a delete is not retried, and nothing on screen says so (`drawing/useOpenDrawing.ts`).
+- No editor registers what it holds with `beforeClosing` (`store/heldEdits.ts`), so a drawing's save not yet in the store — still waiting on the autosave's debounce, or encoding before its transaction opens — is not written first when a newer build retires the tab, nor counted or written before a disconnect, a source let go or an export (#11).
+  Every caller of `flushEditors` and `settleEditors`, and the comments around them, take that flush as made, as skysa-notes makes it; what makes them true is `drawing/useOpenDrawing.ts` registering a flush that answers with the drawings it still holds unsaved edits for, as `HeldEditsFlush` asks, rather than one that resolves whatever happened.
+- Nothing shows the tab's state against a newer build: `store/staleTab.ts` publishes `waiting` and `stale`, which only `store/frozenTab.ts` reads, and skysa-notes' gate over the page (`StaleTabGate`) was not ported, so a tab held waiting on an upgrade hangs with nothing on screen, and drawing goes on in a retired tab whose every save is refused (#11).
+- The browser is never asked to keep the store: `keeping.ask` (`store/keeping.ts`) is made by nothing, so `navigator.storage.persist()` is never called, and the storage panel only reads the answer (#11).
+  `store/keeping.ts` and `components/account/NotConnected.tsx` describe the request as made, on the first drawing and on install, as skysa-notes makes it.
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.
 - A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.
 
@@ -639,10 +645,11 @@ The lint's shared rules, the compiler's settings and Prettier's are the kit's, `
 
 ## 12. Carried over from skysa-notes
 
-Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
-The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
-Those layers have moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4): the server (§6), the protocol, the adapters and the naming rules (§4, §5), the sync engine and the sync client (§7), the PWA build (§8) and the lint's shared rules (§11).
-A fix to any of them is a kit PR.
+Decided 2026-11-13; see [`decisions/0005-on-the-kit.md`](decisions/0005-on-the-kit.md), which says what went where, what this app hands the kit and keeps, and why a 0.1.0 server database is reset.
+It supersedes [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md) (2026-11-03), which lists each layer as it was copied, its source commit and what changed on the way.
+What was copied, in short: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
+Those layers have moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4): the server (§6), the protocol, the adapters and the naming rules (§4, §5), the sync engine and the sync client (§7), the PWA build (§8) and the lint's shared rules (§11); not the slug, the attachments' names or this app's own names (`packages/core/src/names/`).
+A fix to any of them is a kit PR, and this app takes it by moving its pin, one exact version for every kit package (`apps/web/tests/kitVersion.test.ts`).
 
 ## 13. Distribution and licensing
 
