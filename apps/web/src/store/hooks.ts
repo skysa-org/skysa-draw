@@ -39,5 +39,12 @@ export const useDrawing = (id: string): DrawingRecord | 'loading' | 'missing' =>
 		undefined
 	);
 	if (answer?.id !== id) return 'loading';
-	return answer.row !== undefined && isLive(answer.row) ? answer.row : 'missing';
+	return foundOf(answer.row);
 };
+
+/**
+ * A row as `useDrawing` answers it once the store has: `missing` where there
+ * is none, or it is deleted here and only waiting for its delete to be sent.
+ */
+export const foundOf = (row: DrawingRecord | undefined): DrawingRecord | 'missing' =>
+	row !== undefined && isLive(row) ? row : 'missing';

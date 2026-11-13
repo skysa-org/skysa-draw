@@ -1311,6 +1311,48 @@ describe('the editor saving', () => {
 		);
 	});
 
+	it('keeps a copy when the save it closes with finds the drawing changed elsewhere, though the change never reaches it', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		// The change lands as the editor closes, once its live query has gone.
+		vi.spyOn(document, 'settle').mockImplementationOnce(async () => {
+			await saveDrawing(db, made.id, theirs);
+		});
+
+		view.unmount();
+
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
+		expect(await rowText(db, made.id)).toBe(theirs);
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
+	it('keeps one copy, not two, when the change reaches the editor as its save finds it', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		// The change lands as the save is sent: the save finds it, and so does
+		// the live query.
+		vi.spyOn(document, 'settle')
+			.mockImplementationOnce(() => Promise.resolve())
+			.mockImplementationOnce(async () => {
+				await saveDrawing(db, made.id, theirs);
+			});
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		await pastTheSave();
+
+		expect((await liveRows(db)).filter((row) => row.id !== made.id)).toHaveLength(1);
+		expect(await rowText(db, made.id)).toBe(theirs);
+	});
+
 	it('waits for a copy a change from elsewhere sets off while a refused save is tried again', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');

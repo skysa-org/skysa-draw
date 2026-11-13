@@ -269,6 +269,7 @@ When the row is deleted under unsaved edits, by another tab or a pull, the edits
 A save the delete beat counts as unsaved; edits already saved go with the delete.
 The user's own delete goes through the open drawing, which marks it intended before the row goes, so it leaves nothing behind.
 `saveDrawing` is a compare-and-set: the editor passes what it last opened or saved as `expected`, and a row changed from elsewhere since is answered `changed` with nothing written; the edits are then kept as a copy, as above, and a save still in flight counts as unsaved until it lands.
+The save that is answered `changed` reads the row and hands it to the editor as the live query would, so the edits are kept though the change has not reached the editor yet, and as it closes never will; handed the change twice, the editor keeps one copy, not two.
 
 ### Where the user is, in the URL
 
@@ -620,7 +621,6 @@ Known gaps in what is built, each for an issue:
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
 - A save, or a new drawing, the store refuses for any reason but a delete says nothing on screen (`drawing/useOpenDrawing.ts`); a refused save is tried again at the next change, or when the editor is asked to settle, and is counted as held until it goes in, or until the editor closes, when it is tried once more and then goes with it.
 - Strokes still waiting on the autosave's pause are not written when the page goes, a tab closed, a reload or the update bar's Reload: the `pagehide` flush starts no transaction before the page is gone, since the save hashes the text first (#16).
-- A save that finds the row changed from elsewhere writes nothing and leaves the edits to a conflict copy, which only a mounted editor starts, when the change reaches it; as the editor closes, nothing does, and edits made since the last save are lost (#14).
 - An undo back to the text the drawing opened with, or to one this session saved before, counts as saved though the row may hold a later save, so a refused save of it is neither named when the editor settles nor kept under a change or a delete from elsewhere (#13).
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.
 - A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.

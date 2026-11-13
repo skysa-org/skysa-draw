@@ -5,9 +5,9 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
 import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.js';
-import { createDrawing, deleteDrawing, saveDrawing } from '../store/drawings.js';
+import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../store/drawings.js';
 import { beforeClosing, inTime } from '../store/heldEdits.js';
-import { useDrawing } from '../store/hooks.js';
+import { foundOf, useDrawing } from '../store/hooks.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
 
@@ -166,11 +166,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 					if (sending.current === text) sending.current = undefined;
 				});
 			if (outcome === 'changed') {
-				// Nothing was written. The change, as it arrives or already has,
-				// finds these edits unsaved and keeps them as a copy beside it
-				// (`keepCopy`), by the conflict rule.
+				// Nothing was written. The edits are kept as a copy beside the
+				// change, by the conflict rule (`changedElsewhere`).
 				saved.current = saved.current.filter((each) => each !== text);
 				if (state.current.document === document) set({ saving: 'idle' });
+				await changedElsewhere();
 				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
@@ -404,6 +404,16 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		open(row.text);
 	};
 
+	/**
+	 * The row changed from elsewhere under a save, which wrote nothing: the row
+	 * as the store has it is offered as the live query offers it, so that the
+	 * edits are kept by the conflict rule though the change has not reached the
+	 * editor yet, and as it closes never will. Offered twice, they are kept once.
+	 */
+	const changedElsewhere = async (): Promise<void> => {
+		offer(foundOf(await getDrawing(db, id)));
+	};
+
 	const flush = (): Promise<void> => {
 		const document = state.current.document;
 		if (timer.current !== undefined && document !== undefined) {
@@ -431,8 +441,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * a stroke is an edit only once its encoding lands, as `keepDeleted` waits
 	 * for it too; then the pending save; then a copy being kept, since the
 	 * edits are its: one under way already, which has stopped the save's
-	 * timer, or one the save set off by finding the row changed, once the
-	 * change has reached the editor. Edits a save before it left behind — the
+	 * timer, or one the save set off by finding the row changed
+	 * (`changedElsewhere`). Edits a save before it left behind — the
 	 * store refused it — are tried once more, since nothing else would try
 	 * them until the next change, and a copy that sets off meanwhile is waited
 	 * for in turn. Kept in a drawing of their own, or going with the user's
