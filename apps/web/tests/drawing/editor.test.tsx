@@ -1294,13 +1294,15 @@ describe('the editor saving', () => {
 						};
 					})
 			);
-			// A page a phone has frozen: the autosave's pause never comes, and
-			// only what settling does is done.
+			// A page a phone has frozen: the autosave's pause, however long,
+			// never comes, and only what settling does is done.
 			const realSetTimeout = globalThis.setTimeout;
+			const paused = (wait: number | undefined) =>
+				wait !== undefined && wait > 0 && wait <= AUTOSAVE_DEBOUNCE_MS;
 			const timers = vi
 				.spyOn(globalThis, 'setTimeout')
 				.mockImplementation((handler, wait) =>
-					realSetTimeout(wait === AUTOSAVE_DEBOUNCE_MS ? () => undefined : handler, wait)
+					realSetTimeout(paused(wait) ? () => undefined : handler, wait)
 				);
 			onTestFinished(() => {
 				timers.mockRestore();

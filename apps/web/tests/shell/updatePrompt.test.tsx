@@ -1,20 +1,26 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UpdatePrompt } from '../../src/components/shell/UpdatePrompt.js';
 import { beforeClosing } from '../../src/store/heldEdits.js';
 
 const worker = vi.hoisted(() => ({ update: vi.fn(() => Promise.resolve()) }));
-const registration = vi.hoisted((): { options: { onNeedReload?: () => void } } => ({
-	options: {},
-}));
+const registration = vi.hoisted(
+	(): { registered: boolean; options: { onNeedReload?: () => void } } => ({
+		registered: false,
+		options: {},
+	})
+);
 
 // A new build waiting, which the stub never has; and what the prompt asks of
-// the registration.
+// the registration, the first render's alone, as the hook reads it once.
 vi.mock('virtual:pwa-register/react', () => ({
 	useRegisterSW: (options: { onNeedReload?: () => void } = {}) => {
-		registration.options = options;
+		if (!registration.registered) {
+			registration.registered = true;
+			registration.options = options;
+		}
 		return {
 			needRefresh: [true, () => undefined],
 			offlineReady: [false, () => undefined],
@@ -22,6 +28,13 @@ vi.mock('virtual:pwa-register/react', () => ({
 		};
 	},
 }));
+
+beforeEach(() => {
+	worker.update.mockReset();
+	worker.update.mockResolvedValue(undefined);
+	registration.registered = false;
+	registration.options = {};
+});
 
 describe("the new build's bar", () => {
 	it('pauses syncing before it asks the new build to take over', async () => {
@@ -61,6 +74,25 @@ describe("the new build's bar", () => {
 			await new Promise((resolve) => setTimeout(resolve, 50));
 			expect(reload).not.toHaveBeenCalled();
 			held.release();
+
+			await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+		} finally {
+			withdraw();
+		}
+	});
+
+	it("reloads however settling went, the page being the new build's", async () => {
+		const withdraw = beforeClosing(
+			() => Promise.resolve(),
+			() => {
+				throw new Error('an editor that cannot say what it holds');
+			}
+		);
+		const reload = vi.fn();
+		render(<UpdatePrompt reload={reload} />);
+
+		try {
+			registration.options.onNeedReload?.();
 
 			await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
 		} finally {

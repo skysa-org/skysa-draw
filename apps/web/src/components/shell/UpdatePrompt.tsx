@@ -44,9 +44,11 @@ export const UpdatePrompt = ({
 		// Read once, as the worker is registered.
 	} = useRegisterSW({
 		onNeedReload: () => {
-			void settleEditors().then(() => {
-				reload();
-			});
+			void settleEditors()
+				.catch(() => undefined)
+				.then(() => {
+					reload();
+				});
 		},
 	});
 	const [updating, setUpdating] = useState<'no' | 'asked' | 'slow'>('no');
