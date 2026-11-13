@@ -4,8 +4,9 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
-import type { DrawDatabase, DrawingRecord } from '../store/db.js';
+import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.js';
 import { createDrawing, deleteDrawing, saveDrawing } from '../store/drawings.js';
+import { beforeClosing, inTime } from '../store/heldEdits.js';
 import { useDrawing } from '../store/hooks.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
@@ -104,10 +105,18 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	/** The row as the store had it last; nothing once it is deleted. */
 	const latest = cell<DrawingRecord | undefined>(undefined);
 	/**
+	 * The row as it was last seen, deleted or not, by `drawingRef`: what the
+	 * edits are named by. The name alone, not the row, whose text a deleted
+	 * row's would otherwise keep in memory beside the document.
+	 */
+	const known = cell<string | undefined>(undefined);
+	/**
 	 * A copy is being kept, or has been in place of the deleted row: nothing is
 	 * saved into the row, and no row is opened.
 	 */
 	const keeping = cell(false);
+	/** A copy being kept, or a drawing in place of the row: nothing once it is in, or refused. */
+	const kept = cell<Promise<void> | undefined>(undefined);
 	/** The user is deleting the drawing: what is unsaved goes with it. */
 	const deleting = cell(false);
 	const saved = cell<readonly string[]>([]);
@@ -330,6 +339,28 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 	};
 
+	/** The drawing, by `drawingRef`, as it was last seen: nothing before its row came. */
+	const named = (): readonly string[] => (known.current === undefined ? [] : [known.current]);
+
+	/** Work that keeps the edits as a drawing of their own, until it is done. */
+	const keep = (work: Promise<void>) => {
+		kept.current = work;
+		void work.then(() => {
+			if (kept.current === work) kept.current = undefined;
+		});
+	};
+
+	/**
+	 * Every keep under way, and one it set off: `keepCopy` and `keepDeleted`
+	 * catch what they meet, so this never rejects.
+	 */
+	const keepsDone = async (): Promise<void> => {
+		const work = kept.current;
+		if (work === undefined) return;
+		await work;
+		await keepsDone();
+	};
+
 	/**
 	 * The row gone from the store. Nothing is kept where nothing was opened, or
 	 * where what was is only shown and never edited; a copy being kept takes
@@ -344,7 +375,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			set({ gone: true });
 			return;
 		}
-		void keepDeleted(document, row);
+		keep(keepDeleted(document, row));
 	};
 
 	const offer = (row: Found) => {
@@ -355,6 +386,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 		if (row.id !== id) return;
 		latest.current = row;
+		known.current = drawingRef(row);
 		// Back after all, as a pull could bring it.
 		if (state.current.gone) set({ gone: false });
 		// The copy, once kept, opens the latest row there is.
@@ -366,7 +398,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		if (row.text === openedText.current || saved.current.includes(row.text)) return;
 		const document = state.current.document;
 		if (document !== undefined && hasUnsavedEdits()) {
-			void keepCopy(document, row);
+			keep(keepCopy(document, row));
 			return;
 		}
 		open(row.text);
@@ -379,6 +411,68 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			return save(document);
 		}
 		return inFlight.current ?? Promise.resolve();
+	};
+
+	/**
+	 * The pending save made and in, and any save an edit's pause set off while
+	 * it was on its way: settling, finding that one's text not in yet, would
+	 * otherwise send the same text again beside it.
+	 */
+	const flushed = async (): Promise<void> => {
+		const work = flush();
+		await work;
+		if ((inFlight.current ?? work) !== work) await flushed();
+	};
+
+	/**
+	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
+	 * it holds written now, and this drawing named, by `drawingRef`, if the
+	 * store still has not taken it. Raster work still pending goes first, since
+	 * a stroke is an edit only once its encoding lands, as `keepDeleted` waits
+	 * for it too; then the pending save; then a copy being kept, since the
+	 * edits are its: one under way already, which has stopped the save's
+	 * timer, or one the save set off by finding the row changed, once the
+	 * change has reached the editor. Edits a save before it left behind — the
+	 * store refused it — are tried once more, since nothing else would try
+	 * them until the next change, and a copy that sets off meanwhile is waited
+	 * for in turn. Kept in a drawing of their own, or going with the user's
+	 * delete, the edits are not this drawing's to name; anything else not in
+	 * the store is, an edit made while it settles among it.
+	 *
+	 * Edits held for a row deleted elsewhere, whose new drawing in its place
+	 * the store refused (`keepDeleted`), are named by the row as it was, so
+	 * that its source, and only its source, counts them as held.
+	 */
+	const settleOnce = async (): Promise<readonly string[]> => {
+		/** Edits the store has not taken, which no copy and no delete of the user's has. */
+		const held = (): boolean => !keeping.current && !deleting.current && hasUnsavedEdits();
+		await state.current.document?.settle();
+		await flushed();
+		await keepsDone();
+		const document = state.current.document;
+		if (document === undefined || !held()) return [];
+		// A save of an edit made since is this one.
+		stopTimer();
+		await save(document);
+		await keepsDone();
+		return held() ? named() : [];
+	};
+
+	const settling = cell<Promise<readonly string[]> | undefined>(undefined);
+
+	/**
+	 * `settleOnce`, or the one already going: a settle asked for meanwhile — a
+	 * second caller's, or the editor's own as it closes — joins it, so that the
+	 * two do not each send the same text again.
+	 */
+	const settle = (): Promise<readonly string[]> => {
+		const going =
+			settling.current ??
+			settleOnce().finally(() => {
+				settling.current = undefined;
+			});
+		settling.current = going;
+		return going;
 	};
 
 	/**
@@ -400,6 +494,14 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	const start = () => {
+		// A newer build closing the database, a source let go, an export: each
+		// has the editor write what it holds first, and hears what it could not.
+		// A function of its own each start, since the registry is a set and
+		// React starts a session twice in development. Not answered by
+		// `FLUSH_WAIT_MS`, it is taken to hold its drawing all the same
+		// (`named`), so that a source let go meanwhile keeps its rows: settling
+		// is not over, and the edits may yet need them.
+		const withdraw = beforeClosing(settle.bind(undefined), named);
 		// The save is asynchronous, but IndexedDB finishes a transaction that
 		// was started before the page went, so starting it is enough.
 		const onPageHide = () => {
@@ -413,7 +515,12 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		return () => {
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
-			void flush();
+			// Settled as it closes, raster work and a refused save's retry with
+			// it, and withdrawn only then, however that went, or once
+			// `FLUSH_WAIT_MS` has gone by, so that settling meanwhile waits for
+			// it. What the store still refuses goes with the editor: nothing
+			// could open what it held again (§10).
+			void inTime(settle(), []).then(withdraw);
 		};
 	};
 

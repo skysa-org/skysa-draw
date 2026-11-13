@@ -5,6 +5,7 @@ import { createDatabase } from '../../src/store/db.js';
 import { holdsTextFor } from '../../src/store/detached.js';
 import {
 	beforeClosing,
+	FLUSH_WAIT_MS,
 	flushEditors,
 	settleAfter,
 	settleEditors,
@@ -25,8 +26,8 @@ afterEach(() => {
 	});
 });
 
-const register = (finish: () => Promise<unknown>) => {
-	registered.push(beforeClosing(finish));
+const register = (finish: () => Promise<unknown>, unanswered?: () => readonly string[]) => {
+	registered.push(beforeClosing(finish, unanswered));
 };
 
 /** A flush the test finishes by hand. */
@@ -87,6 +88,46 @@ describe('settling what the editors hold', () => {
 			// Registered for the module's life otherwise, and every test after
 			// this would wait on it.
 			stuck.release();
+			vi.useRealTimers();
+		}
+	});
+
+	it('counts an editor that has not answered in time as one holding what it cannot name', async () => {
+		vi.useFakeTimers();
+		try {
+			// Raster work whose encoding never lands, a store that never answers.
+			const { finish, ends } = manualFlush<undefined>();
+			register(finish);
+			const settled = vi.fn();
+
+			void settleEditors().then(settled);
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS - 1);
+			expect(settled).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+
+			expect(settled).toHaveBeenCalledWith({ failing: [], rejected: 1 });
+			ends.resolve(undefined);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('takes an editor that has not answered in time to hold what it said it would, and no more', async () => {
+		vi.useFakeTimers();
+		try {
+			const { finish, ends } = manualFlush<undefined>();
+			register(finish, () => ['local:harbor']);
+			register(() => Promise.resolve(['local:dusk']));
+
+			const settling = settleEditors();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+
+			expect(await settling).toEqual({
+				failing: ['local:harbor', 'local:dusk'],
+				rejected: 0,
+			});
+			ends.resolve(undefined);
+		} finally {
 			vi.useRealTimers();
 		}
 	});

@@ -202,20 +202,73 @@ button:not(.primary):hover {
 	width: 1px;
 }
 
-/* The bar that says a new build is waiting (`UpdatePrompt`). */
+/*
+ * The bars along the window's foot (`AppFoot`): the stale window's
+ * (`StaleTabGate`) over the one that says a new build is waiting
+ * (`UpdatePrompt`). One stack, so
+ * two at once sit one above the other; and under a sheet or a drawer, whose
+ * own actions are along the foot too, so that a press meant for one of them
+ * never lands on a bar's Reload.
+ */
+.app-foot {
+	bottom: 0;
+	display: flex;
+	flex-direction: column;
+	inset-inline: 0;
+	position: fixed;
+	z-index: var(--z-foot);
+}
+
+/*
+ * Clear of a notch at either side, and the lowest bar clear of the home
+ * indicator, where the page runs under them (`viewport-fit=cover`), as the
+ * editor's tools are.
+ */
 .update-prompt {
 	align-items: center;
 	background: var(--surface);
 	border-block-start: 1px solid var(--border);
-	bottom: 0;
 	display: flex;
 	gap: var(--space-s);
-	inset-inline: 0;
-	padding: var(--space-s) var(--gutter);
-	position: fixed;
-	z-index: var(--z-float);
+	padding: var(--space-s) max(var(--gutter), env(safe-area-inset-right)) var(--space-s)
+		max(var(--gutter), env(safe-area-inset-left));
+}
+
+.app-foot > .update-prompt:last-of-type {
+	padding-block-end: calc(var(--space-s) + env(safe-area-inset-bottom));
 }
 
 .update-prompt span {
 	flex: 1;
+}
+
+.update-prompt button {
+	min-height: var(--target);
+}
+
+/* The window out of date (`StaleTabGate`): a card in the middle of the cover (`ui.css`). */
+.tab-gate-card {
+	background: var(--bg);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-m);
+	max-width: 28rem;
+	/* Focused as it comes, for a screen reader to start from, as a sheet is. */
+	outline: none;
+	padding: var(--space-l);
+}
+
+.tab-gate-card p {
+	margin: 0;
+}
+
+.tab-gate-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-xs);
+	justify-content: flex-end;
+}
+
+.tab-gate-actions button {
+	min-height: var(--target);
 }

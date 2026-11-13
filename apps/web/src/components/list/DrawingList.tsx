@@ -1,7 +1,9 @@
 import { t } from '../../i18n/t.js';
 import { useDb } from '../../store/database.js';
+import { LOCAL_CONNECTION_ID } from '../../store/db.js';
 import { createDrawing } from '../../store/drawings.js';
 import { useDrawings } from '../../store/hooks.js';
+import { keeping } from '../../store/keeping.js';
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -26,7 +28,15 @@ export const DrawingList = ({
 					className="primary"
 					onClick={() => {
 						void createDrawing(db, { title: t('drawings.untitled'), folderPath }).then(
-							(made) => onOpen(made.id)
+							(made) => {
+								// A drawing in the device's own library exists nowhere else:
+								// the moment the browser can be asked to keep it, prompt
+								// and all, once per device (`store/keeping.ts`).
+								if (made.connectionId === LOCAL_CONNECTION_ID) {
+									void keeping.ask(db, 'first-drawing');
+								}
+								onOpen(made.id);
+							}
 						);
 					}}
 				>

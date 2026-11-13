@@ -29,7 +29,7 @@ import { flushEditors } from './heldEdits.js';
 export type TabState = 'current' | 'waiting' | 'stale';
 
 /** How long the upgrade is kept waiting for writes that are under way. */
-const CLOSE_GRACE_MS = 2000;
+export const CLOSE_GRACE_MS = 2000;
 
 /**
  * How long an upgrade is blocked before it is worth saying. An older tab that
@@ -47,6 +47,9 @@ const publish = (next: TabState) => {
 };
 
 export const tabState = (): TabState => tab.get();
+
+/** For the gate over the page that says it (`StaleTabGate`). */
+export const subscribeTabState = tab.subscribe;
 
 /**
  * `wait` is for the event: the upgrade has not happened yet, and is held up

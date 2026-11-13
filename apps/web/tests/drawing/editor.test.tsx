@@ -8,7 +8,7 @@ import {
 import { ROOT } from '@skysa/storage';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
@@ -18,8 +18,9 @@ import { rectPath } from '../../src/drawing/tools/raster/area.js';
 import * as areaOps from '../../src/drawing/tools/raster/areaOps.js';
 import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
 import { DatabaseProvider } from '../../src/store/database.js';
-import type { DrawDatabase } from '../../src/store/db.js';
+import { type DrawDatabase, drawingRef } from '../../src/store/db.js';
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../../src/store/drawings.js';
+import { FLUSH_WAIT_MS, flushEditors, settleEditors } from '../../src/store/heldEdits.js';
 import { isLive } from '../../src/store/rowStates.js';
 import { freshDatabase } from '../support/db.js';
 import { stubWindowWidth, type Width } from './support.js';
@@ -199,7 +200,12 @@ const Routed = ({
 	);
 };
 
-const renderEditor = async (width: Width, title = 'Harbor', folderPath = ROOT) => {
+const renderEditor = async (
+	width: Width,
+	title = 'Harbor',
+	folderPath = ROOT,
+	{ strict = false } = {}
+) => {
 	stubWindowWidth(width);
 	const db = freshDatabase();
 	const made = await createDrawing(db, {
@@ -209,11 +215,12 @@ const renderEditor = async (width: Width, title = 'Harbor', folderPath = ROOT) =
 	});
 	const onBack = vi.fn();
 	const onReplaced = vi.fn();
-	const view = render(
+	const editor = (
 		<DatabaseProvider database={db}>
 			<Routed first={made.id} onBack={onBack} onReplaced={onReplaced} />
 		</DatabaseProvider>
 	);
+	const view = render(strict ? <StrictMode>{editor}</StrictMode> : editor);
 	await screen.findByRole('heading', { name: title });
 	// The title is in the bar as soon as the row is, and the document opens
 	// from the row a moment later: until then the frame has no tools.
@@ -1043,6 +1050,322 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited), {
 			timeout: AUTOSAVE_DEBOUNCE_MS - 100,
 		});
+	});
+
+	it('writes what is pending when asked to settle, without waiting for the pause, and names nothing once it is in', async () => {
+		// A newer build closing the database, a source let go, an export: each
+		// asks first (`store/heldEdits.ts`).
+		const { db, made } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(edited);
+	});
+
+	it('writes raster work still pending when asked to settle: a stroke is an edit once its encoding lands', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		vi.spyOn(document, 'settle').mockImplementationOnce(() => {
+			document.edit(stroke);
+			return Promise.resolve();
+		});
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(stroke);
+	});
+
+	it('waits for a save an edit sets off while another is on its way, and starts none of its own beside it', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const first = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const second = made.text.replace('</svg>', '<g id="layer-3"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(first));
+		const later: { save: () => void } = { save: () => undefined };
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			const settles = vi
+				.spyOn(document, 'settle')
+				// Settling's own.
+				.mockImplementationOnce(() => Promise.resolve())
+				// The pending save's. Once it has read what it writes, an edit is
+				// made and its pause runs out, which sets off a save of its own
+				// while this one is on its way.
+				.mockImplementationOnce(() => {
+					const settled = Promise.resolve();
+					queueMicrotask(() => {
+						void settled.then(() => {
+							act(() => {
+								document.edit(second);
+								vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS);
+							});
+						});
+					});
+					return settled;
+				})
+				// That save's, held until the first is in.
+				.mockImplementationOnce(
+					() =>
+						new Promise((resolve) => {
+							later.save = resolve;
+						})
+				);
+
+			const settling = settleEditors();
+			await vi.waitFor(async () => expect(await rowText(db, made.id)).toBe(first));
+			later.save();
+
+			expect(await settling).toEqual({ failing: [], rejected: 0 });
+			expect(await rowText(db, made.id)).toBe(second);
+			// Settling's own and the two saves': none of settling's own beside them.
+			expect(settles).toHaveBeenCalledTimes(3);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('names the drawing when settling, while the store will not take what it holds', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+
+		expect(await settleEditors()).toEqual({ failing: [drawingRef(made)], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(made.text);
+
+		db.drawings.hook('updating').unsubscribe(refuse);
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(edited);
+	});
+
+	it('settles once for two that ask at once, so that the same text is not sent twice beside itself', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const tries = vi.fn();
+		const refuse = (changes: object) => {
+			if ('text' in changes) {
+				tries();
+				throw new Error('the store refused');
+			}
+		};
+		db.drawings.hook('updating', refuse);
+		act(() => lastOpened().edit(edited));
+
+		const both = await Promise.all([settleEditors(), settleEditors()]);
+
+		const named = { failing: [drawingRef(made)], rejected: 0 };
+		expect(both).toEqual([named, named]);
+		// The pending save, and the one try more.
+		expect(tries).toHaveBeenCalledTimes(2);
+		db.drawings.hook('updating').unsubscribe(refuse);
+	});
+
+	it('is asked to settle once, where React starts it twice, as StrictMode does', async () => {
+		const { db, made } = await renderEditor('expanded', 'Harbor', ROOT, { strict: true });
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+		await pastTheSave();
+
+		expect(flushEditors()).toHaveLength(1);
+		expect(await rowText(db, made.id)).toBe(edited);
+	});
+
+	it('is asked to settle until the save it closed with is in, and not after', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+		view.unmount();
+
+		// Settling while the close's save is under way waits for it.
+		expect(flushEditors()).toHaveLength(1);
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+	});
+
+	it('writes raster work still pending as it closes', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		vi.spyOn(document, 'settle').mockImplementationOnce(() => {
+			document.edit(stroke);
+			return Promise.resolve();
+		});
+		view.unmount();
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+	});
+
+	it('names the drawing when it has not settled in time, so that a source let go keeps its rows', async () => {
+		const { made, view } = await renderEditor('expanded');
+		// Raster work whose encoding never lands.
+		vi.spyOn(lastOpened(), 'settle').mockImplementation(() => new Promise(() => undefined));
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			const settling = settleEditors();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+
+			expect(await settling).toEqual({ failing: [drawingRef(made)], rejected: 0 });
+			// Closed, and gone from the registry, before the clock is real again.
+			view.unmount();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+			expect(flushEditors()).toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('withdraws once closed, if settling as it closes has not answered in time', async () => {
+		const { view } = await renderEditor('expanded');
+		// Raster work whose encoding never lands.
+		vi.spyOn(lastOpened(), 'settle').mockImplementation(() => new Promise(() => undefined));
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			view.unmount();
+			expect(flushEditors()).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+			expect(flushEditors()).toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('tries once more as it closes a save the store refused', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+		await pastTheSave();
+		expect(await rowText(db, made.id)).toBe(made.text);
+
+		// The store takes it again, and the drawing is closed before another change.
+		db.drawings.hook('updating').unsubscribe(refuse);
+		view.unmount();
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
+	});
+
+	it('waits for a copy being kept for a change from elsewhere, which the edits are in', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine, true));
+		// The copy is held at its first step until the editor is asked to settle.
+		const held: { release: () => void } = { release: () => undefined };
+		const settle = vi.spyOn(document, 'settle').mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					held.release = resolve;
+				})
+		);
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		const settling = settleEditors();
+		held.release();
+
+		expect(await settling).toEqual({ failing: [], rejected: 0 });
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
+	it('waits for a copy its own save sets off, by finding the drawing changed elsewhere', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		// Edited, with the save waiting on the pause.
+		act(() => document.edit(mine));
+		// The save settling asks for is held until the change from elsewhere
+		// has the copy begun: the copy's own settle lets it go, and holds the
+		// copy past the save.
+		const held: { release: () => void } = { release: () => undefined };
+		vi.spyOn(document, 'settle')
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						held.release = resolve;
+					})
+			)
+			.mockImplementationOnce(() => {
+				held.release();
+				return new Promise((resolve) => setTimeout(resolve, 50));
+			});
+		await saveDrawing(db, made.id, theirs);
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		// In the store by the time settling answers.
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
+	it('waits for a copy a change from elsewhere sets off while a refused save is tried again', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		// The store refuses this editor's text, and takes the change from elsewhere.
+		const refuse = (changes: object) => {
+			if ('text' in changes && String(changes.text).includes('layer-2')) {
+				throw new Error('the store refused');
+			}
+		};
+		db.drawings.hook('updating', refuse);
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		const begun: { copy: () => void } = { copy: () => undefined };
+		vi.spyOn(document, 'settle')
+			// Settling's own, then the pending save's, which the store refuses.
+			.mockImplementationOnce(() => Promise.resolve())
+			.mockImplementationOnce(() => Promise.resolve())
+			// The retry's: the change from elsewhere lands, and the retry waits
+			// for the copy it sets off to begin.
+			.mockImplementationOnce(async () => {
+				await saveDrawing(db, made.id, theirs);
+				await new Promise<void>((resolve) => {
+					begun.copy = resolve;
+				});
+			})
+			// The copy's, held past the retry.
+			.mockImplementationOnce(() => {
+				begun.copy();
+				return new Promise((resolve) => setTimeout(resolve, 50));
+			});
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+		db.drawings.hook('updating').unsubscribe(refuse);
+	});
+
+	it('names the drawing as it was, deleted elsewhere with nothing taken in its place', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(mine, true));
+		const refuse = vi.fn(() => {
+			throw new Error('the store refused');
+		});
+		db.drawings.hook('creating', refuse);
+		await deleteDrawing(db, made.id);
+		// The drawing that would have kept the edits, refused.
+		await waitFor(() => expect(refuse).toHaveBeenCalled());
+
+		// Its own source counts the edits as held, and no other does.
+		expect(await settleEditors()).toEqual({ failing: [drawingRef(made)], rejected: 0 });
+		db.drawings.hook('creating').unsubscribe(refuse);
 	});
 
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {

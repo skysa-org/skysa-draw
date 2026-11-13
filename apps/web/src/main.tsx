@@ -2,11 +2,12 @@
 import './jitless.js';
 import './styles/index.css';
 
-import { keepAwakeWhileSyncing, makeWayWhenAsked, updateChannel } from '@skysa/client';
+import { keepAwakeWhileSyncing, makeWay, makeWayWhenAsked, updateChannel } from '@skysa/client';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { AppFoot } from './components/shell/AppFoot.js';
 import { routeTree } from './routeTree.gen';
 import { syncScheduler } from './sync/runtime.js';
 
@@ -34,11 +35,19 @@ keepAwakeWhileSyncing(syncScheduler);
 // (`makeWayWhenAsked`, the kit's client's). Never stopped either.
 makeWayWhenAsked(syncScheduler, updateChannel());
 
+/**
+ * Before a new build takes over: syncing paused here and in every other tab,
+ * so no request of the old build's is cut off half way (`makeWay`, the kit's
+ * client's).
+ */
+const beforeUpdate = (): Promise<void> => makeWay(syncScheduler, updateChannel());
+
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('#root is missing from index.html');
 
 createRoot(rootElement).render(
 	<StrictMode>
 		<RouterProvider router={router} />
+		<AppFoot beforeUpdate={beforeUpdate} />
 	</StrictMode>
 );

@@ -1,15 +1,14 @@
 /**
  * The edits the editors are holding, which the store cannot see.
  *
- * An editor keeps what was drawn for a moment before it saves it (here
- * `drawing/useOpenDrawing.ts`, which does not register yet:
- * docs/ARCHITECTURE.md §10), and skysa-notes' keeps an edit whose save failed
- * until one goes through (its `useAutosave.ts`). None of that is in a row. So
- * anything about to act on "what this device holds" has to have the editors
- * write first — a tab closing its database for a newer build
- * (`store/staleTab.ts`), and a source being let go, where a count of what is
- * unsynced taken from the store alone would leave out the stroke the user has
- * just drawn (`store/unsynced.ts`).
+ * An editor keeps what was drawn for a moment before it saves it, and an edit
+ * whose save the store refused until one goes in (`drawing/useOpenDrawing.ts`,
+ * registered while a drawing is open). None of that is in a row. So anything
+ * about to act on "what this device holds" has to have the editors write first
+ * — a tab closing its database for a newer build (`store/staleTab.ts`), and a
+ * source being let go, where a count of what is unsynced taken from the store
+ * alone would leave out the stroke the user has just drawn
+ * (`store/unsynced.ts`).
  *
  * A registry rather than a call into the editor, because `store/` knows nothing
  * of React and an editor comes and goes: each registers its own flush while it
@@ -24,7 +23,14 @@
  */
 export type HeldEditsFlush = () => Promise<unknown>;
 
-const unfinished = new Set<HeldEditsFlush>();
+/**
+ * The drawings a flush that has not answered by `FLUSH_WAIT_MS` is taken to
+ * hold text for, by `drawingRef`: an editor knows its drawing before it knows
+ * how its writes went.
+ */
+export type HeldEditsUnanswered = () => readonly string[];
+
+const unfinished = new Map<HeldEditsFlush, HeldEditsUnanswered | undefined>();
 
 /**
  * Work under way that leaves an edit with an editor when it is done. In
@@ -44,6 +50,29 @@ const underway = new Set<Promise<unknown>>();
  */
 export const UNDERWAY_WAIT_MS = 10_000;
 
+/**
+ * How long settling waits on one editor before it takes it to hold what it
+ * said it would (`beforeClosing`), or what it cannot name: raster work whose
+ * encoding never lands, a store that never answers. Whoever is settling — an export, a disconnect, an editor closing —
+ * is not kept waiting past it, as with `UNDERWAY_WAIT_MS`.
+ */
+export const FLUSH_WAIT_MS = 10_000;
+
+/** `work`, or `late` where it fails or `wait` goes by first. */
+export const inTime = <T>(work: Promise<T>, late: T, wait = FLUSH_WAIT_MS): Promise<T> =>
+	new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			resolve(late);
+		}, wait);
+		const done = (value: T) => {
+			clearTimeout(timer);
+			resolve(value);
+		};
+		work.then(done, () => {
+			done(late);
+		});
+	});
+
 /** Have `settleEditors` wait for `work` before it has the editors write. */
 export const settleAfter = (work: Promise<unknown>): void => {
 	underway.add(work);
@@ -53,9 +82,16 @@ export const settleAfter = (work: Promise<unknown>): void => {
 	work.then(done, done);
 };
 
-/** Register work to be finished first — an editor's held edits. Answers how to withdraw it. */
-export const beforeClosing = (finish: HeldEditsFlush): (() => void) => {
-	unfinished.add(finish);
+/**
+ * Register work to be finished first — an editor's held edits — with, where
+ * it can say, what it holds should it not answer in time. Answers how to
+ * withdraw it.
+ */
+export const beforeClosing = (
+	finish: HeldEditsFlush,
+	unanswered?: HeldEditsUnanswered
+): (() => void) => {
+	unfinished.set(finish, unanswered);
 	return () => {
 		unfinished.delete(finish);
 	};
@@ -72,9 +108,11 @@ export interface SettledEditors {
 	 */
 	failing: readonly string[];
 	/**
-	 * How many flushes threw or rejected. Each holds whatever it holds and
-	 * cannot say for which drawings, so above zero the store is not the whole of
-	 * what the user has written and nothing here can say where the rest is.
+	 * How many flushes threw or rejected, or had not answered by
+	 * `FLUSH_WAIT_MS` with nothing to say for them (`HeldEditsUnanswered`). Each
+	 * holds whatever it holds and cannot say for which drawings, so above zero
+	 * the store is not the whole of what the user has written and nothing here
+	 * can say where the rest is.
 	 */
 	rejected: number;
 }
@@ -85,42 +123,54 @@ const isRefs = (answer: unknown): answer is readonly string[] =>
 const NOTHING_CLAIMED: SettledEditors = { failing: [], rejected: 0 };
 const REJECTED: SettledEditors = { failing: [], rejected: 1 };
 
+/** How many editors are registered, without starting their flushes as `flushEditors` does. */
+export const editorsRegistered = (): number => unfinished.size;
+
+/** One registered flush started, and what it is taken to hold if it does not answer in time. */
+const begin = ([finish, unanswered]: readonly [
+	HeldEditsFlush,
+	HeldEditsUnanswered | undefined,
+]) => ({
+	// Inside the executor, so a `finish` that throws is one that settled.
+	settled: new Promise<unknown>((resolve) => {
+		resolve(finish());
+	}).then(
+		(left): SettledEditors => (isRefs(left) ? { failing: left, rejected: 0 } : NOTHING_CLAIMED),
+		() => REJECTED
+	),
+	late: unanswered === undefined ? REJECTED : { failing: unanswered(), rejected: 0 },
+});
+
 /**
  * Start every registered flush, there and then, and answer one promise for
  * each. None of them rejects. Empty when no editor is holding anything open, so
  * a caller with nothing to wait for can tell without waiting.
  */
 export const flushEditors = (): Promise<SettledEditors>[] =>
-	[...unfinished].map((finish) =>
-		// Inside the executor, so a `finish` that throws is one that settled.
-		new Promise<unknown>((resolve) => {
-			resolve(finish());
-		}).then(
-			(left) => (isRefs(left) ? { failing: left, rejected: 0 } : NOTHING_CLAIMED),
-			() => REJECTED
-		)
-	);
+	[...unfinished].map((entry) => begin(entry).settled);
 
 const waitForUnderway = (): Promise<void> =>
-	new Promise((resolve) => {
-		const timer = setTimeout(resolve, UNDERWAY_WAIT_MS);
-		void Promise.allSettled([...underway]).then(() => {
-			clearTimeout(timer);
-			resolve();
-		});
-	});
+	inTime(
+		Promise.allSettled([...underway]).then(() => undefined),
+		undefined,
+		UNDERWAY_WAIT_MS
+	);
 
 /**
  * Have every editor write what it holds, and wait for all of them. One that
- * rejects does not stop the others being waited for. Work under way that will
- * leave an edit (`settleAfter`) is waited for first, for as long as
+ * rejects does not stop the others being waited for, and one that has not
+ * settled by `FLUSH_WAIT_MS` is taken to hold what it said it would
+ * (`beforeClosing`), or else counted as one that rejected. Work under way
+ * that will leave an edit (`settleAfter`) is waited for first, for as long as
  * `UNDERWAY_WAIT_MS`.
  */
 export const settleEditors = async (): Promise<SettledEditors> => {
 	// Only where there is some, so that the flushes otherwise start there and
 	// then, as `flushEditors` does.
 	if (underway.size > 0) await waitForUnderway();
-	const each = await Promise.all(flushEditors());
+	const each = await Promise.all(
+		[...unfinished].map(begin).map(({ settled, late }) => inTime(settled, late))
+	);
 	return {
 		failing: [...new Set(each.flatMap((settled) => settled.failing))],
 		rejected: each.reduce((sum, settled) => sum + settled.rejected, 0),

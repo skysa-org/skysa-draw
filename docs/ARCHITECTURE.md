@@ -549,10 +549,24 @@ The service worker and the manifest are built by the kit's `@skysa/pwa` from wha
 How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#pwa-specifics): `generateSW`, the app shell precached, `NetworkOnly` for `/api/*` and the provider origins so drawing content never sits in the HTTP cache, nothing inline written into the page (§9), a waiting worker that takes over only when the user says (`registerType: 'prompt'`, so a new build never swaps itself in under a half-drawn stroke), and the checklist a browser applies before it offers to install, which is a test there.
 What follows is this app's own.
 
-- `UpdatePrompt` offers the reload; its `beforeUpdate`, which the root route hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
+- `UpdatePrompt` offers the reload; its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
+- What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
+  The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
+  Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
+  An open editor that has not answered is taken to hold its drawing all the same, as it said when it registered, so a source let go keeps its rows.
+  Asked to settle, it waits for raster work still pending, writes its pending save, and waits for it and for any save an edit sets off meanwhile; a settle asked for while one is going joins it, so the same text is never sent twice at once.
+  It waits for a copy it is keeping, or one that save set off, and tries once more an edit a save before left behind.
+  It answers with the drawing's `drawingRef` while the store has still not taken the edits, so a source let go keeps that drawing's rows and an export says it is incomplete.
+  Edits held for a drawing deleted elsewhere, with no new drawing taken in its place, are named by the drawing as it was, so that its own source counts them and no other does.
+- A newer build in another window asks for the database: this one writes what the editor holds, closes for good (`store/staleTab.ts`), and says so over the page (`components/shell/StaleTabGate.tsx`, in `AppFoot` beside the router, so that the error screen has it too).
+  The notice covers the window in the top layer, as work under way does, and everything else in the page is inert behind it, the sheets and drawers in their portals with it, and hears no key pressed, paste or drop; its answer is Reload.
+  It can be put aside to export the drawing, under a bar that goes on saying the window cannot save, along the window's foot with the new build's and under any sheet or drawer.
+  A window whose own upgrade an older one holds up says it is waiting.
+- The browser is asked to keep the store (`navigator.storage.persist()`, `store/keeping.ts`) when the first drawing is made in the device's own library, once per device, since Firefox answers with a prompt, and again when the app is installed, which Chromium weighs.
+  The storage panel says, while the device's own library holds anything and the browser has not agreed, that the drawings may be cleared.
 
 **Brand.**
 What the app is called and how it looks come from a `brand.json` at build time: the default brand in `apps/web/brand/` ("Draw", in gray, the pen-stroke icons drawn by `brand/icons.mjs`), or a deployment's own, pointed at with `DRAW_BRAND`.
@@ -602,14 +616,12 @@ Known gaps in what is built, each for an issue:
 - A clip follows only the clipped layer's own `transform` (`decisions/0003-layers.md`), so once the layer below is dragged into another group, moving the group that holds only one of them moves the clip's shape; a loose clipped element moved by the vector select tool is wrapped first, and its clip moves with it.
 - The Image menu's turns, flips and Image size leave the root's own `mask`, `clip-path` and `filter` as they are, do not see a `transform` set in a style or a stylesheet, and do not follow a `textPath`, `feImage` or `mpath` reference; Image size with Resample redraws a picture with the browser's smoothing, which Firefox does not refine.
 - The pen finishes a path when the tool changes by watching the overlay being emptied, and listens for Enter and Escape on the document between clicks, since the viewport tells a tool only about strokes; a tool key pressed during a pen drag leaves the path open until Enter or Escape; a `finish` member of the tool contract, called by the viewport, would replace both.
-- A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` would cover a release once the editor registers with it (below), but not an undo that outlives it.
+- A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
-- A save, or a new drawing, the store refuses for any reason but a delete is not retried, and nothing on screen says so (`drawing/useOpenDrawing.ts`).
-- No editor registers what it holds with `beforeClosing` (`store/heldEdits.ts`), so a drawing's save not yet in the store — still waiting on the autosave's debounce, or encoding before its transaction opens — is not written first when a newer build retires the tab, nor counted or written before a disconnect, a source let go or an export (#11).
-  Every caller of `flushEditors` and `settleEditors`, and the comments around them, take that flush as made, as skysa-notes makes it; what makes them true is `drawing/useOpenDrawing.ts` registering a flush that answers with the drawings it still holds unsaved edits for, as `HeldEditsFlush` asks, rather than one that resolves whatever happened.
-- Nothing shows the tab's state against a newer build: `store/staleTab.ts` publishes `waiting` and `stale`, which only `store/frozenTab.ts` reads, and skysa-notes' gate over the page (`StaleTabGate`) was not ported, so a tab held waiting on an upgrade hangs with nothing on screen, and drawing goes on in a retired tab whose every save is refused (#11).
-- The browser is never asked to keep the store: `keeping.ask` (`store/keeping.ts`) is made by nothing, so `navigator.storage.persist()` is never called, and the storage panel only reads the answer (#11).
-  `store/keeping.ts` and `components/account/NotConnected.tsx` describe the request as made, on the first drawing and on install, as skysa-notes makes it.
+- A save, or a new drawing, the store refuses for any reason but a delete says nothing on screen (`drawing/useOpenDrawing.ts`); a refused save is tried again at the next change, or when the editor is asked to settle, and is counted as held until it goes in, or until the editor closes, when it is tried once more and then goes with it.
+- Strokes still waiting on the autosave's pause are not written when the page goes, a tab closed, a reload or the update bar's Reload: the `pagehide` flush starts no transaction before the page is gone, since the save hashes the text first (#16).
+- A save that finds the row changed from elsewhere writes nothing and leaves the edits to a conflict copy, which only a mounted editor starts, when the change reaches it; as the editor closes, nothing does, and edits made since the last save are lost (#14).
+- An undo back to the text the drawing opened with, or to one this session saved before, counts as saved though the row may hold a later save, so a refused save of it is neither named when the editor settles nor kept under a change or a delete from elsewhere (#13).
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.
 - A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.
 
