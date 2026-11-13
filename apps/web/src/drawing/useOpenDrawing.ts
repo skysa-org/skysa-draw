@@ -158,8 +158,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			sending.current = text;
 			const outcome = await saveDrawing(db, id, text, { expected })
 				.catch((): 'refused' => {
-					// Not in the store, so not saved: a delete that beat it still
-					// finds these edits unsaved (`keepDeleted`).
+					// Not in the store, so not saved, and out of `saved` before
+					// `sending` lets go of it, so that it never counts as saved
+					// between the two: a delete that beat it still finds these
+					// edits unsaved (`keepDeleted`).
 					saved.current = saved.current.filter((each) => each !== text);
 					return 'refused';
 				})
@@ -444,8 +446,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * a stroke is an edit only once its encoding lands, as `keepDeleted` waits
 	 * for it too; then the pending save; then a copy being kept, since the
 	 * edits are its: one under way already, which has stopped the save's
-	 * timer, or one the save set off by finding the row changed
-	 * (`offerStored`). Edits a save before it left behind — the
+	 * timer, or one a save that wrote nothing set off (`offerStored`): a copy
+	 * beside a change, or the edits in the place of a row deleted under it.
+	 * Edits a save before it left behind — the
 	 * store refused it — are tried once more, since nothing else would try
 	 * them until the next change, and a copy that sets off meanwhile is waited
 	 * for in turn. Kept in a drawing of their own, or going with the user's

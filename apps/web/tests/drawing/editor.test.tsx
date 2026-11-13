@@ -1244,6 +1244,9 @@ describe('the editor saving', () => {
 		act(() => lastOpened().edit(edited));
 		await pastTheSave();
 		expect(await rowText(db, made.id)).toBe(made.text);
+		// The row as the store has it, which the refused save hands the editor,
+		// is the one it opened: nothing is kept beside it or in its place.
+		expect(await liveRows(db)).toHaveLength(1);
 
 		// The store takes it again, and the drawing is closed before another change.
 		db.drawings.hook('updating').unsubscribe(refuse);
@@ -1369,7 +1372,11 @@ describe('the editor saving', () => {
 		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
 		await pastTheSave();
 
-		expect((await liveRows(db)).filter((row) => row.id !== made.id)).toHaveLength(1);
+		const copies = (await liveRows(db)).filter((row) => row.id !== made.id);
+		expect(copies).toHaveLength(1);
+		expect(copies[0]?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copies[0]?.title ?? ''), copies[0]?.id ?? '')
+		);
 		expect(await rowText(db, made.id)).toBe(theirs);
 	});
 
