@@ -458,6 +458,10 @@ describe('readDrawingTitle', () => {
 			'<title>a</title/>c</title><g/></svg>',
 			// An end tag of another name to an HTML parser, and none to XML.
 			'<title>a</title\u00a0>b</title><g/></svg>',
+			// An end tag of its name to an HTML parser, which reads names in
+			// any case, and of another to XML.
+			'<title>a</TITLE> b</title><g/></svg>',
+			'<title>a</Title\n> b</title><g/></svg>',
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
@@ -467,6 +471,11 @@ describe('readDrawingTitle', () => {
 		expect(readDrawingTitle(`${root}<title>a</titles> b</title><g/></svg>`)).toBe(
 			'a</titles> b'
 		);
+		const prefixed = `<svg:svg xmlns:svg="${SVG_NAMESPACE}">`;
+		expect(
+			readDrawingTitle(`${prefixed}<svg:title>a</SVG:TITLE> b</svg:title></svg:svg>`)
+		).toBeUndefined();
+		expect(readDrawingTitle(`${prefixed}<svg:title>a</svg:title></svg:svg>`)).toBe('a');
 	});
 
 	it('reads its start tag as the root’s is, so a quoted > does not end it', () => {
@@ -525,20 +534,23 @@ describe('readDrawingTitle', () => {
 		expect(withDrawingTitle(text, '')).toBe(text);
 	});
 
-	it('reads no root of more attributes than the pattern before it could, nor writes one', () => {
+	it('reads no root or title of more attributes than the pattern before it could, but what it writes', () => {
 		// Each is kept while the tag is read; millions ran a tab out of memory.
-		const root = (count: number) =>
-			`<svg xmlns="${SVG_NAMESPACE}"${' a="b"'.repeat(count - 1)}>`;
-		expect(isDrawingText(`${root(1_000_000)}<g/></svg>`)).toBe(true);
-		expect(isDrawingText(`${root(1_000_001)}<g/></svg>`)).toBe(false);
-		// An id would take the root past what is read, so none is given.
-		expect(() => withDrawingId(`${root(1_000_000)}<g/></svg>`, ID)).toThrow(RangeError);
-		// A title with one fewer, so a rename that declares SVG's namespace on
-		// it leaves one that is read.
-		const titled = (count: number) =>
-			`<svg xmlns="${SVG_NAMESPACE}"><title${' a="b"'.repeat(count)}>Name</title></svg>`;
-		expect(readDrawingTitle(titled(999_999))).toBe('Name');
-		expect(readDrawingTitle(titled(1_000_000))).toBeUndefined();
+		const many = (count: number) => ' a="b"'.repeat(count);
+		const root = `<svg xmlns="${SVG_NAMESPACE}"${many(999_999)}`;
+		expect(isDrawingText(`${root} c="d"><g/></svg>`)).toBe(false);
+		// The namespace and the id are not counted, so a root given an id is
+		// read as it was, and the id with it.
+		const given = withDrawingId(`${root}><g/></svg>`, ID);
+		expect(readDrawingId(given)).toBe(ID);
+		expect(isDrawingText(given.replace(' a="b"', ' a="b" c="d"'))).toBe(false);
+		// Nor is a title's `xmlns`, so one a rename makes SVG's is read again.
+		const titled = (count: number) => `<title${many(count)}>Name</title>`;
+		const prefixed = `<svg:svg xmlns:svg="${SVG_NAMESPACE}">`;
+		expect(readDrawingTitle(`${prefixed}${titled(1_000_001)}</svg:svg>`)).toBeUndefined();
+		const renamed = withDrawingTitle(`${prefixed}${titled(1_000_000)}</svg:svg>`, 'New');
+		expect(renamed.startsWith(`${prefixed}<title xmlns="${SVG_NAMESPACE}" a="b"`)).toBe(true);
+		expect(readDrawingTitle(renamed)).toBe('New');
 	});
 
 	it('reads a root and a title with a great many attributes, as it always did', () => {
@@ -774,7 +786,7 @@ describe('withDrawingTitle', () => {
 		);
 	});
 
-	it('reads no title whose first end tag something in it holds: a comment, CDATA, an instruction, a tag, a title', () => {
+	it('reads no title whose first end tag something in it holds: a comment, CDATA, an instruction, a tag, a title, an HTML text', () => {
 		// XML ends it at a later one, and a tool that knows none of them at that
 		// one: it is not read, and a rename puts a new title ahead of it.
 		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
@@ -787,6 +799,15 @@ describe('withDrawingTitle', () => {
 			`<title>x <![CDATA[ y</title>${layer}<style><![CDATA[a{}]]></style></svg>`,
 			`<title>A<!-- </title> x</svg>`,
 			`<title>Doc <title xmlns="http://www.w3.org/1999/xhtml">x</title> end</title>${layer}</svg>`,
+			// An HTML parser opens one of these, slash and all, and reads what
+			// follows as text, up to its own end tag.
+			`<title>A<title/>B</title>${layer}</svg>`,
+			`<title>A<title id="x" />B</title>${layer}</svg>`,
+			`<title>A<title a=">" b/>B</title>${layer}</svg>`,
+			`<title>a<TITLE>b</title> c</title>${layer}</svg>`,
+			`<title>a<textarea></title>b</textarea></title>${layer}</svg>`,
+			`<title>a<Script/></title>b</script></title>${layer}</svg>`,
+			`<title>a<xmp></title></xmp></title>${layer}</svg>`,
 			`<title>A<a title="see </title>"/>B</title>${layer}</svg>`,
 			`<title>a<b</title>${layer}</svg>`,
 			// A comment to an HTML parser, to the next `>`, and no markup to XML.
@@ -800,14 +821,13 @@ describe('withDrawingTitle', () => {
 			expect(withDrawingTitle(`${root}${rest}`, '')).toBe(`${root}${rest}`);
 		}
 		// One that closes before the end tag is read as part of the text, as it
-		// always was, and so is an element of the title's name that closes itself.
+		// always was.
 		for (const inner of [
 			'A<!-- c -->B',
 			'A<?pi x?>B',
-			'A<title/>B',
-			'A<title id="x" />B',
-			'A<title a=">" b/>B',
 			'A<b class="x">bold</b>B',
+			'A<b a=">">bold</b>B',
+			'A<textareas>x</textareas>B',
 			'x < y',
 			'1<2 or a<-b',
 		]) {

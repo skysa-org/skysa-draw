@@ -193,12 +193,15 @@ const readRun = <T extends Readonly<{ end: number }>>(
 };
 
 /**
- * The most attributes a root this reads may have: more, and it is not read,
- * nor a title with as many. Each one read is kept, as a few numbers, so memory
- * grows with them, and without a bound a root of millions ran a tab out of
- * memory. The pattern this replaced ran out of stack before a million that
- * had values, so no file it read that XML reads is refused: only one of more
- * than a million without values, which no XML parser reads.
+ * The most attributes a root this reads may have, but the app's own
+ * (`appAttributes`), and a title, but its `xmlns`: more, and it is not read.
+ * Those are not counted, so that what this app writes to one it reads, an id
+ * or SVG's namespace on a title, is read again. Each one read is kept, as a
+ * few numbers, so memory grows with them, and without a bound a root of
+ * millions ran a tab out of memory. The pattern this replaced ran out of stack
+ * before a million that had values, so no file it read that XML reads is
+ * refused: only one of more than a million without values, which no XML
+ * parser reads.
  */
 const MOST_ATTRIBUTES = 1_000_000;
 
@@ -355,12 +358,50 @@ const endsInBareSlash = (text: string, tag: StartTag): boolean =>
 	!tag.selfClosing && text.charAt(tag.end - 2) === '/';
 
 /**
+ * Each prefix the root binds, and the namespace it binds it to, in order: one
+ * declared twice where it was first, with the last one's namespace.
+ */
+const prefixBindings = (root: StartTag): readonly (readonly [string, string])[] => [
+	...new Map(
+		root.attributeList
+			.filter((attribute) => root.text.startsWith('xmlns:', attribute.start))
+			.map((attribute) => [
+				root.text.slice(attribute.start + 'xmlns:'.length, attribute.nameEnd),
+				valueOf(root, attribute),
+			])
+	),
+];
+
+/** The prefixes the root binds to `DRAWING_NAMESPACE`, in order. */
+const drawingPrefixes = (root: StartTag): readonly string[] =>
+	prefixBindings(root)
+		.filter(([, namespace]) => namespace === DRAWING_NAMESPACE)
+		.map(([prefix]) => prefix);
+
+/**
+ * How many of the root's attributes are the app's own: the first prefix bound
+ * to its namespace, and that prefix's `id`, which are what `withDrawingId`
+ * adds. Neither counts against `MOST_ATTRIBUTES`, so a root given an id is
+ * read as it was before, however many it has.
+ */
+const appAttributes = (root: StartTag): number => {
+	const [prefix] = drawingPrefixes(root);
+	if (prefix === undefined) return 0;
+	return lastNamed(root, `${prefix}:id`) === undefined ? 1 : 2;
+};
+
+/**
  * The root's start tag, where the prolog is followed by an `svg`, with or
- * without a prefix. A bare value that runs into its `/>` keeps the slash, so
+ * without a prefix, and its attributes but the app's own are no more than
+ * `MOST_ATTRIBUTES`. A bare value that runs into its `/>` keeps the slash, so
  * the root is open, as it always was read here; the rewrites read it so too.
  */
-const rootTagOf = (text: string): StartTag | undefined =>
-	startTagAt(text, prologEnd(text), 'svg', MOST_ATTRIBUTES);
+const rootTagOf = (text: string): StartTag | undefined => {
+	const root = startTagAt(text, prologEnd(text), 'svg', MOST_ATTRIBUTES + 2);
+	return root === undefined || root.attributeList.length - appAttributes(root) > MOST_ATTRIBUTES
+		? undefined
+		: root;
+};
 
 /**
  * A start tag opened up to its last attribute, without the whitespace and the
@@ -370,12 +411,11 @@ const rootTagOf = (text: string): StartTag | undefined =>
 const openedTag = (text: string, tag: StartTag): string => text.slice(tag.start, tag.attributesEnd);
 
 /**
- * `head`, a start tag up to its attributes, closed with `close`: after a space
+ * `head`, a start tag up to its attributes, closed with `>`: after a space
  * where its last value is bare and ends in a slash, so the slash stays the
  * value's, and the tag is not one that might close itself (`endsInBareSlash`).
  */
-const closedTag = (head: string, close: '>' | '/>'): string =>
-	`${head}${head.endsWith('/') ? ' ' : ''}${close}`;
+const closedTag = (head: string): string => `${head}${head.endsWith('/') ? ' ' : ''}>`;
 
 /** The root is an `svg` element in the SVG namespace, however it is declared. */
 const isSvgRoot = (root: StartTag): boolean =>
@@ -406,27 +446,6 @@ export const readDrawingProlog = (text: string): string | undefined => {
 	const root = rootTagOf(text);
 	return root === undefined || !isSvgRoot(root) ? undefined : text.slice(0, root.start);
 };
-
-/**
- * Each prefix the root binds, and the namespace it binds it to, in order: one
- * declared twice where it was first, with the last one's namespace.
- */
-const prefixBindings = (root: StartTag): readonly (readonly [string, string])[] => [
-	...new Map(
-		root.attributeList
-			.filter((attribute) => root.text.startsWith('xmlns:', attribute.start))
-			.map((attribute) => [
-				root.text.slice(attribute.start + 'xmlns:'.length, attribute.nameEnd),
-				valueOf(root, attribute),
-			])
-	),
-];
-
-/** The prefixes the root binds to `DRAWING_NAMESPACE`, in order. */
-const drawingPrefixes = (root: StartTag): readonly string[] =>
-	prefixBindings(root)
-		.filter(([, namespace]) => namespace === DRAWING_NAMESPACE)
-		.map(([prefix]) => prefix);
 
 /**
  * A drawing's id, or `undefined` for a file with none, or one this app cannot
@@ -498,10 +517,6 @@ export const withDrawingId = (text: string, id: string): string => {
 		valueOf(root, existing) === id
 	) {
 		return text;
-	}
-	const added = (declaration === '' ? 0 : 1) + (existing === undefined ? 1 : 0);
-	if (root.attributeList.length + added > MOST_ATTRIBUTES) {
-		throw new RangeError('a root of so many attributes has no room for an id');
 	}
 	return existing === undefined
 		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
@@ -626,38 +641,65 @@ interface TitleElement {
 }
 
 /**
+ * The elements whose content HTML reads as text, markup and all, up to an end
+ * tag of their own name, `title` among them. HTML opens one at its start tag
+ * whether or not a slash comes before its `>`, where XML reads `<textarea/>`
+ * as empty.
+ */
+const RAW_TEXT: ReadonlySet<string> = new Set([
+	'iframe',
+	'noembed',
+	'noframes',
+	'noscript',
+	'plaintext',
+	'script',
+	'style',
+	'textarea',
+	'title',
+	'xmp',
+]);
+
+/** A tag's name as HTML compares one: its ASCII letters in lower case, and nothing else changed. */
+const htmlName = (name: string): string =>
+	name.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+
+/**
  * Whether a title named `name` that opens before `from` ends at `until`, where
  * its first `</name>` starts, as XML reads it: whether no comment, CDATA
  * section, processing instruction or start tag in its text holds that end tag,
- * as a quoted value can, or starts before it and never closes; no element of
- * its own name opens in it, whose end tag that one would be; and no end tag of
- * its name that a `>` does not close comes first, as `</title x>`, which an
- * HTML parser ends it at. One of its name that closes itself is passed over.
+ * as a quoted value can, or starts before it and never closes; no tag of its
+ * own name opens in it, in any case, closing itself or not, nor one of an
+ * element HTML reads as text (`RAW_TEXT`): the end tag would be that one's, to
+ * XML or to HTML, or text to HTML; and no end tag of its name comes first that
+ * HTML ends it at and XML does not, as `</TITLE>`, or `</title x>`, which a
+ * `>` does not close.
  * A `<` before a name that starts no tag a `>` closes is one a tool could read
  * either way, so it is not passed either. Walked from `<` to `<`, each tag
  * once, no further than `until`.
  */
 const endsAt = (text: string, name: string, from: number, until: number): boolean => {
+	const own = htmlName(name);
 	// Just past a start tag at `at`, its attributes passed over rather than
 	// kept, as `startTagAt` keeps them; one character where no name starts.
 	const tagEnd = (at: number): number | undefined => {
 		if (!NAME_START.test(text.charAt(at + 1))) return at + 1;
 		const nameEnd = runEnd(text, at + 1, NOT_NAME);
+		const tagName = htmlName(text.slice(at + 1, nameEnd));
+		if (tagName === own || RAW_TEXT.has(tagName)) return undefined;
 		const attributesEnd = skipped(
 			text,
 			nameEnd,
 			(_, next) => spacedAttributeAt(text, next)?.end
 		);
-		const close = tagClose(text, attributesEnd);
-		const opensOwnName = text.slice(at + 1, nameEnd) === name && close?.selfClosing === false;
-		return close === undefined || opensOwnName ? undefined : close.end;
+		return tagClose(text, attributesEnd)?.end;
 	};
 	// Past what starts at a `<`: a section or a tag; `undefined` where it does
-	// not end, or is an end tag of the title's name before `until`, or is a
-	// `<!` or a `</` before no name, which an HTML parser reads as a comment
-	// to the next `>`, and XML as no markup at all.
+	// not end, or is an end tag of the title's name in any case before `until`,
+	// or is a `<!` or a `</` before no name, which an HTML parser reads as a
+	// comment to the next `>`, and XML as no markup at all.
 	const past = (at: number): number | undefined =>
-		text.startsWith(`</${name}`, at) && NOT_NAME.test(text.charAt(at + name.length + 2))
+		htmlName(text.slice(at, at + name.length + 2)) === `</${own}` &&
+		NOT_NAME.test(text.charAt(at + name.length + 2))
 			? undefined
 			: text.startsWith('<![CDATA[', at)
 				? closedBy(text, ']]>', at + 9)
@@ -688,8 +730,9 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
  * comment, CDATA section, processing instruction or tag's quoted value in it
  * holds its first `</title>`, or starts before it and never closes, XML ends
  * it elsewhere (`endsAt`), and a tool that knows none of them there. So does
- * one that holds an element of its own name, whose end tag comes first, or an
- * end tag of its name that is not one, as `</title x>`, which HTML ends it at.
+ * one that holds a tag of its own name in any case, or of one whose text HTML
+ * reads as text, as `<textarea>`, or an end tag of its name that XML does not
+ * end it at, as `</TITLE>` or `</title x>`, which HTML does.
  *
  * SVG's title, under whatever prefix binds SVG; or a `title` with no prefix
  * in no namespace, as this app's 0.1.0 wrote one under an `svg:svg` root, and
@@ -697,8 +740,10 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
  * child is something else, or the title never closes.
  */
 const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
-	const tag = startTagAt(text, skipped(text, root.end, miscEnd), 'title', MOST_ATTRIBUTES - 1);
+	const tag = startTagAt(text, skipped(text, root.end, miscEnd), 'title', MOST_ATTRIBUTES + 1);
 	if (tag === undefined || endsInBareSlash(text, tag)) return undefined;
+	const declarations = tag.attributeList.filter((attribute) => isNamed(tag, attribute, 'xmlns'));
+	if (tag.attributeList.length - declarations.length > MOST_ATTRIBUTES) return undefined;
 	const namespace = namespaceOf(tag, root);
 	const svg = namespace === SVG_NAMESPACE;
 	if (!svg && (tag.prefix !== undefined || namespace !== '')) return undefined;
@@ -764,7 +809,7 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const tag = text.slice(root.start, root.end);
 	if (root.selfClosing) {
 		if (trimmed === '') return text;
-		return `${before}${closedTag(openedTag(text, root), '>')}${element}</${root.name}>${text.slice(root.end)}`;
+		return `${before}${closedTag(openedTag(text, root))}${element}</${root.name}>${text.slice(root.end)}`;
 	}
 	const found = firstTitle(text, root);
 	if (found === undefined) {
@@ -783,10 +828,10 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	if (!found.svg || (found.tag.prefix !== undefined && svgDefault)) {
 		const declared = svgDefault ? '' : ` xmlns="${SVG_NAMESPACE}"`;
 		const kept = attributesText(text, found.tag, DEFAULT_NAMESPACE);
-		return `${before}${tag}${lead}${closedTag(`<title${declared}${kept}`, '>')}${escapeText(trimmed)}</title>${after}`;
+		return `${before}${tag}${lead}${closedTag(`<title${declared}${kept}`)}${escapeText(trimmed)}</title>${after}`;
 	}
 	const open = found.tag.selfClosing
-		? closedTag(openedTag(text, found.tag), '>')
+		? closedTag(openedTag(text, found.tag))
 		: text.slice(found.tag.start, found.tag.end);
 	return `${before}${tag}${lead}${open}${escapeText(trimmed)}</${found.tag.name}>${after}`;
 };
