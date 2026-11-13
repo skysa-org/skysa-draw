@@ -7,4 +7,5 @@ Until now a drawing's last half-second of strokes could be left out, or lost whe
 A window a newer version has closed now says so over the whole window, and stops taking strokes or keys it cannot save.
 It can be put aside to export the drawing first.
 A window waiting for an older one to let go says that too, instead of hanging.
+The bar that says a new version is ready no longer covers a sheet's buttons on a phone.
 The browser is asked to keep the drawings when the first is made on a device with nothing connected, and again when the app is installed, so Safari or Chromium does not clear a library that exists nowhere else.

@@ -233,13 +233,22 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 
 		expect(sheet.hasAttribute('inert')).toBe(true);
 		expect(screen.getByRole('alertdialog').closest('[inert]')).toBeNull();
+		// And one put there while it shows: work under way, a sheet opened by a timer.
+		const later = document.body.appendChild(document.createElement('div'));
+		onTestFinished(() => {
+			later.remove();
+		});
+		await vi.waitFor(() => {
+			expect(later.hasAttribute('inert')).toBe(true);
+		});
 
 		await user.click(screen.getByRole('button', { name: 'Not yet' }));
 		expect(sheet.hasAttribute('inert')).toBe(false);
+		expect(later.hasAttribute('inert')).toBe(false);
 		expect(inertAlready.hasAttribute('inert')).toBe(true);
 	});
 
-	it("keeps every key from the page while it shows: the editor's shortcuts hear none", async () => {
+	it('keeps every key, paste and drop from the page while it shows: the editor hears none', async () => {
 		const user = userEvent.setup();
 		await outOfDate();
 		// As the editor's shortcuts listen: on the window, as the key comes back up.
@@ -248,10 +257,25 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		onTestFinished(() => {
 			window.removeEventListener('keydown', shortcut);
 		});
+		// And as a picture is placed from a paste or a drop: on the window.
+		const placed = vi.fn();
+		window.addEventListener('paste', placed);
+		window.addEventListener('drop', placed);
+		onTestFinished(() => {
+			window.removeEventListener('paste', placed);
+			window.removeEventListener('drop', placed);
+		});
 		const reload = gate();
 
 		await user.keyboard('z');
 		expect(shortcut).not.toHaveBeenCalled();
+		const paste = new Event('paste', { bubbles: true, cancelable: true });
+		const drop = new Event('drop', { bubbles: true, cancelable: true });
+		screen.getByRole('button', { name: 'Reload' }).dispatchEvent(paste);
+		screen.getByRole('button', { name: 'Reload' }).dispatchEvent(drop);
+		expect(placed).not.toHaveBeenCalled();
+		// Nor is a drop left to the browser, which would open it in the window.
+		expect(drop.defaultPrevented).toBe(true);
 		// The notice's own buttons answer the keyboard all the same.
 		await user.keyboard('{Shift>}{Tab}{/Shift}{Enter}');
 		expect(reload).not.toHaveBeenCalled();

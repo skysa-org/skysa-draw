@@ -104,12 +104,14 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const openedText = cell<string | undefined>(undefined);
 	/** The row as the store had it last; nothing once it is deleted. */
 	const latest = cell<DrawingRecord | undefined>(undefined);
+	/** The row as it was last seen, deleted or not: what the edits are named by. */
+	const known = cell<DrawingRecord | undefined>(undefined);
 	/**
 	 * A copy is being kept, or has been in place of the deleted row: nothing is
 	 * saved into the row, and no row is opened.
 	 */
 	const keeping = cell(false);
-	/** The last copy kept, or drawing kept in place of the row: settled once it is in, or refused. */
+	/** A copy being kept, or a drawing in place of the row: nothing once it is in, or refused. */
 	const kept = cell<Promise<void> | undefined>(undefined);
 	/** The user is deleting the drawing: what is unsaved goes with it. */
 	const deleting = cell(false);
@@ -333,6 +335,25 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 	};
 
+	/** Work that keeps the edits as a drawing of their own, until it is done. */
+	const keep = (work: Promise<void>) => {
+		kept.current = work;
+		void work.then(() => {
+			if (kept.current === work) kept.current = undefined;
+		});
+	};
+
+	/**
+	 * Every keep under way, and one it set off: `keepCopy` and `keepDeleted`
+	 * catch what they meet, so this never rejects.
+	 */
+	const keepsDone = async (): Promise<void> => {
+		const work = kept.current;
+		if (work === undefined) return;
+		await work;
+		await keepsDone();
+	};
+
 	/**
 	 * The row gone from the store. Nothing is kept where nothing was opened, or
 	 * where what was is only shown and never edited; a copy being kept takes
@@ -347,7 +368,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			set({ gone: true });
 			return;
 		}
-		kept.current = keepDeleted(document, row);
+		keep(keepDeleted(document, row));
 	};
 
 	const offer = (row: Found) => {
@@ -358,6 +379,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 		if (row.id !== id) return;
 		latest.current = row;
+		known.current = row;
 		// Back after all, as a pull could bring it.
 		if (state.current.gone) set({ gone: false });
 		// The copy, once kept, opens the latest row there is.
@@ -369,7 +391,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		if (row.text === openedText.current || saved.current.includes(row.text)) return;
 		const document = state.current.document;
 		if (document !== undefined && hasUnsavedEdits()) {
-			kept.current = keepCopy(document, row);
+			keep(keepCopy(document, row));
 			return;
 		}
 		open(row.text);
@@ -387,19 +409,21 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	/**
 	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
 	 * it holds written now, and this drawing named, by `drawingRef`, if the
-	 * store still has not taken it. A copy being kept goes first, since the
-	 * edits are its; then the pending save. Edits a save before it left behind
-	 * — the store refused it — are tried once more, since nothing else would
-	 * try them until the next change. Kept in a drawing of their own, or going
-	 * with the user's delete, the edits are not this drawing's to name.
+	 * store still has not taken it. The pending save goes first, then a copy
+	 * being kept, since the edits are its: one under way already, which has
+	 * stopped the save's timer, or one the save sets off by finding the row
+	 * changed. Edits a save before it left behind — the store refused it — are
+	 * tried once more, since nothing else would try them until the next
+	 * change. Kept in a drawing of their own, or going with the user's delete,
+	 * the edits are not this drawing's to name.
 	 *
-	 * Edits held with no row to name, as a new drawing the store refused in
-	 * place of a deleted one leaves them (`keepDeleted`), are a rejection: the
-	 * one answer that says something is held that no drawing's rows have.
+	 * Edits held for a row deleted elsewhere, whose new drawing in its place
+	 * the store refused (`keepDeleted`), are named by the row as it was, so
+	 * that its source, and only its source, counts them as held.
 	 */
 	const settle = async (): Promise<readonly string[]> => {
-		await kept.current;
 		await flush();
+		await keepsDone();
 		const document = state.current.document;
 		if (document === undefined || keeping.current || deleting.current || !hasUnsavedEdits()) {
 			return [];
@@ -407,10 +431,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// A save of an edit made since is this one.
 		stopTimer();
 		await save(document);
-		if (!hasUnsavedEdits()) return [];
-		const row = latest.current;
-		if (row === undefined) throw new Error('Edits are held for a drawing that is gone.');
-		return [drawingRef(row)];
+		const row = known.current;
+		return row !== undefined && hasUnsavedEdits() ? [drawingRef(row)] : [];
 	};
 
 	/**
@@ -434,7 +456,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const start = () => {
 		// A newer build closing the database, a source let go, an export: each
 		// has the editor write what it holds first, and hears what it could not.
-		const withdraw = beforeClosing(settle);
+		// A function of its own each start, since the registry is a set and
+		// React starts a session twice in development.
+		const withdraw = beforeClosing(settle.bind(undefined));
 		// The save is asynchronous, but IndexedDB finishes a transaction that
 		// was started before the page went, so starting it is enough.
 		const onPageHide = () => {
@@ -448,8 +472,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		return () => {
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
-			// Withdrawn once the last save is in, so that settling meanwhile
-			// waits for it.
+			// Withdrawn once the last save has settled, so that settling
+			// meanwhile waits for it. A save the store refused goes with the
+			// editor: nothing could open what it held again (§10).
 			void flush().finally(withdraw);
 		};
 	};

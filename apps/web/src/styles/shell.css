@@ -202,66 +202,42 @@ button:not(.primary):hover {
 	width: 1px;
 }
 
-/* The bar that says a new build is waiting (`UpdatePrompt`), and the stale
-   tab's (`StaleTabGate`). */
+/*
+ * The bars along the window's foot: the stale window's (`StaleTabGate`) over
+ * the one that says a new build is waiting (`UpdatePrompt`). One stack, so
+ * two at once sit one above the other; and under a sheet or a drawer, whose
+ * own actions are along the foot too, so that a press meant for one of them
+ * never lands on a bar's Reload.
+ */
+.app-foot {
+	bottom: 0;
+	display: flex;
+	flex-direction: column;
+	inset-inline: 0;
+	position: fixed;
+	z-index: var(--z-foot);
+}
+
 .update-prompt {
 	align-items: center;
 	background: var(--surface);
 	border-block-start: 1px solid var(--border);
-	bottom: 0;
 	display: flex;
 	gap: var(--space-s);
-	inset-inline: 0;
 	padding: var(--space-s) var(--gutter);
-	position: fixed;
-	z-index: var(--z-float);
 }
 
 .update-prompt span {
 	flex: 1;
 }
 
-/* Over the new build's bar where both are shown: this is the one that says nothing here saves. */
-.tab-state-bar {
-	z-index: var(--z-menu);
+.update-prompt button {
+	min-height: var(--target);
 }
 
-/*
- * The window out of date (`StaleTabGate`): the whole window, dimmed as under
- * work under way, with a card in its middle that says so. In the top layer
- * where there is one, and over everything else where not.
- */
-.tab-gate {
-	background: rgb(0 0 0 / 0.25);
-	border: 0;
-	color: var(--fg);
-	display: grid;
-	height: auto;
-	inset: 0;
-	margin: 0;
-	max-height: none;
-	max-width: none;
-	overflow: hidden;
-	padding: max(var(--space-l), env(safe-area-inset-top))
-		max(var(--space-l), env(safe-area-inset-right))
-		max(var(--space-l), env(safe-area-inset-bottom))
-		max(var(--space-l), env(safe-area-inset-left));
-	place-items: center;
-	position: fixed;
-	width: auto;
-	z-index: var(--z-dialog-menu);
-}
-
-/* A popover's own rule, which a `display` of the author's would otherwise outweigh. */
-.tab-gate[popover]:not(:popover-open) {
-	display: none;
-}
-
+/* The window out of date (`StaleTabGate`): a card in the middle of the cover (`ui.css`). */
 .tab-gate-card {
 	background: var(--bg);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-m);
-	box-shadow: var(--shadow-l);
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-m);

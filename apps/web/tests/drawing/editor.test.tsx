@@ -8,7 +8,7 @@ import {
 import { ROOT } from '@skysa/storage';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
@@ -200,7 +200,12 @@ const Routed = ({
 	);
 };
 
-const renderEditor = async (width: Width, title = 'Harbor', folderPath = ROOT) => {
+const renderEditor = async (
+	width: Width,
+	title = 'Harbor',
+	folderPath = ROOT,
+	{ strict = false } = {}
+) => {
 	stubWindowWidth(width);
 	const db = freshDatabase();
 	const made = await createDrawing(db, {
@@ -210,11 +215,12 @@ const renderEditor = async (width: Width, title = 'Harbor', folderPath = ROOT) =
 	});
 	const onBack = vi.fn();
 	const onReplaced = vi.fn();
-	const view = render(
+	const editor = (
 		<DatabaseProvider database={db}>
 			<Routed first={made.id} onBack={onBack} onReplaced={onReplaced} />
 		</DatabaseProvider>
 	);
+	const view = render(strict ? <StrictMode>{editor}</StrictMode> : editor);
 	await screen.findByRole('heading', { name: title });
 	// The title is in the bar as soon as the row is, and the document opens
 	// from the row a moment later: until then the frame has no tools.
@@ -1074,6 +1080,16 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(edited);
 	});
 
+	it('is asked to settle once, where React starts it twice, as StrictMode does', async () => {
+		const { db, made } = await renderEditor('expanded', 'Harbor', ROOT, { strict: true });
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+		await pastTheSave();
+
+		expect(flushEditors()).toHaveLength(1);
+		expect(await rowText(db, made.id)).toBe(edited);
+	});
+
 	it('is asked to settle until the save it closed with is in, and not after', async () => {
 		const { db, made, view } = await renderEditor('expanded');
 		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
@@ -1113,7 +1129,39 @@ describe('the editor saving', () => {
 		);
 	});
 
-	it('says it holds what no drawing has, deleted elsewhere with nothing taken in its place', async () => {
+	it('waits for a copy its own save sets off, by finding the drawing changed elsewhere', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		// Edited, with the save waiting on the pause.
+		act(() => document.edit(mine));
+		// The save settling asks for is held until the change from elsewhere
+		// has the copy begun: the copy's own settle lets it go, and holds the
+		// copy past the save.
+		const held: { release: () => void } = { release: () => undefined };
+		vi.spyOn(document, 'settle')
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						held.release = resolve;
+					})
+			)
+			.mockImplementationOnce(() => {
+				held.release();
+				return new Promise((resolve) => setTimeout(resolve, 50));
+			});
+		await saveDrawing(db, made.id, theirs);
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		// In the store by the time settling answers.
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
+	it('names the drawing as it was, deleted elsewhere with nothing taken in its place', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
 		act(() => lastOpened().edit(mine, true));
@@ -1125,7 +1173,8 @@ describe('the editor saving', () => {
 		// The drawing that would have kept the edits, refused.
 		await waitFor(() => expect(refuse).toHaveBeenCalled());
 
-		expect(await settleEditors()).toEqual({ failing: [], rejected: 1 });
+		// Its own source counts the edits as held, and no other does.
+		expect(await settleEditors()).toEqual({ failing: [drawingRef(made)], rejected: 0 });
 		db.drawings.hook('creating').unsubscribe(refuse);
 	});
 

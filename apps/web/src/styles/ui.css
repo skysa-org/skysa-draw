@@ -381,9 +381,10 @@
 	z-index: var(--z-sheet);
 }
 
-/* The page dimmed: behind a sheet or a drawer, and under work under way. */
+/* The page dimmed: behind a sheet or a drawer, under work under way, and under a window out of date. */
 .panel-backdrop,
-.applying {
+.applying,
+.tab-gate {
 	background: rgb(0 0 0 / 0.25);
 }
 
@@ -670,10 +671,11 @@ legend.field-legend {
 	position: relative;
 }
 
-/* What floats over the page, a menu, a notice and work under way, has the one edge. */
+/* What floats over the page, a menu, a notice, work under way and a window out of date, has the one edge. */
 .menu-list,
 .notice-card,
-.applying-card {
+.applying-card,
+.tab-gate-card {
 	border: 1px solid var(--border);
 	border-radius: var(--radius-m);
 	box-shadow: var(--shadow-l);
@@ -803,16 +805,13 @@ legend.field-legend {
 }
 
 /*
- * Work under way (`Applying.tsx`): the whole window, dimmed, over every sheet
- * and drawer and taking every press, with a card in its middle, the work's
- * words over a bar that does not say how far. Unseen at first, it fades in
- * after the delay the component gives it, by opacity alone, and the bar
- * moves by `transform` alone: the two the compositor runs while the page's
- * own thread is held. In the top layer where there is one, and over
- * everything else where not.
+ * A cover: the whole window, dimmed, over every sheet and drawer and taking
+ * every press, with a card in its middle. In the top layer where there is
+ * one, and over everything else where not. Work under way (`Applying.tsx`)
+ * is one, and a window out of date (`StaleTabGate.tsx`) the other.
  */
-.applying {
-	animation: fade-in var(--duration-l) var(--ease-out) both;
+.applying,
+.tab-gate {
 	border: 0;
 	color: var(--fg);
 	display: grid;
@@ -834,8 +833,19 @@ legend.field-legend {
 }
 
 /* A popover's own rule, which a `display` of the author's would otherwise outweigh. */
-.applying[popover]:not(:popover-open) {
+.applying[popover]:not(:popover-open),
+.tab-gate[popover]:not(:popover-open) {
 	display: none;
+}
+
+/*
+ * Work under way's card has the work's words over a bar that does not say
+ * how far. Unseen at first, the cover fades in after the delay the component
+ * gives it, by opacity alone, and the bar moves by `transform` alone: the two
+ * the compositor runs while the page's own thread is held.
+ */
+.applying {
+	animation: fade-in var(--duration-l) var(--ease-out) both;
 }
 
 .applying-card {

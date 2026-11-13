@@ -1,3 +1,4 @@
+import { cell } from '@skysa/storage';
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -16,11 +17,14 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * strokes it cannot keep. The notice covers the window as work under way does
  * (`Applying`), in the top layer where there is one, and everything else in
  * the page is made inert while it shows, the sheets and drawers in their
- * portals with it: the drawing can still be seen behind the notice, and
- * nothing behind it can be pressed, focused or typed into. The page's own key
- * listeners, the editor's shortcuts among them, hear no key either; the
- * notice's buttons answer by the browser's own handling of a key, which that
- * leaves alone. What the editor held was written before the database closed
+ * portals with it, and anything put there later: the drawing can still be
+ * seen behind the notice, and nothing behind it can be pressed, focused or
+ * typed into. The page's own listeners hear no key, paste or drop either,
+ * the editor's shortcuts and its picture placing among them; the notice's
+ * buttons answer by the browser's own handling of a key, which that leaves
+ * alone. Only a listener on the window's capture phase put there before the
+ * notice comes still hears a key, as a gesture under way has one until it
+ * ends. What the editor held was written before the database closed
  * (`beforeClosing`).
  *
  * It can be put aside, as skysa-notes' can. A save the store refused earlier
@@ -32,10 +36,27 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * Reload is the answer, last in its row, and has the focus.
  */
 
-/** Every key, while the notice shows, kept from every listener in the page put there after this. */
-const keepKey = (event: KeyboardEvent): void => {
+/** A key, kept from the page's listeners and left to the browser, which presses the notice's buttons. */
+const keepKey = (event: Event): void => {
 	event.stopImmediatePropagation();
 };
+
+/**
+ * A paste or a drop, taken from the page altogether: a drop the page did not
+ * take, the browser would open in the window, in place of the drawing.
+ */
+const refuse = (event: Event): void => {
+	event.preventDefault();
+	event.stopImmediatePropagation();
+};
+
+const KEPT = [
+	['keydown', keepKey],
+	['keyup', keepKey],
+	['paste', refuse],
+	['dragover', refuse],
+	['drop', refuse],
+] as const;
 
 const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => void }) => {
 	const cover = useRef<HTMLDivElement>(null);
@@ -48,18 +69,30 @@ const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => voi
 
 	// The window's capture phase comes before every other listener but those
 	// put there earlier. Inert takes the focus away from what had it, which
-	// gets it back once the notice is put aside.
+	// gets it back once the notice is put aside; what the page had made inert
+	// itself stays so.
 	useEffect(() => {
 		const had = document.activeElement;
-		const others = Array.from(document.body.children).filter(
-			(child) => child !== cover.current && !child.hasAttribute('inert')
-		);
-		others.forEach((child) => child.setAttribute('inert', ''));
-		window.addEventListener('keydown', keepKey, true);
+		const made = cell<readonly Element[]>([]);
+		const quieten = (nodes: readonly Node[]) => {
+			const fresh = nodes.filter(
+				(node): node is Element =>
+					node instanceof Element && node !== cover.current && !node.hasAttribute('inert')
+			);
+			fresh.forEach((element) => element.setAttribute('inert', ''));
+			made.current = [...made.current, ...fresh];
+		};
+		quieten(Array.from(document.body.children));
+		const later = new MutationObserver((records) => {
+			quieten(records.flatMap((record) => Array.from(record.addedNodes)));
+		});
+		later.observe(document.body, { childList: true });
+		KEPT.forEach(([type, listener]) => window.addEventListener(type, listener, true));
 		answer.current?.focus();
 		return () => {
-			window.removeEventListener('keydown', keepKey, true);
-			others.forEach((child) => child.removeAttribute('inert'));
+			later.disconnect();
+			KEPT.forEach(([type, listener]) => window.removeEventListener(type, listener, true));
+			made.current.forEach((element) => element.removeAttribute('inert'));
 			if (had instanceof HTMLElement && had.isConnected) had.focus();
 		};
 	}, []);
@@ -109,7 +142,7 @@ export const StaleTabGate = ({
 				/>
 			)}
 			{state === 'stale' && putAside && (
-				<div className="update-prompt tab-state-bar" role="alert">
+				<div className="update-prompt" role="alert">
 					<span>{t('shell.staleTab.cannotSave')}</span>
 					<button type="button" onClick={reload}>
 						{t('common.reload')}
@@ -117,7 +150,7 @@ export const StaleTabGate = ({
 				</div>
 			)}
 			{state === 'waiting' && (
-				<div className="update-prompt tab-state-bar" role="status">
+				<div className="update-prompt" role="status">
 					<span>{t('shell.staleTab.waiting')}</span>
 				</div>
 			)}
