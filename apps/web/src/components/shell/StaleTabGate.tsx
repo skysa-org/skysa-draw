@@ -1,5 +1,13 @@
 import { cell } from '@skysa/storage';
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+	type PointerEvent,
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from '../../i18n/t.js';
@@ -25,10 +33,17 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * leaves alone. A key let go is heard, so that one held as the notice came
  * — Space, for the hand — is not held for good. Only a listener on the
  * window's capture phase put there before the notice came still hears a key
- * pressed: a gesture's under way, until it ends, and work under way's
- * (`Applying`), whose cover holds every key, the notice's buttons' with them,
- * until the work is done, while a press on them goes through. What the
- * editor held was written before the database closed (`beforeClosing`).
+ * pressed. A gesture's under way does, until it ends. So does an area
+ * transform's (`viewport/areaTransform.ts`), whose undo and redo step the
+ * transform while one is open: they move the selection's outline, never the
+ * drawing. And work under way's does (`Applying`): its
+ * cover holds every key, the notice's buttons' with them, until the work is
+ * done, while a press on them goes through. What the editor held was written
+ * before the database closed (`beforeClosing`).
+ *
+ * A press on the dim around the notice leaves the focus in it, as
+ * `Applying`'s cover does, and a drag over the window shows as one that
+ * cannot drop.
  *
  * Beside the router, not in its root route (`AppFoot`), so that a screen
  * put in place of the app on an error still has the notice over it.
@@ -61,12 +76,24 @@ const refuse = (event: Event): void => {
 	event.stopImmediatePropagation();
 };
 
+/** A drag over the window, taken from the page and shown as one that cannot drop. */
+const refuseDrag = (event: Event): void => {
+	const { dataTransfer } = event as Partial<DragEvent>;
+	if (dataTransfer) dataTransfer.dropEffect = 'none';
+	refuse(event);
+};
+
 const KEPT = [
 	['keydown', keepKey],
 	['paste', refuse],
-	['dragover', refuse],
+	['dragover', refuseDrag],
 	['drop', refuse],
 ] as const;
+
+/** A press on the dim itself, which would otherwise take the focus out of the notice. */
+const keepFocus = (event: PointerEvent<HTMLDivElement>): void => {
+	if (event.target === event.currentTarget) event.preventDefault();
+};
 
 const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => void }) => {
 	const cover = useRef<HTMLDivElement>(null);
@@ -108,7 +135,12 @@ const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => voi
 	}, []);
 
 	return createPortal(
-		<div ref={cover} className="tab-gate" popover={HAS_POPOVER ? 'manual' : undefined}>
+		<div
+			ref={cover}
+			className="tab-gate"
+			popover={HAS_POPOVER ? 'manual' : undefined}
+			onPointerDown={keepFocus}
+		>
 			<div
 				ref={notice}
 				className="tab-gate-card"

@@ -26,8 +26,8 @@ afterEach(() => {
 	});
 });
 
-const register = (finish: () => Promise<unknown>) => {
-	registered.push(beforeClosing(finish));
+const register = (finish: () => Promise<unknown>, unanswered?: () => readonly string[]) => {
+	registered.push(beforeClosing(finish, unanswered));
 };
 
 /** A flush the test finishes by hand. */
@@ -106,6 +106,26 @@ describe('settling what the editors hold', () => {
 			await vi.advanceTimersByTimeAsync(1);
 
 			expect(settled).toHaveBeenCalledWith({ failing: [], rejected: 1 });
+			ends.resolve(undefined);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('takes an editor that has not answered in time to hold what it said it would, and no more', async () => {
+		vi.useFakeTimers();
+		try {
+			const { finish, ends } = manualFlush<undefined>();
+			register(finish, () => ['local:harbor']);
+			register(() => Promise.resolve(['local:dusk']));
+
+			const settling = settleEditors();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+
+			expect(await settling).toEqual({
+				failing: ['local:harbor', 'local:dusk'],
+				rejected: 0,
+			});
 			ends.resolve(undefined);
 		} finally {
 			vi.useRealTimers();

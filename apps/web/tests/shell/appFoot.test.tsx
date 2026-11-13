@@ -1,11 +1,27 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { AppFoot } from '../../src/components/shell/AppFoot.js';
 import type * as Gate from '../../src/components/shell/StaleTabGate.js';
 import type * as Prompt from '../../src/components/shell/UpdatePrompt.js';
+import type { TabState } from '../../src/store/staleTab.js';
 
 const broken = vi.hoisted(() => ({ gate: false, prompt: false }));
+
+// The window's state, which a test changes by hand.
+const tab = vi.hoisted((): { state: TabState; heard: Set<() => void> } => ({
+	state: 'current',
+	heard: new Set(),
+}));
+vi.mock('../../src/store/staleTab.js', () => ({
+	tabState: () => tab.state,
+	subscribeTabState: (listener: () => void) => {
+		tab.heard.add(listener);
+		return () => {
+			tab.heard.delete(listener);
+		};
+	},
+}));
 
 const Broken = () => {
 	throw new Error('the bar broke');
@@ -57,6 +73,25 @@ describe("the bars along the window's foot", () => {
 
 		expect(screen.getByText('the drawing')).toBeDefined();
 		expect(screen.queryByRole('status')).toBeNull();
+	});
+
+	it('tries the gate again once the window has something to say', () => {
+		breaking('gate');
+		onTestFinished(() => {
+			tab.state = 'current';
+		});
+		render(<AppFoot />);
+		expect(screen.queryByRole('status')).toBeNull();
+
+		broken.gate = false;
+		act(() => {
+			tab.state = 'stale';
+			tab.heard.forEach((heard) => {
+				heard();
+			});
+		});
+
+		expect(screen.getByRole('alertdialog')).toBeDefined();
 	});
 
 	it("keeps the gate when the new build's bar fails", () => {

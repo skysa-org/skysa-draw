@@ -1142,6 +1142,28 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(edited);
 	});
 
+	it('settles once for two that ask at once, so that the same text is not sent twice beside itself', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const tries = vi.fn();
+		const refuse = (changes: object) => {
+			if ('text' in changes) {
+				tries();
+				throw new Error('the store refused');
+			}
+		};
+		db.drawings.hook('updating', refuse);
+		act(() => lastOpened().edit(edited));
+
+		const both = await Promise.all([settleEditors(), settleEditors()]);
+
+		const named = { failing: [drawingRef(made)], rejected: 0 };
+		expect(both).toEqual([named, named]);
+		// The pending save, and the one try more.
+		expect(tries).toHaveBeenCalledTimes(2);
+		db.drawings.hook('updating').unsubscribe(refuse);
+	});
+
 	it('is asked to settle once, where React starts it twice, as StrictMode does', async () => {
 		const { db, made } = await renderEditor('expanded', 'Harbor', ROOT, { strict: true });
 		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');

@@ -225,9 +225,14 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		await user.keyboard('{Enter}[Space]');
 		expect(reload).not.toHaveBeenCalled();
 		expect(screen.getByRole('alertdialog')).toBe(notice);
+		// A press on the dim around it leaves the focus where it is.
+		await user.pointer({ keys: '[MouseLeft]', target: notice.parentElement ?? document.body });
+		expect(document.activeElement).toBe(notice);
 
+		// One on its buttons goes through, the focus with it.
 		await user.click(screen.getByRole('button', { name: 'Reload' }));
 		expect(reload).toHaveBeenCalledTimes(1);
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reload' }));
 	});
 
 	it('blocks what the app has put in the page outside itself, a sheet or a drawer, and only while it shows', async () => {
@@ -292,8 +297,14 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		screen.getByRole('button', { name: 'Reload' }).dispatchEvent(paste);
 		screen.getByRole('button', { name: 'Reload' }).dispatchEvent(drop);
 		expect(placed).not.toHaveBeenCalled();
-		// Nor is a drop left to the browser, which would open it in the window.
+		// Nor is a drop left to the browser, which would open it in the window,
+		// and a drag over it shows as one that cannot drop.
 		expect(drop.defaultPrevented).toBe(true);
+		const over = Object.assign(new Event('dragover', { bubbles: true, cancelable: true }), {
+			dataTransfer: { dropEffect: 'copy' },
+		});
+		screen.getByRole('button', { name: 'Reload' }).dispatchEvent(over);
+		expect(over.dataTransfer.dropEffect).toBe('none');
 		// The notice's own buttons answer the keyboard all the same.
 		await user.keyboard('{Tab}{Enter}');
 		expect(reload).not.toHaveBeenCalled();

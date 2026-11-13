@@ -440,7 +440,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * the store refused (`keepDeleted`), are named by the row as it was, so
 	 * that its source, and only its source, counts them as held.
 	 */
-	const settle = async (): Promise<readonly string[]> => {
+	const settleOnce = async (): Promise<readonly string[]> => {
 		/** Edits the store has not taken, which no copy and no delete of the user's has. */
 		const held = (): boolean => !keeping.current && !deleting.current && hasUnsavedEdits();
 		await state.current.document?.settle();
@@ -453,6 +453,23 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		await save(document);
 		await keepsDone();
 		return held() ? named() : [];
+	};
+
+	const settling = cell<Promise<readonly string[]> | undefined>(undefined);
+
+	/**
+	 * `settleOnce`, or the one already going: a settle asked for meanwhile — a
+	 * second caller's, or the editor's own as it closes — joins it, so that the
+	 * two do not each send the same text again.
+	 */
+	const settle = (): Promise<readonly string[]> => {
+		const going =
+			settling.current ??
+			settleOnce().finally(() => {
+				settling.current = undefined;
+			});
+		settling.current = going;
+		return going;
 	};
 
 	/**
@@ -478,11 +495,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// has the editor write what it holds first, and hears what it could not.
 		// A function of its own each start, since the registry is a set and
 		// React starts a session twice in development. Not answered by
-		// `FLUSH_WAIT_MS`, it names the drawing all the same, so that a source
-		// let go meanwhile keeps its rows: settling is not over, and the edits
-		// may yet need them. Its wait starts just before `settleEditors`' own,
-		// of the same length, so it ends first.
-		const withdraw = beforeClosing(() => inTime(settle(), named()));
+		// `FLUSH_WAIT_MS`, it is taken to hold its drawing all the same
+		// (`named`), so that a source let go meanwhile keeps its rows: settling
+		// is not over, and the edits may yet need them.
+		const withdraw = beforeClosing(settle.bind(undefined), named);
 		// The save is asynchronous, but IndexedDB finishes a transaction that
 		// was started before the page went, so starting it is enough.
 		const onPageHide = () => {
