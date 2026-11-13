@@ -219,13 +219,23 @@ button:not(.primary):hover {
 	z-index: var(--z-foot);
 }
 
+/*
+ * Clear of a notch at either side, and the lowest bar clear of the home
+ * indicator, where the page runs under them (`viewport-fit=cover`), as the
+ * editor's tools are.
+ */
 .update-prompt {
 	align-items: center;
 	background: var(--surface);
 	border-block-start: 1px solid var(--border);
 	display: flex;
 	gap: var(--space-s);
-	padding: var(--space-s) var(--gutter);
+	padding: var(--space-s) max(var(--gutter), env(safe-area-inset-right)) var(--space-s)
+		max(var(--gutter), env(safe-area-inset-left));
+}
+
+.app-foot > .update-prompt:last-of-type {
+	padding-block-end: calc(var(--space-s) + env(safe-area-inset-bottom));
 }
 
 .update-prompt span {

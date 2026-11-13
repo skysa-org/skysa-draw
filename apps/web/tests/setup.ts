@@ -4,19 +4,21 @@ import 'fake-indexeddb/auto';
 import { cleanup, configure } from '@testing-library/react';
 import { afterEach, expect, vi } from 'vitest';
 
-import { flushEditors } from '../src/store/heldEdits.js';
+import { editorsRegistered } from '../src/store/heldEdits.js';
 import { deleteFreshDatabases, resetSharedDb } from './support/db.js';
 
 // After every test, in this order: what it rendered is unmounted, an editor
 // among it settled as it closes and gone from the registry (`beforeClosing`),
 // so that the next test's settling does not find it, then every test starts
-// from an empty database (tests/support/db.ts). Testing Library only cleans
-// up by itself where `afterEach` is a global, and here it is imported.
+// from an empty database (tests/support/db.ts). An editor still settling as
+// the wait runs out — it can take `FLUSH_WAIT_MS` — is one its test should
+// have waited for itself. Testing Library only cleans up by itself where
+// `afterEach` is a global, and here it is imported.
 afterEach(async () => {
 	cleanup();
 	await vi.waitFor(
 		() => {
-			expect(flushEditors()).toHaveLength(0);
+			expect(editorsRegistered()).toBe(0);
 		},
 		{ timeout: 4_000 }
 	);

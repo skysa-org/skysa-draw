@@ -104,8 +104,12 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const openedText = cell<string | undefined>(undefined);
 	/** The row as the store had it last; nothing once it is deleted. */
 	const latest = cell<DrawingRecord | undefined>(undefined);
-	/** The row as it was last seen, deleted or not: what the edits are named by. */
-	const known = cell<DrawingRecord | undefined>(undefined);
+	/**
+	 * The row as it was last seen, deleted or not, by `drawingRef`: what the
+	 * edits are named by. The name alone, not the row, whose text a deleted
+	 * row's would otherwise keep in memory beside the document.
+	 */
+	const known = cell<string | undefined>(undefined);
 	/**
 	 * A copy is being kept, or has been in place of the deleted row: nothing is
 	 * saved into the row, and no row is opened.
@@ -336,8 +340,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/** The drawing, by `drawingRef`, as it was last seen: nothing before its row came. */
-	const named = (): readonly string[] =>
-		known.current === undefined ? [] : [drawingRef(known.current)];
+	const named = (): readonly string[] => (known.current === undefined ? [] : [known.current]);
 
 	/** Work that keeps the edits as a drawing of their own, until it is done. */
 	const keep = (work: Promise<void>) => {
@@ -383,7 +386,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 		if (row.id !== id) return;
 		latest.current = row;
-		known.current = row;
+		known.current = drawingRef(row);
 		// Back after all, as a pull could bring it.
 		if (state.current.gone) set({ gone: false });
 		// The copy, once kept, opens the latest row there is.

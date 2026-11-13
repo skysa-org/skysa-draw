@@ -123,6 +123,9 @@ const isRefs = (answer: unknown): answer is readonly string[] =>
 const NOTHING_CLAIMED: SettledEditors = { failing: [], rejected: 0 };
 const REJECTED: SettledEditors = { failing: [], rejected: 1 };
 
+/** How many editors are registered, without starting their flushes as `flushEditors` does. */
+export const editorsRegistered = (): number => unfinished.size;
+
 /** One registered flush started, and what it is taken to hold if it does not answer in time. */
 const begin = ([finish, unanswered]: readonly [
 	HeldEditsFlush,
