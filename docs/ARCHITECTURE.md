@@ -605,7 +605,7 @@ Known gaps in what is built, each for an issue:
 - A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` would cover a release once the editor registers with it (below), but not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
 - No editor registers what it holds with `beforeClosing` (`store/heldEdits.ts`), so a drawing's save still waiting on the autosave's debounce is not written first when a newer build retires the tab, nor counted or written before a disconnect, a source let go or an export.
-  The comments in `store/heldEdits.ts`, `store/staleTab.ts` and `components/account/DetachedSource.tsx` describe that flush as made, as skysa-notes makes it; wiring `drawing/useOpenDrawing.ts` to it is what makes them true.
+  Every caller of `flushEditors` and `settleEditors`, and the comments around them, take that flush as made, as skysa-notes makes it; wiring `drawing/useOpenDrawing.ts` to it is what makes them true.
 - The browser is never asked to keep the store: `keeping.ask` (`store/keeping.ts`) is made by nothing, so `navigator.storage.persist()` is never called, and the storage panel only reads the answer.
   `store/keeping.ts` and `components/account/NotConnected.tsx` describe the request as made, on the first drawing and on install, as skysa-notes makes it.
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.

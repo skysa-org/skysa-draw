@@ -11,26 +11,27 @@ Its step 4 was this app, and the question was how a copy taken before the kit's 
 It was a swap, not a merge.
 The kit's seams were cut with this app in view: its `DocumentFormat` is what `sync/document.ts` was here, and its `AppFolderSpec` takes what `config.ts` held.
 When record 0018's step 7 checked, this app had no fix to a shared layer that the kit lacked, so nothing here had to go to the kit first.
-The kit says a note and a notebook for a document and a folder of them; this app says them where it implements one of the kit's ports (`SyncNote`, `noteId`, the `*-note` change kinds) and where it reads what the kit hands back (a stuck push's `noteId`), and maps them there to its own rows, so its database did not change.
+The kit's ports call a document a note (`SyncNote`, `noteId`, the `*-note` change kinds) and a folder a folder; this app uses the kit's names where it implements a port and where it reads what the kit hands back (a stuck push's `noteId`), and maps them there to its own rows, so its database did not change.
 
 What went where, at kit 1.1.0:
 
 | Was here | Is the kit's |
 |---|---|
-| `apps/api/src` but `worker.ts` and the two files that pass on the server's names (`index.ts`, `relay.ts`), its tests but the Worker's own, the migrations | `@skysa/server` (#5) |
+| `apps/api/src` but `worker.ts`, its tests but the Worker's own and the migrations', the migrations | `@skysa/server` (#5) |
 | The protocol: `api.ts`, `relay.ts`, `entitlements.ts`, the provider kinds | `@skysa/protocol` (#8) |
-| The adapters, the naming and path rules but `names/drawings.ts` and `names/slug.ts`, the marker, hashing, `json`, `cell`, `bytes`, the media types | `@skysa/storage` (#8) |
-| The sync engine but the document seam, its store contract and its simulation kit | `@skysa/sync` (#8) |
+| The adapters, the naming and path rules but the slug and this app's own names, the marker, hashing, `json`, `cell`, `bytes`, the media types | `@skysa/storage` (#8) |
+| The sync engine, its store contract and its simulation kit; not the document seam, which is `DRAW_FORMAT` now | `@skysa/sync` (#8) |
 | The web app's API client, tokens, providers, relay, scheduler, wake lock, credentials, connect code and emitter | `@skysa/client` (#8) |
 | `brand.ts`, `pwa.ts` and the bundle budget's script | `@skysa/pwa` (#6) |
 | The shared lint rules, the compiler's settings and Prettier's | `@skysa/eslint-config` (#7) |
 
+Two files were made on the way: `apps/api/src/index.ts` and `relay.ts`, which pass on the server's names as the package has always offered them (#5), and `names/drawings.ts`, this app's own names, split from the rules that went (#8).
 What stays this app's: the drawing file and its layers (`drawing/`), the names it gives its files (`names/`, the slug's 215-byte cap among them), the pictures, the Dexie schema and the store over it, the editor, the screens and the catalog.
 What it hands the kit:
 
 - `DRAW_FORMAT` (`drawing/format.ts`), the format: `.svg`, `image/svg+xml`, the `draw:id` a file claims, a conflict copy's contents, and a `.svg` that is not an SVG document held as unreadable.
 - `DRAW_FOLDER` (`config.ts`), the folder: `skysa-draw`, Drive's tag `drawapp`, and the marker `.drawapp.json` naming `skysa-draw` at version 1.
-- Its database, as the client's ports (`sync/dexiePorts.ts`, which `sync/drawingsSync.ts` hands the kit's scheduler), as the engine's `SyncStore` (`sync/store.ts`), and as the `CredentialStore` the client's connect, credential and relay calls take (its `credentials` table); and the lock it has always taken (`sync/lock.ts`).
+- Its database, as the client's ports (`sync/dexiePorts.ts`, which `sync/drawingsSync.ts` hands the kit's scheduler), as the engine's `SyncStore` (`sync/store.ts`), and as the `CredentialStore` the client's connect, credential and relay calls take (the database itself, for its `credentials` table); and the lock it has always taken (`sync/lock.ts`).
 - Its own lint blocks, which `eslint.config.js` passes to the kit's `skysa()`.
 
 Nothing a user holds changed: the folder, the marker and the tag, `.svg` and its media type, a conflict copy's name, the lock `skysa-draw:sync:<id>`, and the database's name and version.

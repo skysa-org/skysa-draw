@@ -23,8 +23,8 @@ import { isTombstone } from './rowStates.js';
  *   owed a fresh write (`settle` in `sync/store.ts`).
  * - **A write may be lazy.** An app whose changes come every few seconds
  *   queues them lazily, and the scheduler sends a lazy write with the next
- *   sync rather than straight after (docs/ARCHITECTURE.md §7, "When a push
- *   goes"). This app queues none. An edit that finds only a lazy write queued
+ *   sync rather than straight after (the kit's docs/ARCHITECTURE.md, "When a
+ *   push goes"). This app queues none. An edit that finds only a lazy write queued
  *   replaces it with one that is not, at the back of the queue, which is how
  *   the scheduler sees it.
  * - **A move says where the drawing is going, so a second rename replaces it.**
