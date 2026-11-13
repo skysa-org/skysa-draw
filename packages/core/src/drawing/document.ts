@@ -207,8 +207,18 @@ const MOST_ATTRIBUTES = 1_000_000;
 
 /** What a name cannot hold, and what a value without quotes cannot. */
 const NOT_NAME = /[\s"'<>/=]/;
-/** What a name can start with, as XML has it: after a `<`, what starts a tag, not text. */
-const NAME_START = /[A-Za-z_:\u0080-\uffff]/;
+/**
+ * What HTML reads an end tag's name as starting with after `</`: anything else
+ * there starts what it reads as a comment, to the next `>`.
+ */
+const ASCII_LETTER = /[A-Za-z]/;
+/**
+ * What a name can start with, as XML has it (`NameStartChar`): after a `<`,
+ * what starts a tag, not text. A character past the BMP is read by the first
+ * half of its surrogate pair.
+ */
+const NAME_START =
+	/[:A-Z_a-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02ff\u0370-\u037d\u037f-\u1fff\u200c-\u200d\u2070-\u218f\u2c00-\u2fef\u3001-\ud7ff\ud800-\udb7f\uf900-\ufdcf\ufdf0-\ufffd]/;
 const NOT_BARE = /[\s"'=<>`]/;
 
 /**
@@ -398,7 +408,11 @@ const appAttributes = (root: StartTag): number => {
  */
 const rootTagOf = (text: string): StartTag | undefined => {
 	const root = startTagAt(text, prologEnd(text), 'svg', MOST_ATTRIBUTES + 2);
-	return root === undefined || root.attributeList.length - appAttributes(root) > MOST_ATTRIBUTES
+	if (root === undefined) return undefined;
+	// The app's own are looked for only past the bound, so a root within it is
+	// not walked again.
+	const count = root.attributeList.length;
+	return count > MOST_ATTRIBUTES && count - appAttributes(root) > MOST_ATTRIBUTES
 		? undefined
 		: root;
 };
@@ -472,6 +486,7 @@ export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string => {
 	const numbered = (n: number): string =>
 		n === 1 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${n}`;
 	const candidates = Array.from({ length: bound.size + 1 }, (_, index) => numbered(index + 1));
+	// One of them is free, so what follows `??` never runs: it is there for the type.
 	return candidates.find((candidate) => !bound.has(candidate)) ?? numbered(bound.size + 1);
 };
 
@@ -700,8 +715,9 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
 	};
 	// Past what starts at a `<`: a section or a tag; `undefined` where it does
 	// not end, or is an end tag of the title's name in any case before `until`,
-	// or is a `<!` or a `</` before no name, which an HTML parser reads as a
-	// comment to the next `>`, and XML as no markup at all.
+	// or is a `<!`, or a `</` before anything but an ASCII letter, which an
+	// HTML parser reads as a comment to the next `>`, and XML as no markup, or
+	// an end tag that no start tag in the title opened.
 	const past = (at: number): number | undefined =>
 		htmlName(text.slice(at, at + name.length + 2)) === `</${own}` &&
 		NOT_NAME.test(text.charAt(at + name.length + 2))
@@ -711,7 +727,7 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
 				: text.startsWith('<!--', at) || text.startsWith('<?', at)
 					? commentOrInstructionEnd(text, at)
 					: text.startsWith('<!', at) ||
-						  (text.startsWith('</', at) && !NAME_START.test(text.charAt(at + 2)))
+						  (text.startsWith('</', at) && !ASCII_LETTER.test(text.charAt(at + 2)))
 						? undefined
 						: tagEnd(at);
 	const reached = skipped(text, text.indexOf('<', from), (_, at) => {

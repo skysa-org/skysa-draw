@@ -814,6 +814,8 @@ describe('withDrawingTitle', () => {
 			// A comment to an HTML parser, to the next `>`, and no markup to XML.
 			`<title>a<!X </title> >b</title>${layer}</svg>`,
 			`<title>a</ </title> >b</title>${layer}</svg>`,
+			`<title>a</é </title> >b</title>${layer}</svg>`,
+			`<title>a</× </title> >b</title>${layer}</svg>`,
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
@@ -831,6 +833,10 @@ describe('withDrawingTitle', () => {
 			'A<textareas>x</textareas>B',
 			'x < y',
 			'1<2 or a<-b',
+			// No name in XML starts with these, so no tag does.
+			'2<×3',
+			'a <　b',
+			'a< b',
 		]) {
 			const text = `${root}<title>${inner}</title><g/></svg>`;
 			expect(readDrawingTitle(text)).toBe(inner);
