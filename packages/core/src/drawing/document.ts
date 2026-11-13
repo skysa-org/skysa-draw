@@ -96,16 +96,25 @@ const doctypeEnd = (text: string, from: number): number | undefined => {
 };
 
 /**
+ * Just past whitespace or a comment that starts at `at`, each comment ending
+ * at its first `-->` as XML's do: what may come before the root, and before
+ * its title. `undefined` where neither starts there, or a comment never ends.
+ */
+const spaceOrCommentEnd = (text: string, at: number): number | undefined => {
+	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
+	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
+	return undefined;
+};
+
+/**
  * Just past what the prolog may hold that starts at `at`: whitespace, a
  * processing instruction or the XML declaration, a comment, or a doctype.
  * `undefined` where none starts there, or one starts and never ends.
  */
 const prologItemEnd = (text: string, at: number): number | undefined => {
-	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
 	if (text.startsWith('<?', at)) return closedBy(text, '?>', at + 2);
-	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
 	if (text.startsWith('<!DOCTYPE', at)) return doctypeEnd(text, at + 9);
-	return undefined;
+	return spaceOrCommentEnd(text, at);
 };
 
 /**
@@ -145,16 +154,24 @@ const prologEnd = (text: string): number => skipped(text, 0, prologItemEnd);
 /** An attribute: a name, and a value in double quotes, single quotes or bare. */
 const ATTRIBUTE = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
-/** The root's start tag, `svg` with or without a prefix, attributes and all. */
-const ROOT_TAG =
-	/^<((?:[^\s"'<>/=:]+:)?svg)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/;
+/** A start tag: its name, its attributes, and whether it closes itself. */
+const START_TAG =
+	/^<([^\s"'<>/=]+)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/;
 
-interface RootTag {
+interface StartTag {
 	/** Where the tag begins and ends in the text, so it can be put back. */
 	readonly start: number;
 	readonly end: number;
-	/** The element's prefix, where it has one: `svg:svg` is `svg`. */
+	/**
+	 * Where its last attribute ends, or its name where it has none: what
+	 * follows is how it closes, `>` or `/>` with any whitespace before it.
+	 */
+	readonly attributesEnd: number;
+	/** The element's name as written, and its prefix where it has one: `svg:svg` is `svg`. */
+	readonly name: string;
 	readonly prefix: string | undefined;
+	/** Its name without the prefix. */
+	readonly localName: string;
 	readonly attributes: ReadonlyMap<string, string>;
 	readonly selfClosing: boolean;
 }
@@ -167,23 +184,45 @@ const attributesOf = (body: string): ReadonlyMap<string, string> =>
 		])
 	);
 
-const rootTagOf = (text: string): RootTag | undefined => {
-	const start = prologEnd(text);
-	const match = ROOT_TAG.exec(text.slice(start));
+/**
+ * The start tag at `start`, where one is there. A name with an empty prefix,
+ * or more than one, is none: XML's namespaces allow one prefix or none.
+ */
+const startTagAt = (text: string, start: number): StartTag | undefined => {
+	const match = START_TAG.exec(text.slice(start));
 	if (match === null) return undefined;
 	const [tag, name = '', body = '', slash = ''] = match;
 	const colon = name.indexOf(':');
+	const localName = name.slice(colon + 1);
+	if (colon === 0 || localName === '' || localName.includes(':')) return undefined;
 	return {
 		start,
 		end: start + tag.length,
+		attributesEnd: start + 1 + name.length + body.length,
+		name,
 		prefix: colon === -1 ? undefined : name.slice(0, colon),
+		localName,
 		attributes: attributesOf(body),
 		selfClosing: slash === '/',
 	};
 };
 
+/** The root's start tag, where the prolog is followed by an `svg`, with or without a prefix. */
+const rootTagOf = (text: string): StartTag | undefined => {
+	const tag = startTagAt(text, prologEnd(text));
+	return tag?.localName === 'svg' ? tag : undefined;
+};
+
+/**
+ * The tag up to its last attribute: where an attribute is added, or a tag that
+ * closes itself is opened. Sliced where `START_TAG` found the attributes end,
+ * since a pattern for the whitespace before the close took time to the square
+ * of a long run of whitespace inside the tag.
+ */
+const upToClose = (text: string, tag: StartTag): string => text.slice(tag.start, tag.attributesEnd);
+
 /** The root is an `svg` element in the SVG namespace, however it is declared. */
-const isSvgRoot = (root: RootTag): boolean =>
+const isSvgRoot = (root: StartTag): boolean =>
 	root.attributes.get(root.prefix === undefined ? 'xmlns' : `xmlns:${root.prefix}`) ===
 	SVG_NAMESPACE;
 
@@ -213,7 +252,7 @@ export const readDrawingProlog = (text: string): string | undefined => {
 };
 
 /** The prefix the root binds to `DRAWING_NAMESPACE`, where it binds one. */
-const drawingPrefix = (root: RootTag): string | undefined =>
+const drawingPrefix = (root: StartTag): string | undefined =>
 	[...root.attributes]
 		.filter(([name, value]) => name.startsWith('xmlns:') && value === DRAWING_NAMESPACE)
 		.map(([name]) => name.slice('xmlns:'.length))[0];
@@ -230,7 +269,7 @@ export const readDrawingId = (text: string): string | undefined => {
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A prefix not bound on the root: `draw`, or `draw2`, `draw3`, … where it is taken. */
-const freePrefix = (root: RootTag, n = 1): string => {
+const freePrefix = (root: StartTag, n = 1): string => {
 	const candidate = n === 1 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${n}`;
 	return root.attributes.has(`xmlns:${candidate}`) ? freePrefix(root, n + 1) : candidate;
 };
@@ -254,10 +293,10 @@ export const withDrawingId = (text: string, id: string): string => {
 		`(\\s${escapeRegExp(prefix)}:id\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s"'=<>\`]+)`
 	);
 	// In place where the file has the attribute, so a file given its id once
-	// is the same bytes given it again; at the end of the tag otherwise.
+	// is the same bytes given it again; after the last attribute otherwise.
 	const rewritten = existing.test(tag)
 		? tag.replace(existing, `$1"${id}"`)
-		: tag.replace(/\s*(\/?)>$/, `${declaration} ${prefix}:id="${id}"$1>`);
+		: `${upToClose(text, root)}${declaration} ${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}`;
 	return `${text.slice(0, root.start)}${rewritten}${text.slice(root.end)}`;
 };
 
@@ -323,12 +362,27 @@ const decodeReferences = (text: string): string =>
 		return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
 	});
 
-/** Just past whitespace or a comment at `at`: what may come before a title. */
-const leadItemEnd = (text: string, at: number): number | undefined => {
-	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
-	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
-	return undefined;
+/**
+ * Whether a start tag is SVG's `title`: its prefix, or the default namespace
+ * where it has none, bound to SVG on the tag itself or on the root.
+ */
+const isSvgTitle = (tag: StartTag, root: StartTag): boolean => {
+	const binding = tag.prefix === undefined ? 'xmlns' : `xmlns:${tag.prefix}`;
+	return (
+		tag.localName === 'title' &&
+		(tag.attributes.get(binding) ?? root.attributes.get(binding)) === SVG_NAMESPACE
+	);
 };
+
+/**
+ * The name this app writes a title under: `title` where SVG is the root's
+ * default namespace, and under the root's own prefix where it is not, so the
+ * title is SVG's in a file whose root is `svg:svg`.
+ */
+const titleName = (root: StartTag): string =>
+	root.prefix === undefined || root.attributes.get('xmlns') === SVG_NAMESPACE
+		? 'title'
+		: `${root.prefix}:title`;
 
 interface TitleElement {
 	/** Where what leads to it ends, which is where the element starts. */
@@ -343,20 +397,19 @@ interface TitleElement {
 /**
  * The first `<title>` after the root tag, which is where SVG puts a document's
  * name and where this app writes it: past whatever whitespace and comments
- * lead to it, each comment ending at its first `-->` as XML's do. Its start
- * tag with or without attributes, and its end tag the first `</title` that
+ * lead to it (`spaceOrCommentEnd`). Its start tag is read as the root's is,
+ * so a `>` in a quoted value does not end it, and one that closes itself is
+ * an empty title. Its end tag is the first `</title` under the same name that
  * nothing but whitespace separates from a `>`. `undefined` where the root's
  * first child is something else, or the title is never closed.
  */
-const firstTitle = (text: string, root: RootTag): TitleElement | undefined => {
-	const lead = skipped(text, root.end, leadItemEnd);
-	if (!text.startsWith('<title', lead)) return undefined;
-	const next = text.charAt(lead + 6);
-	if (next !== '>' && !SPACE.test(next)) return undefined;
-	const open = text.indexOf('>', lead + 6);
-	if (open === -1) return undefined;
-	const end = markThenClose(text, '</title', open + 1);
-	return end === undefined ? undefined : { lead, start: open + 1, end: end.at, close: end.end };
+const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
+	const lead = skipped(text, root.end, spaceOrCommentEnd);
+	const tag = startTagAt(text, lead);
+	if (tag === undefined || !isSvgTitle(tag, root)) return undefined;
+	if (tag.selfClosing) return { lead, start: tag.end, end: tag.end, close: tag.end };
+	const end = markThenClose(text, `</${tag.name}`, tag.end);
+	return end === undefined ? undefined : { lead, start: tag.end, end: end.at, close: end.end };
 };
 
 /**
@@ -386,14 +439,13 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) throw new RangeError('not an SVG document');
 	const trimmed = title.trim();
-	const element = trimmed === '' ? '' : `<title>${escapeText(trimmed)}</title>`;
+	const name = titleName(root);
+	const element = trimmed === '' ? '' : `<${name}>${escapeText(trimmed)}</${name}>`;
 	const before = text.slice(0, root.start);
 	const tag = text.slice(root.start, root.end);
 	if (root.selfClosing) {
 		if (element === '') return text;
-		const name = root.prefix === undefined ? 'svg' : `${root.prefix}:svg`;
-		const opened = tag.replace(/\s*\/>$/, '>');
-		return `${before}${opened}${element}</${name}>${text.slice(root.end)}`;
+		return `${before}${upToClose(text, root)}>${element}</${root.name}>${text.slice(root.end)}`;
 	}
 	const after = text.slice(root.end);
 	const found = firstTitle(text, root);

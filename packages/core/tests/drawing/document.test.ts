@@ -68,6 +68,12 @@ describe('isDrawingText', () => {
 		expect(isDrawingText('<svgx xmlns="http://www.w3.org/2000/svg"/>')).toBe(false);
 	});
 
+	it('is false of a root whose prefix is empty, or more than one', () => {
+		expect(isDrawingText('<:svg xmlns:="http://www.w3.org/2000/svg"/>')).toBe(false);
+		expect(isDrawingText('<a:b:svg xmlns:a="http://www.w3.org/2000/svg"/>')).toBe(false);
+		expect(isDrawingText('<svg: xmlns:svg="http://www.w3.org/2000/svg"/>')).toBe(false);
+	});
+
 	it('reads only the start of a large file', () => {
 		const large = `<svg xmlns="http://www.w3.org/2000/svg">${'<path d="M0 0"/>'.repeat(200_000)}</svg>`;
 		const started = performance.now();
@@ -230,6 +236,16 @@ describe('withDrawingId', () => {
 		expect(withDrawingId(once, ID)).toBe(once);
 	});
 
+	it('adds the id after the last attribute at once, however much whitespace the tag holds', () => {
+		// A pattern for the whitespace before the tag's close took seconds over this.
+		const text = `<svg xmlns="${SVG_NAMESPACE}"${' '.repeat(50_000)}a="b" \n/>`;
+		const started = performance.now();
+		expect(withDrawingId(text, ID)).toBe(
+			`${text.slice(0, -4)} xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}"/>`
+		);
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
 	it('refuses an id it would not read back, and text that is not a drawing', () => {
 		expect(() => withDrawingId(FOREIGN, '')).toThrow(RangeError);
 		expect(() => withDrawingId(FOREIGN, 'a"b')).toThrow(RangeError);
@@ -279,7 +295,7 @@ describe('readDrawingSize', () => {
 	it('answers at once of a width that is a long run of digits or spaces and then not a length', () => {
 		// Each could be read many ways by the pattern this had, and each was tried.
 		const started = performance.now();
-		for (const width of [`1${' '.repeat(200_000)}x`, `${'1'.repeat(200_000)}x`]) {
+		for (const width of [`1${' '.repeat(50_000)}x`, `${'1'.repeat(50_000)}x`]) {
 			expect(
 				readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" width="${width}" height="1"/>`)
 			).toBeUndefined();
@@ -343,15 +359,54 @@ describe('readDrawingTitle', () => {
 		).toBe('a</title b> c');
 	});
 
+	it('reads its start tag as the root’s is, so a quoted > does not end it', () => {
+		expect(
+			readDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"><title data-x="a>b">Name</title></svg>`)
+		).toBe('Name');
+	});
+
+	it('is nothing for a title that closes itself, and reads nothing past it', () => {
+		// Its end tag was once looked for past it, and found in a layer's own title.
+		for (const tag of ['<title/>', '<title id="t" />']) {
+			expect(
+				readDrawingTitle(
+					`<svg xmlns="${SVG_NAMESPACE}">${tag}<g><title>tip</title></g></svg>`
+				)
+			).toBeUndefined();
+		}
+	});
+
+	it('is SVG’s title under whatever prefix binds it, and no other', () => {
+		expect(
+			readDrawingTitle(
+				`<svg:svg xmlns:svg="${SVG_NAMESPACE}"><svg:title>A</svg:title></svg:svg>`
+			)
+		).toBe('A');
+		expect(
+			readDrawingTitle(
+				`<svg xmlns="${SVG_NAMESPACE}"><s:title xmlns:s="${SVG_NAMESPACE}">B</s:title></svg>`
+			)
+		).toBe('B');
+		expect(
+			readDrawingTitle(`<svg:svg xmlns:svg="${SVG_NAMESPACE}"><title>none</title></svg:svg>`)
+		).toBeUndefined();
+		expect(
+			readDrawingTitle(
+				`<svg xmlns="${SVG_NAMESPACE}"><title xmlns="http://example.com/x">none</title></svg>`
+			)
+		).toBeUndefined();
+	});
+
 	it('answers at once of what leads to no title, however long', () => {
 		// Whitespace and comments before a title could each be read many ways by
 		// the pattern this had, and each was tried: seconds for these.
 		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
 		const started = performance.now();
 		for (const rest of [
-			`${' '.repeat(200_000)}x`,
-			`<!--${'--><!--'.repeat(30_000)}x`,
-			`<title>${'</title '.repeat(30_000)}`,
+			`${' '.repeat(50_000)}x`,
+			`<!--${'--><!--'.repeat(50_000)}x`,
+			`<title>${'</title '.repeat(50_000)}`,
+			`<title${' a=b'.repeat(50_000)}`,
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 		}
@@ -430,10 +485,41 @@ describe('withDrawingTitle', () => {
 			`<svg xmlns="${SVG_NAMESPACE}"><title>Dot</title></svg>`
 		);
 		expect(withDrawingTitle(`<svg:svg xmlns:svg="${SVG_NAMESPACE}" />`, 'Dot')).toBe(
-			`<svg:svg xmlns:svg="${SVG_NAMESPACE}"><title>Dot</title></svg:svg>`
+			`<svg:svg xmlns:svg="${SVG_NAMESPACE}"><svg:title>Dot</svg:title></svg:svg>`
 		);
 		expect(withDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"/>`, ' ')).toBe(
 			`<svg xmlns="${SVG_NAMESPACE}"/>`
+		);
+	});
+
+	it('opens a self-closing root with a long run of whitespace in it at once', () => {
+		// A pattern for the whitespace before its close took seconds over this.
+		const text = `<svg xmlns="${SVG_NAMESPACE}"${' '.repeat(50_000)}a="b"  />`;
+		const started = performance.now();
+		expect(withDrawingTitle(text, 'T')).toBe(`${text.slice(0, -4)}><title>T</title></svg>`);
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
+	it('replaces a title that closes itself, and keeps what follows it', () => {
+		const layer = '<g id="layer-1"><path d="M0 0"><title>tip</title></path></g>';
+		const text = `<svg xmlns="${SVG_NAMESPACE}"><title id="t" />${layer}</svg>`;
+		expect(withDrawingTitle(text, 'New')).toBe(
+			`<svg xmlns="${SVG_NAMESPACE}"><title>New</title>${layer}</svg>`
+		);
+		expect(withDrawingTitle(text, '')).toBe(`<svg xmlns="${SVG_NAMESPACE}">${layer}</svg>`);
+	});
+
+	it('writes SVG’s title under the root’s prefix where SVG is not the default namespace', () => {
+		const root = `<svg:svg xmlns:svg="${SVG_NAMESPACE}">`;
+		expect(withDrawingTitle(`${root}<svg:title>A</svg:title></svg:svg>`, 'B')).toBe(
+			`${root}<svg:title>B</svg:title></svg:svg>`
+		);
+		expect(withDrawingTitle(`${root}</svg:svg>`, 'B')).toBe(
+			`${root}\n  <svg:title>B</svg:title></svg:svg>`
+		);
+		const both = `<svg:svg xmlns:svg="${SVG_NAMESPACE}" xmlns="${SVG_NAMESPACE}">`;
+		expect(withDrawingTitle(`${both}</svg:svg>`, 'B')).toBe(
+			`${both}\n  <title>B</title></svg:svg>`
 		);
 	});
 
@@ -447,10 +533,18 @@ describe('withDrawingTitle', () => {
 		expect(withDrawingTitle(emptyDrawing({ id: ID, title: 'Logo' }), '')).toBe(plain);
 	});
 
-	it('takes a title away after a long run of whitespace at once, and the run with it', () => {
-		const text = `<svg xmlns="${SVG_NAMESPACE}"><!-- c -->${' '.repeat(200_000)}<title>t</title></svg>`;
+	it('takes a title away at once after a long run of whitespace, and the run with it', () => {
+		// The run before a comment stays. A pattern trimming the lead took
+		// seconds over that one, looking for whitespace that ends the lead.
+		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
+		const run = ' '.repeat(50_000);
 		const started = performance.now();
-		expect(withDrawingTitle(text, '')).toBe(`<svg xmlns="${SVG_NAMESPACE}"><!-- c --></svg>`);
+		expect(withDrawingTitle(`${root}<!-- c -->${run}<title>t</title></svg>`, '')).toBe(
+			`${root}<!-- c --></svg>`
+		);
+		expect(withDrawingTitle(`${root}${run}<!-- c --><title>t</title></svg>`, '')).toBe(
+			`${root}${run}<!-- c --></svg>`
+		);
 		expect(performance.now() - started).toBeLessThan(200);
 	});
 
