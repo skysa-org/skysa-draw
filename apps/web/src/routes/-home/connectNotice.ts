@@ -1,18 +1,19 @@
-import type { ConnectGate, EntitlementCode } from '@skysa/draw-core';
-import { useNavigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-
-import { api } from '../../api/client.js';
-import { answer, useInstanceConfig } from '../../api/instanceConfig.js';
-import type { ConnectNoticeShown } from '../../components/shell/ConnectNotice.js';
-import { t } from '../../i18n/t.js';
 import {
+	answer,
+	api,
 	connectCodeAskedAt,
 	dropConnectCode,
 	heldConnectCode,
 	heldConnectCodeShown,
 	holdAcceptedCode,
-} from '../../store/connectCode.js';
+	useInstanceConfig,
+} from '@skysa/client';
+import type { ConnectGate, EntitlementCode } from '@skysa/protocol';
+import { useNavigate } from '@tanstack/react-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import type { ConnectNoticeShown } from '../../components/shell/ConnectNotice.js';
+import { t } from '../../i18n/t.js';
 
 /**
  * What the app says on the way back from connecting storage (`?connect=…`),

@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 /**
  * The text a field is open on, hidden while it is (`text.ts`): the field is

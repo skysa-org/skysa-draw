@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { type ClipPreview, keepingClips, previewClips } from '../../document/clip.js';
 import { editLayer } from '../../document/commands.js';

@@ -1,4 +1,5 @@
-import { cell, type DrawingSize } from '@skysa/draw-core';
+import type { DrawingSize } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import {
 	attributesOf,

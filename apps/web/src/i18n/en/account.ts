@@ -30,7 +30,6 @@ export const account = {
 	},
 	/** The panel while nothing is connected. "them" is the drawings on this device. */
 	local: {
-		signInMissing: 'Connecting storage needs a sign-in this server does not offer yet.',
 		unreachable: 'Connecting storage needs the server, which cannot be reached.',
 		mayClear:
 			'This browser may clear them without warning. To keep them, connect storage or download them.',

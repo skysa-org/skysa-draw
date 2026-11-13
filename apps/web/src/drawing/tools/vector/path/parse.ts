@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import type { Point } from '../geometry.js';
 import type { Anchor, PathData, Subpath } from './model.js';

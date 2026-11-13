@@ -1,4 +1,5 @@
-import { extensionForType, sanitizeFolderName, slugify } from '@skysa/draw-core';
+import { sanitizeFolderName, slugify } from '@skysa/draw-core';
+import { extensionForType } from '@skysa/storage';
 
 /**
  * A file handed to the user (docs/ARCHITECTURE.md §7, "Export"). Nothing of

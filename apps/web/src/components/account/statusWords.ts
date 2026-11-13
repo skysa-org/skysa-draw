@@ -1,10 +1,17 @@
-import type { EntitlementCode, SyncProgress } from '@skysa/draw-core';
+import {
+	isLongRun,
+	type Refusal,
+	runBar,
+	type RunCount,
+	runCount,
+	type SchedulerStatus,
+	type StuckOp,
+} from '@skysa/client';
+import type { EntitlementCode } from '@skysa/protocol';
+import type { SyncProgress } from '@skysa/sync';
 
-import type { Refusal } from '../../api/client.js';
 import { saying } from '../../errors/reached.js';
 import { type MessageKey, t } from '../../i18n/t.js';
-import { isLongRun, runBar, type RunCount, runCount, runSentence } from '../../sync/progress.js';
-import type { SchedulerStatus, StuckOp } from '../../sync/scheduler.js';
 import { needsReconnect } from '../../sync/status.js';
 
 /**
@@ -90,7 +97,7 @@ export const syncCount = (
 	if (!isLongRun(progress)) return undefined;
 	return {
 		text: lineCount(runCount(progress)),
-		sentence: runSentence(progress, label, 'sync'),
+		sentence: runSentence(progress, label),
 		bar: runBar(progress),
 	};
 };
@@ -106,6 +113,29 @@ const lineCount = (count: RunCount): string => {
 			return t('account.line.sending', { done: count.done, total: count.total });
 		case 'receiving':
 			return t('account.line.receiving', { done: count.done, total: count.total });
+	}
+};
+
+/** How far a run has got, in a sentence that names the source. */
+const runSentence = (progress: SyncProgress, label: string): string => {
+	const count = runCount(progress);
+	switch (count.kind) {
+		case 'looking':
+			return t('connection.progress.looking', { provider: label, count: count.count });
+		case 'checking':
+			return t('connection.progress.checkingFound', { provider: label, count: count.count });
+		case 'sending':
+			return t('connection.progress.sending', {
+				provider: label,
+				done: count.done,
+				total: count.total,
+			});
+		case 'receiving':
+			return t('connection.progress.receiving', {
+				provider: label,
+				done: count.done,
+				total: count.total,
+			});
 	}
 };
 

@@ -1,4 +1,5 @@
-import { cell, SVG_NAMESPACE } from '@skysa/draw-core';
+import { SVG_NAMESPACE } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { isLayerElement, layerKindOf } from '../document/layers.js';
 import type { EditorDocument } from '../document/model.js';

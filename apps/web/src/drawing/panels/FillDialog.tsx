@@ -1,6 +1,7 @@
 import '../../styles/fillDialog.css';
 
-import { BLEND_MODES, type BlendMode, cell } from '@skysa/draw-core';
+import { BLEND_MODES, type BlendMode } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 import { Fragment, useId, useState } from 'react';
 
 import { classes } from '../../components/ui/classes.js';

@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { editLayer } from '../../document/commands.js';
 import { isTyping } from '../../keys.js';

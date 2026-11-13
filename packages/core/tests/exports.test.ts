@@ -1,3 +1,4 @@
+import * as protocol from '@skysa/protocol';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type * as Core from '../src/index.js';
@@ -11,14 +12,12 @@ import * as core from '../src/index.js';
 const SURFACE = [
 	'API_ERROR_CODES',
 	'APP_FOLDER_NAME',
-	'AUTH_MODES',
-	'AuthError',
 	'BLEND_MODES',
-	'ConflictError',
-	'CursorResetError',
 	'DEFAULT_DRAWING_SIZE',
 	'DRAWING_EXTENSION',
 	'DRAWING_NAMESPACE',
+	'DRAW_FOLDER',
+	'DRAW_FORMAT',
 	'ENTITLEMENT_CODES',
 	'GATE_LIMITS',
 	'GRAPHICS_ELEMENTS',
@@ -27,7 +26,6 @@ const SURFACE = [
 	'MAX_CODE_HOLD_SECONDS',
 	'MAX_CODE_REASON',
 	'MAX_CONNECT_CODE',
-	'NotFoundError',
 	'PROVIDER_KINDS',
 	'RASTER_MAX_SIDE',
 	'RELAY_CHANGED',
@@ -36,122 +34,76 @@ const SURFACE = [
 	'RELAY_PONG',
 	'RELAY_PUSHED',
 	'RELAY_PUSHED_INTERVAL_MS',
-	'ROOT',
-	'RateLimitError',
 	'SVG_NAMESPACE',
 	'UNTITLED_SLUG',
-	'UnreadableError',
 	'alwaysAllowed',
-	'ancestorPaths',
 	'attachmentName',
-	'basename',
-	'bytesHash',
-	'cell',
-	'clusters',
 	'conflictContent',
-	'conflictFilePath',
-	'conflictFolderPath',
 	'conflictPath',
-	'conflictStamp',
-	'contentHash',
-	'createDropboxProvider',
-	'createGDriveProvider',
-	'createOneDriveProvider',
-	'createSyncEngine',
 	'drawingFilename',
 	'emptyDrawing',
-	'extensionForType',
-	'extensionOf',
-	'foldName',
 	'imageInfo',
-	'isAuthError',
 	'isBlendMode',
-	'isConflictError',
-	'isCursorResetError',
 	'isDrawingName',
 	'isDrawingText',
-	'isFileChange',
 	'isGraphicsElement',
-	'isHidden',
-	'isImageExtension',
-	'isNotFoundError',
-	'isRateLimitError',
-	'isUnreadableError',
-	'isWithin',
-	'joinPath',
 	'layerId',
 	'layerNumber',
-	'mediaOf',
 	'messageOf',
 	'neverLimited',
-	'normalizePath',
-	'parentPath',
-	'pathSegments',
 	'pictureVariant',
 	'readDrawingId',
 	'readDrawingProlog',
 	'readDrawingSize',
 	'readDrawingTitle',
-	'rebasePath',
-	'replaceBasename',
 	'sanitizeFolderName',
 	'slugify',
+	'syncsHidden',
 	'titleFromFilename',
 	'uniqueFilename',
 	'withDrawingId',
 	'withDrawingTitle',
-	'withoutNul',
 ];
 
 /** Every type the entry offers; see the last test. */
 type Types = [
 	Core.ApiErrorCode,
-	Core.AuthMode,
 	Core.BlendMode,
-	Core.Cell<unknown>,
-	Core.ChangeEntry,
-	Core.ChangeSet,
-	Core.ConflictResolution,
 	Core.ConnectCodeCheck,
 	Core.ConnectGate,
-	Core.CreateFileOptions,
 	Core.DrawingSize,
 	Core.EntitlementCode,
 	Core.EntitlementContext,
 	Core.EntitlementDecision,
 	Core.EntitlementProvider,
 	Core.EntitlementSubject,
-	Core.EntryRef,
-	Core.FetchLike,
-	Core.FileKind,
 	Core.LayerKind,
-	Core.NewSyncOp,
-	Core.OpOutcome,
 	Core.PictureInfo,
 	Core.PictureVariant,
 	Core.ProviderKind,
-	Core.PullBatch,
-	Core.PullChange,
 	Core.RateLimitDecision,
 	Core.RateLimiter,
-	Core.RemoteEntry,
-	Core.StorageProvider,
-	Core.SyncDrawing,
-	Core.SyncEngine,
-	Core.SyncFile,
-	Core.SyncFolder,
-	Core.SyncOp,
-	Core.SyncOperation,
-	Core.SyncOutcome,
-	Core.SyncProgress,
-	Core.SyncStore,
-	Core.UnreadableFile,
-	Core.WriteOptions,
 ];
 
 describe('core’s main entry', () => {
 	it('offers these values and no others', () => {
 		expect(Object.keys(core).sort()).toEqual(SURFACE);
+	});
+
+	it('offers every value of the kit’s protocol, for an operator’s policy', () => {
+		// Its values, that is: what the kit adds there an operator's Worker entry
+		// may import from here, as `docs/self-hosting.md` has it import the types.
+		// Its schemas and functions are the kit's to use, and only those the
+		// barrel names (`alwaysAllowed`, `neverLimited`) are offered.
+		const isData = (value: unknown): boolean =>
+			typeof value !== 'function' &&
+			(typeof value !== 'object' || value === null || Object.values(value).every(isData));
+		const spoken = Object.entries(protocol).filter(([, value]) => isData(value));
+
+		expect(spoken.length).toBeGreaterThan(0);
+		expect(spoken.filter(([name, value]) => core[name as keyof typeof core] !== value)).toEqual(
+			[]
+		);
 	});
 
 	it('offers these types', () => {

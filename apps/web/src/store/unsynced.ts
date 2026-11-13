@@ -1,4 +1,5 @@
-import { isWithin } from '@skysa/draw-core';
+import { isWithin } from '@skysa/storage';
+import { outOfAttempts } from '@skysa/sync';
 
 import {
 	type DrawDatabase,
@@ -9,7 +10,7 @@ import {
 	type OpQueueRecord,
 } from './db.js';
 import { foldPath } from './naming.js';
-import { outOfAttempts } from './queue.js';
+import { MAX_OP_ATTEMPTS } from './queue.js';
 import { rowsOf } from './rows.js';
 import { isLive, isTombstone } from './rowStates.js';
 
@@ -100,8 +101,8 @@ export interface Unsynced {
 	linked: FileRecord[];
 	/**
 	 * An op of this source is out of attempts, so none of the above can be sent
-	 * right now however long the user waits (`outOfAttempts` in `store/queue.ts`,
-	 * the same rule the sync status says `blocked` by).
+	 * right now however long the user waits (`outOfAttempts`, the kit's engine's,
+	 * from `@skysa/sync`: the same rule the sync status says `blocked` by).
 	 */
 	blocked: boolean;
 	/**
@@ -202,7 +203,7 @@ export const unsyncedIn = async (
 		files: unsentFiles,
 		portable: unsentFiles.filter((file) => held.has(file.id)),
 		linked: [],
-		blocked: ops.some((op) => outOfAttempts(op, options.maxAttempts)),
+		blocked: ops.some((op) => outOfAttempts(op, options.maxAttempts ?? MAX_OP_ATTEMPTS)),
 		unverified,
 	};
 };

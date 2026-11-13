@@ -1,11 +1,7 @@
-import {
-	basename,
-	contentHash,
-	isDrawingText,
-	parentPath,
-	readDrawingId,
-	withDrawingId,
-} from '@skysa/draw-core';
+import { isDrawingText, readDrawingId, withDrawingId } from '@skysa/draw-core';
+import { basename, contentHash, parentPath } from '@skysa/storage';
+import type { NewSyncOp } from '@skysa/sync';
+import Dexie from 'dexie';
 
 import {
 	activeConnectionId,
@@ -16,7 +12,7 @@ import {
 } from '../../src/store/db.js';
 import { drawingRecordFromFile } from '../../src/store/drawings.js';
 import { foldersOf } from '../../src/store/folders.js';
-import { queueUpload } from '../../src/store/queue.js';
+import { queueUpload, queueWrite } from '../../src/store/queue.js';
 import { rowsOf } from '../../src/store/rows.js';
 import { isLive } from '../../src/store/rowStates.js';
 
@@ -38,13 +34,46 @@ export const updateDrawing = async (
 };
 
 /**
+ * An op the kit hands a test (`NewSyncOp`) as this app's queue holds it: its
+ * `noteId` is the row's `drawingId` (`QueuedOp`).
+ */
+export const queuedRow = ({ noteId, ...op }: NewSyncOp & { noteId?: string }) =>
+	noteId === undefined ? op : { ...op, drawingId: noteId };
+
+/**
+ * A change to a drawing's text made the way an app that queues writes lazily
+ * makes one, with its write queued lazy. This app makes none
+ * (docs/ARCHITECTURE.md §7, "When a push goes").
+ */
+export const lazily = (db: DrawDatabase, id: string, text: string): Promise<DrawingRecord> =>
+	db.transaction('rw', db.drawings, db.opQueue, async () => {
+		const drawing = await drawingById(db, id);
+		if (drawing === undefined) throw new Error(`No drawing with id ${id}`);
+		const file = withDrawingId(text, id);
+		const row: DrawingRecord = {
+			...drawing,
+			text: file,
+			dirty: 1,
+			contentHash: await Dexie.waitFor(contentHash(file)),
+		};
+		await db.drawings.put(row);
+		await queueWrite(db, row, undefined, 'lazy');
+		return row;
+	});
+
+/** Text as character data: what would end it or start markup in it, escaped. */
+const escaped = (text: string): string =>
+	text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
  * A drawing's text for a test that only needs one drawing to differ from
- * another: an SVG whose description is `words`, with the id written in where
- * one is given. A file the engine can read as a drawing, as a note's test
- * would have used a line of text.
+ * another: an SVG whose description is `words`, escaped, with the id written
+ * in where one is given. A file the engine can read as a drawing, as a note's
+ * test would have used a line of text, whatever the words are: the kit's
+ * suites hand it theirs (`written`), as core's tests do their `svg()`.
  */
 export const svgOf = (words: string, id?: string): string => {
-	const text = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${words}</desc></svg>\n`;
+	const text = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${escaped(words)}</desc></svg>\n`;
 	return id === undefined ? text : withDrawingId(text, id);
 };
 

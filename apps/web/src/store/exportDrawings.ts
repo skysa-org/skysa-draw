@@ -1,12 +1,5 @@
-import {
-	ancestorPaths,
-	basename,
-	cell,
-	DRAWING_EXTENSION,
-	normalizePath,
-	parentPath,
-	ROOT,
-} from '@skysa/draw-core';
+import { DRAWING_EXTENSION } from '@skysa/draw-core';
+import { ancestorPaths, basename, cell, normalizePath, parentPath, ROOT } from '@skysa/storage';
 
 import { t } from '../i18n/t.js';
 import type { DrawDatabase, DrawingRecord, FileBytesRecord, FileRecord } from './db.js';

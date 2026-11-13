@@ -1,6 +1,6 @@
+import { DRAWING_EXTENSION, uniqueFilename } from '@skysa/draw-core';
 import {
 	basename,
-	DRAWING_EXTENSION,
 	foldName,
 	joinPath,
 	normalizePath,
@@ -8,8 +8,7 @@ import {
 	pathSegments,
 	replaceBasename,
 	ROOT,
-	uniqueFilename,
-} from '@skysa/draw-core';
+} from '@skysa/storage';
 
 /**
  * Finding a free name for a drawing, shared by every writer that puts one
@@ -32,8 +31,8 @@ import {
  * from whatever wrote them, NFD is what a macOS file and an iOS share sheet
  * hand you, and a folder other tools write to is the entire premise.
  *
- * `foldName` is core's own answer to that question, and the one `uniqueFilename`
- * compares with — imported rather than restated, because the check here guards
+ * `foldName` is the kit's answer to that question, and the one core's
+ * `uniqueFilename` compares with — imported rather than restated, because the check here guards
  * that renamer and the two have to agree. Every time a copy of this has drifted
  * from it, the check has been the half that failed open.
  *
@@ -46,8 +45,8 @@ export const foldPath = (path: string): string => foldName(normalizePath(path));
 const stemOf = (filename: string): string =>
 	// Case-insensitively: `.SVG` is ordinary from Windows tools, and matching it
 	// exactly would leave the extension in the stem to be slugified into the
-	// name — `Report.SVG` becoming `report-md.svg`. `deriveTitle` in core asks the
-	// same question the same way.
+	// name — `Report.SVG` becoming `report-svg.svg`. `titleFromFilename` in core
+	// asks the same question the same way, through `isDrawingName`.
 	foldName(filename).endsWith(DRAWING_EXTENSION)
 		? filename.slice(0, -DRAWING_EXTENSION.length)
 		: filename;

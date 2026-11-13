@@ -1,8 +1,7 @@
+import type { Asked, InstanceConfig } from '@skysa/client';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useSyncExternalStore } from 'react';
 
-import type { InstanceConfig } from '../../api/client.js';
-import { answer, type Asked } from '../../api/instanceConfig.js';
 import { t } from '../../i18n/t.js';
 import { useDb } from '../../store/database.js';
 import { LOCAL_CONNECTION_ID } from '../../store/db.js';
@@ -57,7 +56,6 @@ export const NotConnected = ({
 	slot?: AccountSlot;
 }>) => {
 	const database = useDb();
-	const settings = answer(config);
 	const holds = useLiveQuery(() => holdsAnything(database, LOCAL_CONNECTION_ID), [database]);
 	const downloading = useDownloadAll(LOCAL_CONNECTION_ID, downloadAll);
 	// The device's own drawings offer a download alone.
@@ -70,9 +68,6 @@ export const NotConnected = ({
 
 	return (
 		<section className="account" aria-label={t('account.region')}>
-			{settings?.authMode === 'account-first' && (
-				<p className="muted">{t('account.local.signInMissing')}</p>
-			)}
 			{config.kind === 'unreachable' && (
 				<p className="muted">{t('account.local.unreachable')}</p>
 			)}

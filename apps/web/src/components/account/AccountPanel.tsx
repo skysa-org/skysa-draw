@@ -1,9 +1,8 @@
+import { answer, api, type Asked, useInstanceConfig } from '@skysa/client';
 import { useRouterState } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 
-import { api } from '../../api/client.js';
-import { answer, type Asked, useInstanceConfig } from '../../api/instanceConfig.js';
 import { useDb } from '../../store/database.js';
 import { activeConnectionId, type SyncStateRecord } from '../../store/db.js';
 import { downloadLibrary, downloadUnsent, type Library } from '../../store/exportDrawings.js';
@@ -38,7 +37,7 @@ import { useDisconnects } from './useDisconnects.js';
  * whenever another tab binds the device to a connection this tab has not been
  * told about.
  *
- * How syncing is going comes from the scheduler (`sync/scheduler.ts`), which
+ * How syncing is going comes from the scheduler (the kit's, `@skysa/client`), which
  * runs on its own; the panel only reports it and offers "Sync now".
  */
 

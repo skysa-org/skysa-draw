@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { editLayer } from '../../document/commands.js';
 import type { PointerSample, ToolBehavior, ToolContext, ToolOptions } from '../types.js';

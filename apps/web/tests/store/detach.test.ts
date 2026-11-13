@@ -1,4 +1,5 @@
-import { parentPath, ROOT } from '@skysa/draw-core';
+import { credentialFor } from '@skysa/client';
+import { parentPath, ROOT } from '@skysa/storage';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -7,7 +8,6 @@ import {
 	detachConnection,
 	releaseConnection,
 } from '../../src/store/connection.js';
-import { credentialFor } from '../../src/store/credentials.js';
 import {
 	ACTIVE_CONNECTION_KEY,
 	activeConnectionId,
@@ -246,7 +246,7 @@ describe('letting a source go', () => {
 			store.applyChanges({
 				changes: [
 					{
-						kind: 'upsert-drawing',
+						kind: 'upsert-note',
 						id: 'n1',
 						path: 'back.svg',
 						content: 'x\n',

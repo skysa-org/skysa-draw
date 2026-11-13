@@ -1,7 +1,8 @@
 // The worker's entry, loaded here as a worker loads it: it listens on `self`.
 import '../../src/store/digest.worker.js';
 
-import { contentHash, withDrawingId, withDrawingTitle } from '@skysa/draw-core';
+import { withDrawingId, withDrawingTitle } from '@skysa/draw-core';
+import { contentHash } from '@skysa/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as Digest from '../../src/store/digest.js';
@@ -11,7 +12,7 @@ import { freshDatabase } from '../support/db.js';
 
 /**
  * A drawing's digest off the page's thread (`store/digest.ts`): the same hash
- * as core's `contentHash` for every text, in the worker or here; the drawing's
+ * as the kit's `contentHash` for every text, in the worker or here; the drawing's
  * id written in as `withDrawingId` writes it; and every way a worker can fail
  * ending in a digest here rather than in a lost save. jsdom has no `Worker`,
  * so a fake stands in for one where a test needs it, passing messages through
@@ -139,7 +140,7 @@ afterEach(() => {
 });
 
 describe('the worker’s answer', () => {
-	it.each(Object.entries(EDGES))('is core’s contentHash for %s text', async (_, text) => {
+	it.each(Object.entries(EDGES))('is the kit’s contentHash for %s text', async (_, text) => {
 		const reply = await answer({ seq: 1, text, compact: false });
 		expect(reply).toEqual({ seq: 1, hash: await contentHash(text) });
 	});
@@ -202,7 +203,7 @@ describe('digesting where there is no worker', () => {
 		vi.resetModules();
 	});
 
-	it('is core’s contentHash, for a text of any size', async () => {
+	it('is the kit’s contentHash, for a text of any size', async () => {
 		// jsdom has none, nor has Node: the premise of every test here.
 		expect(typeof Worker).toBe('undefined');
 		const { digestText, hashText } = await fresh();
@@ -383,7 +384,7 @@ describe('a drawing saved through the worker', () => {
 		['ASCII', 'Plain'],
 		['not ASCII', 'Café ’s 🎨'],
 	])(
-		'is stored as the file, %s, under core’s hash, and the same text again is unchanged',
+		'is stored as the file, %s, under the kit’s hash, and the same text again is unchanged',
 		async (_, title) => {
 			const db = freshDatabase();
 			const made = await createDrawing(db, { text: bigDrawing(title) });

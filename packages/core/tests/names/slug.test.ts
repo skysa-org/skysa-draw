@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isDrawingName } from '../../src/names/fold.js';
+import { isDrawingName } from '../../src/names/drawings.js';
 import {
 	drawingFilename,
 	sanitizeFolderName,

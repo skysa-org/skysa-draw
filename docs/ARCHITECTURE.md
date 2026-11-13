@@ -27,13 +27,14 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
 | License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
-| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), moving into the shared kit both apps run on; the server, the PWA build and the lint's shared rules have moved | Each product exports its own API and core to the parent project |
+| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), now the shared kit both apps run on | Each product exports its own API and core to the parent project |
 
 ## 2. Architecture overview
 
 Three packages in a pnpm workspace, one version between them (`.changeset/README.md`):
 
-- `packages/core` — framework-free TypeScript that runs in the browser, in Node and in Workers: the drawing file's rules (§3), paths and names, the provider adapter interface and the three adapters (§4, §5), the marker file, the relay protocol and the types an operator's policy is written against.
+- `packages/core` — framework-free TypeScript that runs in the browser, in Node and in Workers: the drawing file's rules (§3), the names this app gives its files, and what it hands the kit of its own, its folder (`DRAW_FOLDER`, §3) and its format (`DRAW_FORMAT`, §7).
+  The paths, the provider adapters (§4, §5), the marker and the protocol are the kit's (`@skysa/storage`, `@skysa/protocol`); core passes the protocol on, the types an operator's policy is written against among it.
   It imports nothing from `apps/*` and nothing of Node or the DOM; ESLint and a second `tsc` pass with no Node types keep it so.
 - `apps/web` — the PWA: Vite, React, TanStack Router, Dexie over IndexedDB, vite-plugin-pwa.
   It boots and renders from IndexedDB, talks to the providers directly from the browser for drawing content, and to `apps/api` only to connect an account and to mint access tokens.
@@ -136,64 +137,36 @@ skysa-draw/
 - Folders are the user's folders, named as typed less what breaks a path (`sanitizeFolderName`), unique in their parent however they are cased (`foldName`).
 - Anything under a dot-prefixed segment is hidden from the UI and passed over by sync (`isHidden`): the marker, a provider's bookkeeping, a `.DS_Store`.
   Unlike skysa-notes, there are no exceptions at the root.
-- Names are capped so that one conflict suffix always fits in the 255 bytes a filesystem allows (`names/bytes.ts`, `names/slug.ts`): a slug is at most 120 code points and 215 bytes, which leaves room for ` (conflict 2026-09-15T14-32)`, `.svg` and two counters.
-- A conflict copy is `name (conflict 2026-09-15T14-32).svg` beside the original, UTC to the minute, with `-2`, `-3` for a second one in the same minute (`names/conflicts.ts`).
+- Names are capped so that one conflict suffix always fits in the 255 bytes a filesystem allows (the kit's byte rules, `@skysa/storage`, and this app's `names/slug.ts`): a slug is at most 120 code points and 215 bytes, which leaves room for ` (conflict 2026-09-15T14-32)`, `.svg` and two counters.
+- A conflict copy is `name (conflict 2026-09-15T14-32).svg` beside the original, UTC to the minute, with `-2`, `-3` for a second one in the same minute (the kit's `conflictStamp` and `documentNames`, by which `names/drawings.ts` names this app's documents).
   A file that is not a drawing keeps its own extension: `photo (conflict …).jpg`.
 
-The marker (`marker.ts`) carries `MARKER_SCHEMA_VERSION`; a client that finds a higher one opens the connection read-only rather than writing a layout it does not understand.
+The marker carries the folder's layout version, `1` (`DRAW_FOLDER` in `config.ts`; the kit's `parseMarker` reads it); a client that finds a higher one opens the connection read-only rather than writing a layout it does not understand.
 
 ## 4. Provider adapter interface
 
-`StorageProvider` in `packages/core/src/providers/types.ts`, carried over from skysa-notes without change but for the words.
-Every adapter passes `tests/providers/contract.test.ts` (`describeProviderContract`), which runs the same suite over the in-memory fake and over each real adapter against a stub of its wire protocol.
-
-```
-ensureRoot()                      the app folder, made if missing, the marker written if absent
-list(folderPath)                  one folder's entries
-read(entry)                       a drawing's text, decoded strictly as UTF-8, and its version
-write(path, content, { expectedVersion })   a drawing's text, conditional on the version
-readBytes(entry)                  any file's bytes as stored, never decoded
-createFile(path, bytes, { contentType })    create-only, for a file that is not a drawing
-createFolder(path)
-move(entry, newPath)
-delete(entry)
-changes(cursor?)                  what changed since the cursor; none means a full scan
-```
-
-- `read` and `write` are for the app's own document, text; `readBytes` and `createFile` are for everything else, bytes.
-  A drawing that will not decode, or holds a NUL, is an `UnreadableError`: shown, never pushed over (`providers/text.ts`).
-- Errors carry a `code` the engine acts on: `ConflictError` (the version moved), `AuthError` (token refused), `NotFoundError`, `CursorResetError` (start a scan), `RateLimitError` (with `retryAfterMs`), `UnreadableError`.
-  Anything else is retried and counted against the op.
-- `listsEverything` is false on Google Drive, whose `drive.file` scope shows the app only what it made; the engine then never deletes a folder on the strength of a listing, and marks it left instead (`leaveFolder`).
-- `writesAtOnce` is how many writes a push may send together: four on Google Drive, one elsewhere.
-- Paths above this line are the app's; each adapter converts to its own convention at its edge — ids on Google Drive and OneDrive through `idTree.ts`, paths on Dropbox.
+Every provider implements one interface, `StorageProvider`, and the sync engine talks to nothing else.
+It is the kit's (`@skysa/storage`), with its errors and the contract suite every adapter passes ([kit §4](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#provider-adapter-interface)).
 
 ## 5. Provider specifics
 
-Carried over whole; each adapter's file says what it learned of its provider, with the vendor's URL beside each claim.
-The short version:
+The adapters are the kit's (`@skysa/storage`), and so is what each provider does that the others do not ([kit §5](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#provider-specifics)).
+This app hands them its folder, with its marker and Drive's tag on it (`DRAW_FOLDER`, §3), and the format of its drawings (`DRAW_FORMAT`, §7, "Sync engine").
 
 ### 5.1 Google Drive
-`drive.file` scope, the folder found by an `appProperties` tag (`drawapp=root`) rather than by name, so a rename keeps it.
-Writes go by id; a file is three or four requests end to end, so a push sends four at once.
-Two items at one path, which Drive allows and a path cannot hold, are separated by renaming the later one as a conflict copy (`duplicates.ts`); a duplicate file with the same bytes that is not a drawing is dropped as the same file.
-Changes come from the changes feed; a feed that runs longer than twice a scan is reset and the round scans.
+The kit's ([§5.1](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#google-drive)), with the scope `drive.file` and the folder found by its tag, `drawapp`, never by name; a folder the app has left is tagged `drawappLeft`.
 A drawing is uploaded as `image/svg+xml; charset=UTF-8`.
 Registration: `google-oauth.md`.
 
 ### 5.2 OneDrive (Microsoft Graph)
-The app folder (`approot`), everything in it visible.
-File bytes come from a pre-authenticated download URL on a host that is not Graph, which the CSP's `connect-src` lists (§9).
-eTags for versions; a delta feed for changes.
+The kit's ([§5.2](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#onedrive-microsoft-graph)), in the app's special folder, `approot`.
 
 ### 5.3 Dropbox
-The app folder, everything in it visible, path-based.
-`rev` for versions; a cursor over `list_folder/continue` for changes.
-One write at a time: Dropbox locks the namespace per write and answers `429` to contention.
+The kit's ([§5.3](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#dropbox)), as an App-folder app.
 
 ### 5.4 WebDAV
 Deferred indefinitely, as in skysa-notes: it needs a proxy on the Worker, which would stream content through the server this architecture keeps content away from.
-`PROVIDER_KINDS` lists it so a deployment's policy can name it; nothing else does.
+The design as it was planned is the kit's ([§5.4](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#webdav)).
 
 ## 6. Backend
 
@@ -254,7 +227,7 @@ fileBytes    [connectionId+id], connectionId, [pinned+lastUsedAt]
 - `createDrawing`: an empty canvas, or text brought in from a file, given this app's id if it has none; its filename the title's slug, unique in the folder; a `write` queued.
 - `saveDrawing`: the editor's text, with the drawing's own id written in whatever the text carried; a save of the same text is ignored; a compare-and-set, given the texts the editor last opened or saved as `expected`, so a row changed from elsewhere since is answered `changed` with nothing written; one `write` waits per drawing however many saves come, and the push sends what the row holds then.
   The hash is computed before the transaction opens: Web Crypto is a wait IndexedDB does not hold a transaction across.
-  For a big text the id is written in and the hash worked out in a worker (`store/digest.ts`), with core's `contentHash` on the page where there is no worker, it fails, or it has not answered in 30 s; under 64 KB the page does it, which costs less than the post.
+  For a big text the id is written in and the hash worked out in a worker (`store/digest.ts`), with the kit's `contentHash` on the page where there is no worker, it fails, or it has not answered in 30 s; under 64 KB the page does it, which costs less than the post.
   What is stored is the text as the worker hands it back, the same characters held a byte to a character where they are all ASCII, since a text the editor serialized can be held two bytes to a character and Chrome's IndexedDB writes and reads such a string many times slower: 60 ms a save, against 4, for a drawing of 15 MB.
   A queued write carries no content, so a save writes the text once, into the drawing's row.
 - `renameDrawing`: into the file's `<title>` and into the filename; a `move` queued where the name changed, and a `write`.
@@ -264,17 +237,20 @@ fileBytes    [connectionId+id], connectionId, [pinned+lastUsedAt]
 
 ### Sync engine
 
-Ported from skysa-notes v2.1.1 (`b39c8e42`) into `packages/core/src/sync/`, with its tests in `packages/core/tests/sync/`; the Dexie `SyncStore` under it is `apps/web/src/sync/store.ts`, held to the contract in `apps/web/tests/sync/syncStore.test.ts`, and the scheduler, one engine per connection under the Web Lock `skysa-draw:sync:<connectionId>`, is `apps/web/src/sync/scheduler.ts`, started in `main.tsx`.
-It is skysa-notes' engine behind a document-format seam, `sync/document.ts`, the one module of the engine that knows what a drawing's file holds: the id a file claims (`claimedId`, `readDrawingId`), a conflict copy's contents (`conflictContent`: the local text with a new `draw:id`, by `withDrawingId`), and every read that holds or compares a drawing (`readDrawingText`), which answers a `.svg` that is not an SVG document as `UnreadableError`, as §3 says.
-ESLint holds the seam: nothing else in `sync/` imports `drawing/`.
-Everything else comes as it is: the op queue drained in order, the pull batch committed with its cursor, the conflict rule, the `displace` of a drawing on a path a remote file arrives at, the backoff, files beside a drawing (`SyncFile`, mirrored and never read), folders and their deletions, `listsEverything` and `leaveFolder`, `writesAtOnce`, progress and the outcome.
+The engine is the kit's (`@skysa/sync`, [kit §7](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#sync-engine)), and so is the scheduler that runs one per connection (`@skysa/client`).
+This app hands them what is its own:
+
+- **The format**, `DRAW_FORMAT` (`packages/core/src/drawing/format.ts`), the one thing the engine knows of what a drawing's file holds: the id a file claims (`readDrawingId`), a conflict copy's contents (`conflictContent`: the local text with a new `draw:id`, by `withDrawingId`), and whether a `.svg` is a drawing at all (`isDrawingText`), so one that is not an SVG document is `UnreadableError`, as §3 says.
+- **The folder**, `DRAW_FOLDER` (§3), which the provider factory hands the adapters.
+- **The store.** The Dexie `SyncStore` is `apps/web/src/sync/store.ts`, speaking the kit's words at its edge (`SyncNote`, `noteId`) and this app's rows inside (`drawingId`), held to the kit's contract (`describeSyncStoreContract` from `@skysa/sync/testing`) in `apps/web/tests/sync/syncStore.test.ts`.
+  The scheduler's own store is `clientStoreOf` in `sync/dexiePorts.ts`, over the same database, held to the kit's client suites in the `*.dexie.test.ts` files.
+- **The lock**, `skysa-draw:sync:<connectionId>` (`sync/lock.ts`), the Web Lock one tab syncs a connection under, named as the tabs of every earlier build name it.
+
+`sync/drawingsSync.ts` makes the scheduler over this app's database, with the files beside drawings read through the session it runs; `sync/runtime.ts` starts it, from `main.tsx`.
 A file another tool made keeps its bytes when it is pulled: the engine gives it an id without writing it in, and the first save writes it.
 The engine's conflict copy keeps the drawing's `<title>` and takes a new `draw:id` only, where the editor's own copy (below, "Conflict rule") is retitled `<title> (conflict <stamp>)` in the catalog's words; making the two agree is a known gap (§10).
-Cut as notes-only: the outcome's `clipboard` and `encryption` flags (`metIn`, `metOf`), and the hidden folders notes synced at the root.
-The engine's comments cite skysa-notes' docs/ARCHITECTURE.md §7 by section, where its design is written down; they are left as they came, so a fix can be carried between the two (§12).
-Every store is held to one contract, `describeSyncStoreContract` from `@skysa/draw-core/testing`, over the in-memory store in core and the Dexie store in the web app.
-The provider factory with its request deadlines is `apps/web/src/sync/providers.ts`.
-The rest of skysa-notes' web sync layer came with it, renamed by the same scripts: the connection, the credential, the token, account, relay and API clients, the connect code, held edits, and the tabs that stand against each other (`decisions/0002-carried-over-from-skysa-notes.md` lists what was cut).
+No hidden path syncs (`syncsHidden` in `config.ts` answers no to every one), unlike skysa-notes' scratchpad and vault.
+The rest of the web sync layer is this app's: the account and its source names, held edits, and the tabs that stand against each other.
 The connect flow's screens sit at the top of the library at every size (`components/sources/`, `components/account/`), drawn on this app's own components, with the app's own marks for the providers and no vendor's logo.
 
 ### Conflict rule (concrete)
@@ -568,7 +544,7 @@ The service worker and the manifest are built by the kit's `@skysa/pwa` from wha
 How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#pwa-specifics): `generateSW`, the app shell precached, `NetworkOnly` for `/api/*` and the provider origins so drawing content never sits in the HTTP cache, nothing inline written into the page (§9), a waiting worker that takes over only when the user says (`registerType: 'prompt'`, so a new build never swaps itself in under a half-drawn stroke), and the checklist a browser applies before it offers to install, which is a test there.
 What follows is this app's own.
 
-- `UpdatePrompt` offers the reload; its `beforeUpdate` is where the sync layer will pause its requests.
+- `UpdatePrompt` offers the reload; its `beforeUpdate`, which the root route hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
@@ -600,7 +576,7 @@ Carried over; the SVG-specific lines are new.
 - Refresh tokens are sealed in D1 under `SECRETS_KEY` and decrypted only in `POST /api/token`.
 - `Cache-Control: no-store` on every API response; `hono/csrf` on the same-origin routes; the flow cookie is `__Host-`.
 - No drawing content and no file names reach the Worker, the relay included.
-- Core decodes a drawing strictly as UTF-8 and refuses a NUL, so a binary misnamed `.svg` is unreadable rather than rewritten.
+- The kit's adapters decode a drawing strictly as UTF-8 and refuse a NUL, and `DRAW_FORMAT` refuses a `.svg` that is not an SVG document, so a binary or a text misnamed `.svg` is unreadable rather than rewritten.
 
 ## 10. Build record
 
@@ -636,15 +612,13 @@ apps/
   web/            Vite + React: src/routes/ (file routes; routeTree.gen.ts is generated),
                   src/store/ (Dexie), src/components/ (ui/ the shared set; shell/, sidebar/, list/, sources/, account/),
                   src/drawing/ (the editor: document/, tools/, panels/, Editor.tsx, Viewport.tsx, keys.ts),
-                  src/i18n/, src/sync/ (scheduler, SyncStore), src/api/, src/errors/, src/hooks/, src/styles/,
+                  src/i18n/, src/sync/ (the kit's scheduler over this app's SyncStore and ports),
+                  src/errors/, src/hooks/, src/styles/,
                   brand/ (default brand, icons.mjs), pwaApp.ts (what the kit's @skysa/pwa builds from),
                   public/_headers, scripts/size.mjs (the size budget, measured by @skysa/pwa/budget), tests/
 packages/
-  core/           src/drawing/ (the file), src/names/, src/paths.ts, src/providers/ (+ gdrive/),
-                  src/sync/ (the engine; document.ts is its seam),
-                  src/marker.ts, src/entitlements.ts, src/relay.ts, src/api.ts, src/files/,
-                  tests/ (providers/contract.ts, stubs, drawing/, sync/: the engine's tests,
-                  the store contract, the simulation kit), tests/testing.ts (test doubles entry)
+  core/           src/config.ts (DRAW_FOLDER), src/drawing/ (the file; format.ts is DRAW_FORMAT),
+                  src/names/ (slugs, drawing names), src/files/pictures.ts, tests/
 docs/             this file, history.md, decisions/, self-hosting.md, google-oauth.md
 .changeset/       one version for the three packages
 .github/          CI (verify, changeset check, generated files, size, minimum Node), release, CLA
@@ -653,16 +627,17 @@ eslint.config.js  the kit's lint, skysa() from @skysa/eslint-config, with this a
                   tsconfig.json holds vitest.config.ts, which the kit's lint reads with types
 ```
 
-Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor nor the API client, `api/`, `errors/` and `hooks/` import neither the store nor the sync layer nor the UI, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
-Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
-The lint's shared rules, the compiler's settings and Prettier's are the kit's, `@skysa/eslint-config`; `eslint.config.js` hands its `skysa()` this app's own blocks: the layers above, core's bans on Node, on `apps/*` and on the browser's globals, the Worker entry's rules (no Node, no `cloudflare:*`, `process` and `console` in `worker.ts` alone; §6), the app's words (§7), the canvas's carve-out, and the cell rule's word for where a cell comes from; `tsconfig.base.json` and `.prettierrc.json` name the kit's.
+Layers, enforced by ESLint's `no-restricted-imports`: core uses of the kit only `@skysa/protocol` and `@skysa/storage`, and in it `names/` sits below `drawing/`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor, `errors/` and `hooks/` import neither the store nor the sync layer nor the UI, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
+Below the sync layer, the kit's client (`@skysa/client`, which holds the scheduler, the API client and the relay) gives only its emitter and store, and what each layer names besides.
+The test doubles are the kit's (`@skysa/storage/testing`, `@skysa/sync/testing`, `@skysa/client/testing`), and nothing the app ships may import them.
+The lint's shared rules, the compiler's settings and Prettier's are the kit's, `@skysa/eslint-config`; `eslint.config.js` hands its `skysa()` this app's own blocks: the layers above, core's bans on Node, on `apps/*` and on the browser's globals, the Worker entry's rules (no Node, no `cloudflare:*`, `process` and `console` in `worker.ts` alone; §6), the app's words (§7) and the canvas's carve-out; `tsconfig.base.json` and `.prettierrc.json` name the kit's.
 
 ## 12. Carried over from skysa-notes
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
 The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
-Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server (§6), the PWA build (§8) and the lint's shared rules (§11) have moved: a fix to any of them is a kit PR.
-Until the rest has moved, a fix to a carried-over layer still here is a fix in both repositories.
+Those layers have moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4): the server (§6), the protocol, the adapters and the naming rules (§4, §5), the sync engine and the sync client (§7), the PWA build (§8) and the lint's shared rules (§11).
+A fix to any of them is a kit PR.
 
 ## 13. Distribution and licensing
 

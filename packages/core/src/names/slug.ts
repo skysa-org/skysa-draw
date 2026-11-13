@@ -1,8 +1,16 @@
+import {
+	type Caps,
+	cut,
+	extensionAt,
+	extensionForType,
+	fitBytes,
+	foldName,
+	isImageExtension,
+	MAX_NAME_BYTES,
+} from '@skysa/storage';
+
 import { DRAWING_EXTENSION } from '../config.js';
-import { extensionForType, isImageExtension } from '../files/mediaTypes.js';
-import { type Caps, cut, fitBytes, MAX_NAME_BYTES } from './bytes.js';
-import { extensionAt } from './extension.js';
-import { foldName, isDrawingName } from './fold.js';
+import { isDrawingName } from './drawings.js';
 
 /**
  * Filenames are a slug of the title; `id` in the drawing's id is the stable identity,
@@ -56,7 +64,7 @@ export const UNTITLED_SLUG = 'untitled';
  * The byte cap is what lets a name this app chose take one conflict suffix
  * whole. Beside the stem, in the 255:
  *
- *   ` (conflict 2026-09-15T14-32)`   28   `conflictFilename` in names/conflicts.ts
+ *   ` (conflict 2026-09-15T14-32)`   28   the kit's `documentNames`
  *   `.svg`                            4
  *   `-999`                            4   `uniqueFilename`, telling two titles apart
  *   `-999`                            4   the same, for two conflicts in one minute

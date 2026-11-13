@@ -1,4 +1,4 @@
-import type { ProviderKind } from '@skysa/draw-core';
+import type { ProviderKind } from '@skysa/protocol';
 import type { ReactNode } from 'react';
 
 import type { ConnectedSource } from '../../store/connection.js';

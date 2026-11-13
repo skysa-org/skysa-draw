@@ -1,3 +1,4 @@
+import { api, type ApiClient, type SyncScheduler } from '@skysa/client';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
 	type ReactNode,
@@ -8,7 +9,6 @@ import {
 	useState,
 } from 'react';
 
-import { api, type ApiClient } from '../../api/client.js';
 import { t } from '../../i18n/t.js';
 import { type ConnectedSource, LABEL_LIMIT, showConnection } from '../../store/connection.js';
 import { useDb } from '../../store/database.js';
@@ -17,7 +17,6 @@ import { holdsAnything } from '../../store/exportDrawings.js';
 import { isLiveSource } from '../../store/rowStates.js';
 import { CONNECTABLE, tabName } from '../../sync/account.js';
 import { useNeedsReconnect } from '../../sync/runtime.js';
-import type { SyncScheduler } from '../../sync/scheduler.js';
 import { IconButton } from '../ui/IconButton.js';
 import { AddIcon, MoreIcon } from '../ui/icons.js';
 import { Menu, type MenuItem } from '../ui/Menu.js';

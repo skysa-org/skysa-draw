@@ -1,4 +1,5 @@
-import { cell, type DrawingSize, SVG_NAMESPACE } from '@skysa/draw-core';
+import { type DrawingSize, SVG_NAMESPACE } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { clipStateOf } from '../document/clip.js';
 import { type CanvasBox, canvasBoxOf } from '../document/crop.js';

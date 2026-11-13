@@ -1,9 +1,8 @@
-import { parentPath, ROOT } from '@skysa/draw-core';
+import { answer, type Asked, type InstanceConfig, type SchedulerStatus } from '@skysa/client';
+import { parentPath, ROOT } from '@skysa/storage';
 import { Link } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 
-import type { InstanceConfig } from '../../api/client.js';
-import { answer, type Asked } from '../../api/instanceConfig.js';
 import { t } from '../../i18n/t.js';
 import { useDb } from '../../store/database.js';
 import type { SyncStateRecord } from '../../store/db.js';
@@ -11,7 +10,6 @@ import { getDrawing } from '../../store/drawings.js';
 import { isTombstone } from '../../store/rowStates.js';
 import { CONNECTABLE } from '../../sync/account.js';
 import { useSyncStatus } from '../../sync/runtime.js';
-import type { SchedulerStatus } from '../../sync/scheduler.js';
 import { needsReconnect } from '../../sync/status.js';
 import { ConnectButton } from '../sources/connect/ConnectButton.js';
 import type { Client, Sync } from './clients.js';
@@ -174,8 +172,8 @@ export const SyncState = ({
 			 * under "Syncing…" or "Synced" is about a problem the user is not
 			 * being told about.
 			 */}
-			{status.phase === 'attention' && status.stuck?.drawingId !== undefined && (
-				<StuckDrawing drawingId={status.stuck.drawingId} />
+			{status.phase === 'attention' && status.stuck?.noteId !== undefined && (
+				<StuckDrawing drawingId={status.stuck.noteId} />
 			)}
 			{status.conflicts.length > 0 && (
 				<p className="muted">{conflictMessage(status.conflicts.length)}</p>

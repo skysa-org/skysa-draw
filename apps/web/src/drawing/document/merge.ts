@@ -1,4 +1,5 @@
-import { cell, DRAWING_NAMESPACE, layerNumber, SVG_NAMESPACE } from '@skysa/draw-core';
+import { DRAWING_NAMESPACE, layerNumber, SVG_NAMESPACE } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { compound, previousLayerSibling, wrapLooseLayer } from './commands.js';
 import { canvasBoxOf } from './crop.js';

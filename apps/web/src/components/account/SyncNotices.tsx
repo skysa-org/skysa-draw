@@ -1,4 +1,4 @@
-import type { ProviderKind } from '@skysa/draw-core';
+import type { ProviderKind } from '@skysa/protocol';
 import { Fragment } from 'react';
 
 import { rich } from '../../i18n/rich.js';

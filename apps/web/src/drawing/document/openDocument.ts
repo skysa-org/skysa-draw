@@ -1,10 +1,10 @@
 import {
-	cell,
 	DEFAULT_DRAWING_SIZE,
 	type DrawingSize,
 	readDrawingProlog,
 	readDrawingSize,
 } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import { canvasBoxOf } from './crop.js';
 import { describeLayers } from './describe.js';

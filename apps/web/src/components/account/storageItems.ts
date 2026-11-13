@@ -1,7 +1,8 @@
+import type { SchedulerStatus } from '@skysa/client';
+
 import { t } from '../../i18n/t.js';
 import type { SyncStateRecord } from '../../store/db.js';
 import type { Unsynced } from '../../store/unsynced.js';
-import type { SchedulerStatus } from '../../sync/scheduler.js';
 import type { MenuItem } from '../ui/Menu.js';
 import { importingHere, isSyncable } from './SyncState.js';
 

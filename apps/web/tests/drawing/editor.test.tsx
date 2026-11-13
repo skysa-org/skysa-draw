@@ -2,10 +2,10 @@ import {
 	emptyDrawing,
 	readDrawingId,
 	readDrawingTitle,
-	ROOT,
 	withDrawingId,
 	withDrawingTitle,
 } from '@skysa/draw-core';
+import { ROOT } from '@skysa/storage';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';

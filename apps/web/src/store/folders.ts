@@ -1,11 +1,5 @@
-import {
-	basename,
-	joinPath,
-	normalizePath,
-	parentPath,
-	ROOT,
-	sanitizeFolderName,
-} from '@skysa/draw-core';
+import { sanitizeFolderName } from '@skysa/draw-core';
+import { basename, joinPath, normalizePath, parentPath, ROOT } from '@skysa/storage';
 
 import { activeConnectionId, type DrawDatabase, type FolderRecord } from './db.js';
 import { foldPath } from './naming.js';

@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { FetchLike } from '@skysa/draw-core';
+import { createProviderFactory } from '@skysa/client';
+import { DRAW_FOLDER, DRAW_FORMAT } from '@skysa/draw-core';
+import type { FetchLike } from '@skysa/storage';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-
-import { createProviderFactory } from '../src/sync/providers.js';
 
 /**
  * The Content-Security-Policy in `public/_headers` (docs/ARCHITECTURE.md §9).
@@ -126,7 +126,14 @@ describe('Content-Security-Policy', () => {
 			urls.add(url);
 			return Promise.resolve(new Response('{}', { status: 500 }));
 		};
-		const provider = createProviderFactory({ appVersion: '1.2.3', fetch })({
+		const provider = createProviderFactory({
+			folder: DRAW_FOLDER,
+			document: DRAW_FORMAT,
+			appVersion: '1.2.3',
+			timedOut: () => 'timed out',
+			fetch,
+		})({
+			connectionId: 'c1',
 			provider: 'dropbox',
 			clientId: 'install-1',
 			getAccessToken: () => Promise.resolve('token'),
@@ -165,7 +172,14 @@ describe('Content-Security-Policy', () => {
 			}
 			return Promise.resolve(new Response('', { status: 500 }));
 		};
-		const provider = createProviderFactory({ appVersion: '1.2.3', fetch })({
+		const provider = createProviderFactory({
+			folder: DRAW_FOLDER,
+			document: DRAW_FORMAT,
+			appVersion: '1.2.3',
+			timedOut: () => 'timed out',
+			fetch,
+		})({
+			connectionId: 'c1',
 			provider: 'onedrive',
 			clientId: 'install-1',
 			getAccessToken: () => Promise.resolve('token'),
@@ -196,7 +210,14 @@ describe('Content-Security-Policy', () => {
 			if (url.includes('q=')) return Promise.resolve(Response.json({ files: [drawing] }));
 			return Promise.resolve(Response.json(drawing));
 		};
-		const provider = createProviderFactory({ appVersion: '1.2.3', fetch })({
+		const provider = createProviderFactory({
+			folder: DRAW_FOLDER,
+			document: DRAW_FORMAT,
+			appVersion: '1.2.3',
+			timedOut: () => 'timed out',
+			fetch,
+		})({
+			connectionId: 'c1',
 			provider: 'gdrive',
 			clientId: 'install-1',
 			getAccessToken: () => Promise.resolve('token'),

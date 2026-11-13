@@ -1,5 +1,6 @@
-import { createSyncEngine } from '@skysa/draw-core';
-import { createFakeProvider } from '@skysa/draw-core/testing';
+import { DRAW_FORMAT, syncsHidden } from '@skysa/draw-core';
+import { createFakeProvider } from '@skysa/storage/testing';
+import { createSyncEngine } from '@skysa/sync';
 import { describe, expect, it } from 'vitest';
 
 import { bindConnection, verifyResume } from '../../src/store/connection.js';
@@ -81,7 +82,12 @@ const remoteFor = async (db: DrawDatabase, connectionId: string) => {
 	const fake = createFakeProvider();
 	await fake.ensureRoot();
 	const engineFor = (id: string) =>
-		createSyncEngine({ provider: fake, store: createDexieSyncStore(db, { connectionId: id }) });
+		createSyncEngine({
+			document: DRAW_FORMAT,
+			syncsHidden,
+			provider: fake,
+			store: createDexieSyncStore(db, { connectionId: id }),
+		});
 	return { fake, engineFor, sync: () => engineFor(connectionId).sync() };
 };
 
@@ -501,6 +507,8 @@ describe('what a source holds that its remote has not been sent', () => {
 			expect((await unsyncedIn(db, CONNECTION)).blocked).toBe(false);
 
 			const outcome = await createSyncEngine({
+				document: DRAW_FORMAT,
+				syncsHidden,
 				provider: remote.fake,
 				store: createDexieSyncStore(db, scope),
 				maxAttempts: MAX_OP_ATTEMPTS,

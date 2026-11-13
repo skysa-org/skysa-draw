@@ -1,6 +1,16 @@
-import { APP_FOLDER_NAME, type ProviderKind } from '@skysa/draw-core';
+import {
+	type ApiClient,
+	type Connection,
+	credentialFor,
+	forgetCredential,
+	keepCredential,
+	pendingCredential,
+	type Refusal,
+	type SyncScheduler,
+} from '@skysa/client';
+import { APP_FOLDER_NAME } from '@skysa/draw-core';
+import type { ProviderKind } from '@skysa/protocol';
 
-import type { ApiClient, Connection, Refusal } from '../api/client.js';
 import { failedAt } from '../errors/reached.js';
 import { t } from '../i18n/t.js';
 import {
@@ -17,12 +27,6 @@ import {
 	rememberAccount,
 } from '../store/connection.js';
 import {
-	credentialFor,
-	forgetCredential,
-	keepCredential,
-	pendingCredential,
-} from '../store/credentials.js';
-import {
 	activeConnectionId,
 	type Detached,
 	type DrawDatabase,
@@ -32,7 +36,6 @@ import {
 import { settleEditors } from '../store/heldEdits.js';
 import { isLiveSource } from '../store/rowStates.js';
 import type { Seen } from '../store/unsynced.js';
-import type { SyncScheduler } from './scheduler.js';
 import { PROVIDER_LABELS } from './sourceNames.js';
 
 /**

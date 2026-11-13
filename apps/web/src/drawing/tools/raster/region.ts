@@ -1,4 +1,5 @@
-import { type Cell, cell, SVG_NAMESPACE } from '@skysa/draw-core';
+import { SVG_NAMESPACE } from '@skysa/draw-core';
+import { type Cell, cell } from '@skysa/storage';
 
 import { t } from '../../../i18n/t.js';
 import {

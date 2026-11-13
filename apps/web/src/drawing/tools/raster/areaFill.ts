@@ -1,4 +1,5 @@
-import { type BlendMode, cell } from '@skysa/draw-core';
+import type { BlendMode } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import type { Args, At } from '../../../i18n/catalog.js';
 import { type English, type MessageKey, t } from '../../../i18n/t.js';

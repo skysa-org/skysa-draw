@@ -1,4 +1,4 @@
-import { cell } from '@skysa/draw-core';
+import { cell } from '@skysa/storage';
 
 import type { DrawDatabase, FileKey, FileRecord } from './db.js';
 import { fileKey, heldBytesAreCurrent } from './files.js';

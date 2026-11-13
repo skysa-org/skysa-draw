@@ -21,10 +21,10 @@
 	},
 	"dependencies": {
 		"@skysa/draw-core": "workspace:*",
-		"@skysa/server": "1.0.0"
+		"@skysa/server": "1.1.0",
+		"@skysa/storage": "1.1.0"
 	},
 	"devDependencies": {
-		"@skysa/protocol": "1.0.0",
 		"@types/node": "catalog:",
 		"vitest": "catalog:",
 		"wrangler": "^4.149.0"
