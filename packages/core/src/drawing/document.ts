@@ -421,11 +421,19 @@ export const withDrawingId = (text: string, id: string): string => {
 	const declaration = prefixes.length === 0 ? `xmlns:${prefix}="${DRAWING_NAMESPACE}" ` : '';
 	// In place of the one read (`readDrawingId`), or one under the prefix about
 	// to be declared, so a file given its id once is the same bytes given it
-	// again. One under another prefix bound to the namespace is left as it is,
-	// as it always was: nothing in the file is taken away. Found among the
-	// attributes, so the same characters in another attribute's value are not
-	// taken for it. At the end of the tag otherwise.
-	const existing = lastNamed(root, `${prefix}:id`);
+	// again, and one that has it already keeps its bytes. Where there is none,
+	// in place of the last under another prefix bound to the namespace, which
+	// is not read, and never was: beside it, the new one would be a second
+	// attribute of the same expanded name, which XML's namespaces refuse.
+	// Found among the attributes, so the same characters in another
+	// attribute's value are not taken for it. At the end of the tag otherwise.
+	const others = new Set(prefixes.slice(1).map((other) => `${other}:id`));
+	const existing =
+		lastNamed(root, `${prefix}:id`) ??
+		root.attributeList.filter(({ name }) => others.has(name)).at(-1);
+	if (declaration === '' && existing?.name === `${prefix}:id` && existing.value === id) {
+		return text;
+	}
 	return existing === undefined
 		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
 		: `${text.slice(0, existing.start)}${declaration}${prefix}:id="${id}"${text.slice(existing.end)}`;

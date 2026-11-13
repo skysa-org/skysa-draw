@@ -277,14 +277,23 @@ describe('withDrawingId', () => {
 		const two = `${both} a:id="first" b:id="second"/>`;
 		expect(readDrawingId(two)).toBe('first');
 		expect(withDrawingId(two, ID)).toBe(two.replace('a:id="first"', `a:id="${ID}"`));
-		// One under another prefix alone is not read, and is left as it is: the
-		// id is written under the first, and nothing is taken away.
+		// One under another prefix alone is not read, as it never was, and the
+		// new one takes its place: beside it, the root would have two attributes
+		// of one expanded name, which an XML parser refuses.
 		const other = `${both} b:id="other"/>`;
 		expect(readDrawingId(other)).toBeUndefined();
 		const given = withDrawingId(other, ID);
-		expect(given).toBe(`${both} b:id="other" a:id="${ID}"/>`);
+		expect(given).toBe(`${both} a:id="${ID}"/>`);
 		expect(readDrawingId(given)).toBe(ID);
 		expect(withDrawingId(given, ID)).toBe(given);
+	});
+
+	it('keeps the bytes of a root that has the id it is given, however it is written', () => {
+		// A save of a drawing undone back to what it was is then no change.
+		for (const written of [`draw:id = "${ID}"`, `draw:id='${ID}'`, `draw:id\n=\n"${ID}"`]) {
+			const text = `<svg xmlns="${SVG_NAMESPACE}" xmlns:draw="${DRAWING_NAMESPACE}" ${written}><g/></svg>`;
+			expect(withDrawingId(text, ID)).toBe(text);
+		}
 	});
 
 	it('gives the id at once however many prefixes bind the namespace', () => {
@@ -295,7 +304,7 @@ describe('withDrawingId', () => {
 		).join('');
 		const text = `<svg xmlns="${SVG_NAMESPACE}"${bound} p1:id="old"/>`;
 		const started = performance.now();
-		expect(withDrawingId(text, ID)).toBe(text.replace('/>', ` p0:id="${ID}"/>`));
+		expect(withDrawingId(text, ID)).toBe(text.replace('p1:id="old"', `p0:id="${ID}"`));
 		expect(performance.now() - started).toBeLessThan(500);
 	});
 

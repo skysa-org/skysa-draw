@@ -9,7 +9,9 @@ That something is a comment, a CDATA section, a processing instruction, a tag wh
 On 0.1.0, renaming such a title could take away the layers after it, or leave an end tag with nothing to close, so that no XML parser read the file.
 Giving a drawing its id no longer writes into another attribute's value that holds the same characters, which could leave a file that is no longer a drawing.
 Where a root has the id attribute twice, the one read is the one replaced.
+Where a root binds the app's namespace under two prefixes and has the id only under the second, which is not read, as it never was, giving the drawing its id writes it under the first in that one's place, instead of beside it as a second attribute of the same expanded name, which XML parsers refuse.
 Where a root has the id in an undeclared namespace, the namespace is declared with it.
+Giving a drawing the id it already has keeps the file's bytes, however the attribute is written, so a save undone back to what it was is no change.
 A free prefix for the app's namespace is found however many are taken, in core and in the editor.
 Where a value without quotes in the root tag ends in a slash before its `>`, as `xml:base=http://a/b/>`, the id is written after it, as the root is read, instead of taking the slash for the tag's close and changing the value.
 A start tag is read by a scanner instead of a pattern, so one with millions of attributes no longer runs out of stack, in core or in an export, which now sets the root's size through core's `withDrawingViewport`.
