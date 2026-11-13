@@ -12,7 +12,7 @@ const SLOW_MS = 10_000;
  *
  * `beforeUpdate` is where the sync layer pauses its requests so the new
  * worker can take over at once (`makeWay`, the kit's client's, given by
- * `main.tsx`). It says it is updating meanwhile, and
+ * `main.tsx` through `AppFoot`). It says it is updating meanwhile, and
  * if the page has still not reloaded after `SLOW_MS`, what else will do it.
  */
 export const UpdatePrompt = ({

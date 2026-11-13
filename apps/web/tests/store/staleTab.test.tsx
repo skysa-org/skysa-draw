@@ -35,7 +35,7 @@ const newerBuild = (name: string): Dexie => {
 	return db;
 };
 
-/** The app, with the gate beside it as the root route has it, from when `gated`. */
+/** The app, with the gate beside it as `AppFoot` has it, from when `gated`. */
 const App = ({ reload, gated = true }: { reload: () => void; gated?: boolean }) => (
 	<>
 		<p>the app</p>
@@ -68,7 +68,7 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 
 		expect(tabState()).toBe('current');
 		expect(screen.queryByRole('alertdialog')).toBeNull();
-		expect(screen.queryByRole('status')).toBeNull();
+		expect(screen.getByRole('status').textContent).toBe('');
 		expect(screen.getByText('the app').closest('[inert]')).toBeNull();
 	});
 
@@ -84,9 +84,17 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		onTestFinished(watchTab(db));
 		gate();
 
+		// There, empty, before its words come into it, so that a screen reader hears them.
+		const notice = screen.getByRole('status');
+		expect(notice.textContent).toBe('');
+
 		const opening = db.open();
-		const notice = await screen.findByRole('status', {}, { timeout: 3000 });
-		expect(notice.textContent).toMatch(/Waiting for an older window/);
+		await vi.waitFor(
+			() => {
+				expect(notice.textContent).toMatch(/Waiting for an older window/);
+			},
+			{ timeout: 3000 }
+		);
 		expect(tabState()).toBe('waiting');
 		// Nothing is blocked: the app is only waiting to read.
 		expect(screen.getByText('the app').closest('[inert]')).toBeNull();
@@ -96,7 +104,7 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 			await opening;
 		});
 		expect(tabState()).toBe('current');
-		expect(screen.queryByRole('status')).toBeNull();
+		expect(notice.textContent).toBe('');
 	});
 
 	it('is not out of date because the database was deleted', async () => {
@@ -211,10 +219,14 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		const notice = screen.getByRole('alertdialog', { name: /can no longer save/ });
 		expect(notice.textContent).toMatch(/newer version of the app is open in another window/);
 		expect(screen.getByText('the app').closest('[inert]')).not.toBeNull();
-		const button = screen.getByRole('button', { name: 'Reload' });
-		expect(document.activeElement).toBe(button);
+		// The notice has the focus, not Reload: a key already on its way, an
+		// Enter meant for the drawing or Space held for the hand, presses nothing.
+		expect(document.activeElement).toBe(notice);
+		await user.keyboard('{Enter}[Space]');
+		expect(reload).not.toHaveBeenCalled();
+		expect(screen.getByRole('alertdialog')).toBe(notice);
 
-		await user.click(button);
+		await user.click(screen.getByRole('button', { name: 'Reload' }));
 		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
@@ -283,7 +295,7 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		// Nor is a drop left to the browser, which would open it in the window.
 		expect(drop.defaultPrevented).toBe(true);
 		// The notice's own buttons answer the keyboard all the same.
-		await user.keyboard('{Shift>}{Tab}{/Shift}{Enter}');
+		await user.keyboard('{Tab}{Enter}');
 		expect(reload).not.toHaveBeenCalled();
 		expect(screen.queryByRole('alertdialog')).toBeNull();
 
@@ -302,7 +314,7 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		const draw = screen.getByRole('button', { name: 'Draw' });
 		draw.focus();
 		rerender(<App reload={reload} />);
-		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reload' }));
+		expect(document.activeElement).toBe(screen.getByRole('alertdialog'));
 
 		await user.click(screen.getByRole('button', { name: 'Not yet' }));
 

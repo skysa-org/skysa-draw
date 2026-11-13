@@ -6,7 +6,7 @@ import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
 import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.js';
 import { createDrawing, deleteDrawing, saveDrawing } from '../store/drawings.js';
-import { beforeClosing } from '../store/heldEdits.js';
+import { beforeClosing, inTime } from '../store/heldEdits.js';
 import { useDrawing } from '../store/hooks.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
@@ -479,10 +479,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
 			// Settled as it closes, raster work and a refused save's retry with
-			// it, and withdrawn only then, however that went, so that settling
-			// meanwhile waits for it. What the store still refuses goes with
-			// the editor: nothing could open what it held again (§10).
-			void settle().then(withdraw, withdraw);
+			// it, and withdrawn only then, however that went, or once
+			// `FLUSH_WAIT_MS` has gone by, so that settling meanwhile waits for
+			// it. What the store still refuses goes with the editor: nothing
+			// could open what it held again (§10).
+			void inTime(settle(), []).then(withdraw);
 		};
 	};
 

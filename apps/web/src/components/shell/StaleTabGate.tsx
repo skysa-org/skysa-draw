@@ -30,7 +30,7 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * until the work is done, while a press on them goes through. What the
  * editor held was written before the database closed (`beforeClosing`).
  *
- * Beside the router, not in its root route (`main.tsx`), so that a screen
+ * Beside the router, not in its root route (`AppFoot`), so that a screen
  * put in place of the app on an error still has the notice over it.
  *
  * It can be put aside, as skysa-notes' can. A save the store refused earlier
@@ -39,7 +39,12 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * aside, the app comes back, the focus where it was, under a bar that goes on
  * saying it cannot save.
  *
- * Reload is the answer, last in its row, and has the focus.
+ * Reload is the answer, last in its row. The notice itself has the focus,
+ * not Reload: a key already on its way as it comes — Space held for the hand,
+ * an Enter meant for the drawing — presses nothing, and Tab reaches both.
+ *
+ * Waiting is said in a status that is there, empty, before its words come
+ * into it, as `Applying`'s is, so that a screen reader hears them.
  */
 
 /** A key, kept from the page's listeners and left to the browser, which presses the notice's buttons. */
@@ -65,7 +70,7 @@ const KEPT = [
 
 const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => void }) => {
 	const cover = useRef<HTMLDivElement>(null);
-	const answer = useRef<HTMLButtonElement>(null);
+	const notice = useRef<HTMLDivElement>(null);
 	const said = useId();
 
 	useLayoutEffect(() => {
@@ -93,7 +98,7 @@ const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => voi
 		});
 		later.observe(document.body, { childList: true });
 		KEPT.forEach(([type, listener]) => window.addEventListener(type, listener, true));
-		answer.current?.focus();
+		notice.current?.focus();
 		return () => {
 			later.disconnect();
 			KEPT.forEach(([type, listener]) => window.removeEventListener(type, listener, true));
@@ -105,17 +110,19 @@ const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => voi
 	return createPortal(
 		<div ref={cover} className="tab-gate" popover={HAS_POPOVER ? 'manual' : undefined}>
 			<div
+				ref={notice}
 				className="tab-gate-card"
 				role="alertdialog"
 				aria-modal="true"
 				aria-labelledby={said}
+				tabIndex={-1}
 			>
 				<p id={said}>{t('shell.staleTab.text')}</p>
 				<div className="tab-gate-actions">
 					<button type="button" onClick={putAside}>
 						{t('shell.staleTab.notYet')}
 					</button>
-					<button ref={answer} type="button" className="primary" onClick={reload}>
+					<button type="button" className="primary" onClick={reload}>
 						{t('common.reload')}
 					</button>
 				</div>
@@ -154,8 +161,11 @@ export const StaleTabGate = ({
 					</button>
 				</div>
 			)}
+			<p role="status" className="visually-hidden">
+				{state === 'waiting' ? t('shell.staleTab.waiting') : ''}
+			</p>
 			{state === 'waiting' && (
-				<div className="update-prompt" role="status">
+				<div className="update-prompt" aria-hidden="true">
 					<span>{t('shell.staleTab.waiting')}</span>
 				</div>
 			)}

@@ -43,6 +43,29 @@ const underway = new Set<Promise<unknown>>();
  */
 export const UNDERWAY_WAIT_MS = 10_000;
 
+/**
+ * How long settling waits on one editor before it counts it as holding what
+ * it cannot name: raster work whose encoding never lands, a store that never
+ * answers. Whoever is settling — an export, a disconnect, an editor closing —
+ * is not kept waiting past it, as with `UNDERWAY_WAIT_MS`.
+ */
+export const FLUSH_WAIT_MS = 10_000;
+
+/** `work`, or `late` where it fails or `FLUSH_WAIT_MS` goes by first. */
+export const inTime = <T>(work: Promise<T>, late: T): Promise<T> =>
+	new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			resolve(late);
+		}, FLUSH_WAIT_MS);
+		const done = (value: T) => {
+			clearTimeout(timer);
+			resolve(value);
+		};
+		work.then(done, () => {
+			done(late);
+		});
+	});
+
 /** Have `settleEditors` wait for `work` before it has the editors write. */
 export const settleAfter = (work: Promise<unknown>): void => {
 	underway.add(work);
@@ -111,15 +134,16 @@ const waitForUnderway = (): Promise<void> =>
 
 /**
  * Have every editor write what it holds, and wait for all of them. One that
- * rejects does not stop the others being waited for. Work under way that will
- * leave an edit (`settleAfter`) is waited for first, for as long as
+ * rejects does not stop the others being waited for, and one that has not
+ * settled by `FLUSH_WAIT_MS` is counted as one that rejected. Work under way
+ * that will leave an edit (`settleAfter`) is waited for first, for as long as
  * `UNDERWAY_WAIT_MS`.
  */
 export const settleEditors = async (): Promise<SettledEditors> => {
 	// Only where there is some, so that the flushes otherwise start there and
 	// then, as `flushEditors` does.
 	if (underway.size > 0) await waitForUnderway();
-	const each = await Promise.all(flushEditors());
+	const each = await Promise.all(flushEditors().map((flush) => inTime(flush, REJECTED)));
 	return {
 		failing: [...new Set(each.flatMap((settled) => settled.failing))],
 		rejected: each.reduce((sum, settled) => sum + settled.rejected, 0),

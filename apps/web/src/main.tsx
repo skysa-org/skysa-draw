@@ -7,8 +7,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { StaleTabGate } from './components/shell/StaleTabGate.js';
-import { UpdatePrompt } from './components/shell/UpdatePrompt.js';
+import { AppFoot } from './components/shell/AppFoot.js';
 import { routeTree } from './routeTree.gen';
 import { syncScheduler } from './sync/runtime.js';
 
@@ -46,15 +45,9 @@ const beforeUpdate = (): Promise<void> => makeWay(syncScheduler, updateChannel()
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('#root is missing from index.html');
 
-// The bars along the window's foot, the stale window's over the new build's,
-// beside the router rather than in its root route, so that a screen put in
-// place of the app on an error still has them.
 createRoot(rootElement).render(
 	<StrictMode>
 		<RouterProvider router={router} />
-		<div className="app-foot">
-			<StaleTabGate />
-			<UpdatePrompt beforeUpdate={beforeUpdate} />
-		</div>
+		<AppFoot beforeUpdate={beforeUpdate} />
 	</StrictMode>
 );

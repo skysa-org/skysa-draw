@@ -20,7 +20,7 @@ import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
 import { DatabaseProvider } from '../../src/store/database.js';
 import { type DrawDatabase, drawingRef } from '../../src/store/db.js';
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../../src/store/drawings.js';
-import { flushEditors, settleEditors } from '../../src/store/heldEdits.js';
+import { FLUSH_WAIT_MS, flushEditors, settleEditors } from '../../src/store/heldEdits.js';
 import { isLive } from '../../src/store/rowStates.js';
 import { freshDatabase } from '../support/db.js';
 import { stubWindowWidth, type Width } from './support.js';
@@ -1126,6 +1126,22 @@ describe('the editor saving', () => {
 		view.unmount();
 
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+	});
+
+	it('withdraws once closed, if settling as it closes has not answered in time', async () => {
+		const { view } = await renderEditor('expanded');
+		// Raster work whose encoding never lands.
+		vi.spyOn(lastOpened(), 'settle').mockImplementation(() => new Promise(() => undefined));
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			view.unmount();
+			expect(flushEditors()).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+			expect(flushEditors()).toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('tries once more as it closes a save the store refused', async () => {

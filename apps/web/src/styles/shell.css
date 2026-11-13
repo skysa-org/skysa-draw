@@ -203,7 +203,7 @@ button:not(.primary):hover {
 }
 
 /*
- * The bars along the window's foot (`main.tsx`): the stale window's
+ * The bars along the window's foot (`AppFoot`): the stale window's
  * (`StaleTabGate`) over the one that says a new build is waiting
  * (`UpdatePrompt`). One stack, so
  * two at once sit one above the other; and under a sheet or a drawer, whose
@@ -243,6 +243,8 @@ button:not(.primary):hover {
 	flex-direction: column;
 	gap: var(--space-m);
 	max-width: 28rem;
+	/* Focused as it comes, for a screen reader to start from, as a sheet is. */
+	outline: none;
 	padding: var(--space-l);
 }
 

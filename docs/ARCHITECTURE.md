@@ -549,16 +549,17 @@ The service worker and the manifest are built by the kit's `@skysa/pwa` from wha
 How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#pwa-specifics): `generateSW`, the app shell precached, `NetworkOnly` for `/api/*` and the provider origins so drawing content never sits in the HTTP cache, nothing inline written into the page (§9), a waiting worker that takes over only when the user says (`registerType: 'prompt'`, so a new build never swaps itself in under a half-drawn stroke), and the checklist a browser applies before it offers to install, which is a test there.
 What follows is this app's own.
 
-- `UpdatePrompt` offers the reload; its `beforeUpdate`, which the root route hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
+- `UpdatePrompt` offers the reload; its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
 - What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
   The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
+  Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
   Asked to settle, it waits for raster work still pending, writes its pending save, waits for a copy it is keeping, or one that save set off, and tries once more an edit a save before left behind.
   It answers with the drawing's `drawingRef` while the store has still not taken the edits, so a source let go keeps that drawing's rows and an export says it is incomplete.
   Edits held for a drawing deleted elsewhere, with no new drawing taken in its place, are named by the drawing as it was, so that its own source counts them and no other does.
-- A newer build in another window asks for the database: this one writes what the editor holds, closes for good (`store/staleTab.ts`), and says so over the page (`components/shell/StaleTabGate.tsx`, beside the router, so that the error screen has it too).
+- A newer build in another window asks for the database: this one writes what the editor holds, closes for good (`store/staleTab.ts`), and says so over the page (`components/shell/StaleTabGate.tsx`, in `AppFoot` beside the router, so that the error screen has it too).
   The notice covers the window in the top layer, as work under way does, and everything else in the page is inert behind it, the sheets and drawers in their portals with it, and hears no key pressed, paste or drop; its answer is Reload.
   It can be put aside to export the drawing, under a bar that goes on saying the window cannot save, along the window's foot with the new build's and under any sheet or drawer.
   A window whose own upgrade an older one holds up says it is waiting.
