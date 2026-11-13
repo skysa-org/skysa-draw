@@ -816,6 +816,14 @@ describe('withDrawingTitle', () => {
 			`<title>a</ </title> >b</title>${layer}</svg>`,
 			`<title>a</é </title> >b</title>${layer}</svg>`,
 			`<title>a</× </title> >b</title>${layer}</svg>`,
+			// An end tag holds what a start tag does, to an HTML parser.
+			`<title>A</b x="</title>">B</title>${layer}</svg>`,
+			`<title>A</b</title>B</title>${layer}</svg>`,
+			// A comment or an instruction that an HTML parser ends sooner.
+			`<title>A<?p > <b x="?>B</title>">C</title>${layer}</svg>`,
+			`<title>A<!-- --!><b x=" -->B</title>">C</title>${layer}</svg>`,
+			`<title>A<!--><b x=" -->B</title>">C</title>${layer}</svg>`,
+			`<title>A<!---><b x=" -->B</title>">C</title>${layer}</svg>`,
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
@@ -827,8 +835,11 @@ describe('withDrawingTitle', () => {
 		// always was.
 		for (const inner of [
 			'A<!-- c -->B',
+			'A<!-- a > b --!- -->B',
+			'A<!---->B',
 			'A<?pi x?>B',
 			'A<b class="x">bold</b>B',
+			'A<b>bold</b >B',
 			'A<b a=">">bold</b>B',
 			'A<textareas>x</textareas>B',
 			'x < y',

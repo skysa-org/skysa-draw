@@ -67,7 +67,8 @@ export const exportSize = (
  * no size of its own, which Firefox will not draw on a canvas at all, has
  * one. Text whose root this cannot read is rendered as it is. Core reads and
  * rewrites the root (`withDrawingViewport`), as it does for every other change
- * to it, so a root of any size is read in time to its length.
+ * to it, so a root is read, or refused, in time to its length, however many
+ * attributes it has.
  */
 const forRender = (text: string, box: Box, pixelWidth: number, pixelHeight: number): string =>
 	withDrawingViewport(text, box, { width: pixelWidth, height: pixelHeight }) ?? text;

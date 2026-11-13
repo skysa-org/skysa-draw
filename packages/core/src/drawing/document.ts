@@ -686,32 +686,51 @@ const htmlName = (name: string): string =>
 /**
  * Whether a title named `name` that opens before `from` ends at `until`, where
  * its first `</name>` starts, as XML reads it: whether no comment, CDATA
- * section, processing instruction or start tag in its text holds that end tag,
- * as a quoted value can, or starts before it and never closes; no tag of its
- * own name opens in it, in any case, closing itself or not, nor one of an
- * element HTML reads as text (`RAW_TEXT`): the end tag would be that one's, to
- * XML or to HTML, or text to HTML; and no end tag of its name comes first that
- * HTML ends it at and XML does not, as `</TITLE>`, or `</title x>`, which a
- * `>` does not close.
+ * section, processing instruction or tag in its text, start or end, holds that
+ * end tag, as a quoted value can, or starts before it and never closes; no
+ * comment or instruction ends where HTML ends it and XML does not, as
+ * `<?a > b?>` and `<!-- a --!>`; no tag of its own name opens in it, in any
+ * case, closing itself or not, nor one of an element HTML reads as text
+ * (`RAW_TEXT`): the end tag would be that one's, to XML or to HTML, or text to
+ * HTML; and no end tag of its name comes first that HTML ends it at and XML
+ * does not, as `</TITLE>`, or `</title x>`, which a `>` does not close.
  * A `<` before a name that starts no tag a `>` closes is one a tool could read
  * either way, so it is not passed either. Walked from `<` to `<`, each tag
  * once, no further than `until`.
  */
 const endsAt = (text: string, name: string, from: number, until: number): boolean => {
 	const own = htmlName(name);
-	// Just past a start tag at `at`, its attributes passed over rather than
-	// kept, as `startTagAt` keeps them; one character where no name starts.
-	const tagEnd = (at: number): number | undefined => {
-		if (!NAME_START.test(text.charAt(at + 1))) return at + 1;
-		const nameEnd = runEnd(text, at + 1, NOT_NAME);
-		const tagName = htmlName(text.slice(at + 1, nameEnd));
-		if (tagName === own || RAW_TEXT.has(tagName)) return undefined;
+	// Just past a tag whose name ends at `nameEnd`, its attributes passed over
+	// rather than kept, as `startTagAt` keeps them. An end tag's are read too,
+	// as HTML reads them, so a quoted value in one holds what it holds.
+	const tagEnd = (nameEnd: number): number | undefined => {
 		const attributesEnd = skipped(
 			text,
 			nameEnd,
 			(_, next) => spacedAttributeAt(text, next)?.end
 		);
 		return tagClose(text, attributesEnd)?.end;
+	};
+	// Just past a start tag at `at`; one character where no name starts.
+	const startTagEnd = (at: number): number | undefined => {
+		if (!NAME_START.test(text.charAt(at + 1))) return at + 1;
+		const nameEnd = runEnd(text, at + 1, NOT_NAME);
+		const tagName = htmlName(text.slice(at + 1, nameEnd));
+		return tagName === own || RAW_TEXT.has(tagName) ? undefined : tagEnd(nameEnd);
+	};
+	// Just past a comment or an instruction at `at`, where XML and HTML end it
+	// at once. HTML ends an instruction at its first `>`, and a comment at the
+	// first `--!>` as well as `-->`, or at once as `<!-->` and `<!--->`. Each
+	// looks no further than XML's end, so a run of them costs their length.
+	const sectionEnd = (at: number): number | undefined => {
+		const end = commentOrInstructionEnd(text, at);
+		if (end === undefined) return undefined;
+		const endsEarlier = text.startsWith('<!--', at)
+			? text.startsWith('>', at + 4) ||
+				text.startsWith('->', at + 4) ||
+				text.slice(at + 4, end).includes('--!>')
+			: text.slice(at + 2, end - 1).includes('>');
+		return endsEarlier ? undefined : end;
 	};
 	// Past what starts at a `<`: a section or a tag; `undefined` where it does
 	// not end, or is an end tag of the title's name in any case before `until`,
@@ -725,11 +744,14 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
 			: text.startsWith('<![CDATA[', at)
 				? closedBy(text, ']]>', at + 9)
 				: text.startsWith('<!--', at) || text.startsWith('<?', at)
-					? commentOrInstructionEnd(text, at)
-					: text.startsWith('<!', at) ||
-						  (text.startsWith('</', at) && !ASCII_LETTER.test(text.charAt(at + 2)))
+					? sectionEnd(at)
+					: text.startsWith('<!', at)
 						? undefined
-						: tagEnd(at);
+						: text.startsWith('</', at)
+							? ASCII_LETTER.test(text.charAt(at + 2))
+								? tagEnd(runEnd(text, at + 2, NOT_NAME))
+								: undefined
+							: startTagEnd(at);
 	const reached = skipped(text, text.indexOf('<', from), (_, at) => {
 		if (at === -1 || at >= until) return undefined;
 		const after = past(at);
@@ -750,7 +772,9 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
  * runs into `/>` (`endsInBareSlash`) may close itself or not; and where a
  * comment, CDATA section, processing instruction or tag's quoted value in it
  * holds its first `</title>`, or starts before it and never closes, XML ends
- * it elsewhere (`endsAt`), and a tool that knows none of them there. So does
+ * it elsewhere (`endsAt`), and a tool that knows none of them there; and where
+ * a comment or instruction in it ends earlier to HTML than to XML, as
+ * `<?a > b?>`, what follows may hold it to one and not the other. So does
  * one that holds a tag of its own name in any case, or of one whose text HTML
  * reads as text, as `<textarea>`, or an end tag of its name that XML does not
  * end it at, as `</TITLE>` or `</title x>`, which HTML does.

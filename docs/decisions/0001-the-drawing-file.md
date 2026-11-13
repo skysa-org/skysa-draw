@@ -27,3 +27,8 @@ What the editor cannot take — an element it does not know — is kept in the f
 Core reads all of this without a DOM.
 `packages/core/src/drawing/document.ts` scans the prolog and the root tag with a hand-rolled matcher, and the first `<title>` after them, so it runs in Workers and Node as every core module must (CLAUDE.md), and reads only the start of a file however large the drawing is.
 Nothing in core parses the body: the body is the editor's, in the browser, through a sanitizer (§9).
+
+*Amended 2026-11-13, when start tags came to be scanned rather than matched.*
+`isDrawingText` asks too that the root have no more than a million attributes besides the app's own namespace and id, and a title is read only with no more than a million besides its `xmlns`.
+Each attribute is kept while its tag is read, and without a bound a root of millions ran a tab out of memory; the pattern this replaced ran out of stack before a million with values, so no XML file it read is refused.
+The app's own are not counted, so a root given its id, and a title a rename makes SVG's, are read again.

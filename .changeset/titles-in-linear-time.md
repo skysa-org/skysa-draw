@@ -5,7 +5,7 @@
 
 Renaming a drawing whose title closes itself, `<title/>`, no longer takes away everything up to the next `</title>`, such as a layer whose shapes have titles of their own: such a title is an empty one, and is filled where it is.
 A title that could end in two places is not read, and a rename puts a new title ahead of it and takes nothing away: one whose start tag ends in a bare value that runs into its `/>`, as `<title id=t/>`, and one whose first `</title>` something in it holds or runs past.
-That something is a comment, a CDATA section, a processing instruction, a tag whose quoted value holds it, a `<` before a name that no `>` closes, or a `<!`, or a `</` before anything but an ASCII letter, that an HTML parser reads as a comment.
+That something is a comment, a CDATA section, a processing instruction, a start or end tag whose quoted value holds it, a `<` or `</` before a name that no `>` closes, or a `<!`, or a `</` before anything but an ASCII letter, that an HTML parser reads as a comment; so is a comment or instruction that an HTML parser ends sooner than XML, at its first `>` or a `--!>`.
 So is a tag of the title's own name in any case, closing itself or not, as `<title/>`, or of an element whose text HTML reads as text, as `<textarea>` or `<script/>`, and an end tag of its name that XML does not end it at and HTML does, as `</TITLE>` or `</title x>`.
 An end tag with a space XML does not count as one before its `>`, as a no-break space, does not end a title either.
 On 0.1.0, renaming such a title could take away the layers after it, or leave an end tag with nothing to close, so that no XML parser read the file.

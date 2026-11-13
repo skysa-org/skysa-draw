@@ -118,6 +118,7 @@ Adjustments are SVG's own filters, masks and clip paths, so they stay editable a
 Nothing is dropped: an element the editor does not know is kept where it was and shown as the browser renders it, except what the sanitizer takes out (§9), which no drawing needs.
 
 Any `.svg` whose root is an `svg` element in the SVG namespace is a drawing to this app (`isDrawingText`), including one another tool made; one with no id is given one on the way in.
+A root of more than a million attributes, besides the app's own namespace and id, is not one: each is kept while the tag is read, and the pattern that read it before the scanner ran out of stack before a million with values (decision 0001, amended).
 A `.svg` that is not that — a file misnamed, or one that will not decode as UTF-8 — is left alone and shown as unreadable, never rewritten (`UnreadableError`, §4).
 
 ### Directory layout
