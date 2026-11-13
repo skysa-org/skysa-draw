@@ -247,10 +247,23 @@ describe('withDrawingId', () => {
 	});
 
 	it('keeps a tag that closes itself so, where its last value ends in a slash', () => {
-		// XML would not have the value bare; the slash was always taken for the close.
+		// XML would not have the value bare; the slash is taken for the close.
 		expect(withDrawingId(`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10/>`, ID)).toBe(
 			`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10 xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}"/>`
 		);
+		const bare = `<svg xmlns="${SVG_NAMESPACE}" xmlns:draw="${DRAWING_NAMESPACE}" draw:id=z/>`;
+		expect(readDrawingId(bare)).toBe('z');
+		expect(withDrawingId(bare, ID)).toBe(bare.replace('draw:id=z', `draw:id="${ID}"`));
+	});
+
+	it('declares the namespace for an id the file has without it', () => {
+		const text = `<svg xmlns="${SVG_NAMESPACE}" draw:id="old"/>`;
+		const given = withDrawingId(text, ID);
+		expect(given).toBe(
+			`<svg xmlns="${SVG_NAMESPACE}" xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}"/>`
+		);
+		expect(readDrawingId(given)).toBe(ID);
+		expect(withDrawingId(given, ID)).toBe(given);
 	});
 
 	it('finds the id among the attributes, not in another attribute’s value', () => {
@@ -313,6 +326,14 @@ describe('readDrawingSize', () => {
 		expect(readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" width="800"/>`)).toBeUndefined();
 		expect(readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}"/>`)).toBeUndefined();
 		expect(readDrawingSize('<html/>')).toBeUndefined();
+	});
+
+	it('reads a bare value that runs into the tag’s close as its author meant', () => {
+		const text = `<svg xmlns="${SVG_NAMESPACE}" width=10 height=10/>`;
+		expect(readDrawingSize(text)).toEqual({ width: 10, height: 10 });
+		expect(withDrawingTitle(text, 'T')).toBe(
+			`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10><title>T</title></svg>`
+		);
 	});
 
 	it('reads a width and height with space around a px, as it always has', () => {
@@ -399,7 +420,7 @@ describe('readDrawingTitle', () => {
 
 	it('is nothing for a title that closes itself, and reads nothing past it', () => {
 		// Its end tag was once looked for past it, and found in a layer's own title.
-		for (const tag of ['<title/>', '<title id="t" />']) {
+		for (const tag of ['<title/>', '<title id="t" />', '<title id=t/>']) {
 			expect(
 				readDrawingTitle(
 					`<svg xmlns="${SVG_NAMESPACE}">${tag}<g><title>tip</title></g></svg>`
@@ -435,6 +456,9 @@ describe('readDrawingTitle', () => {
 		expect(
 			readDrawingTitle(`<svg:svg xmlns:svg="${SVG_NAMESPACE}"><title>Old</title></svg:svg>`)
 		).toBe('Old');
+		expect(
+			readDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"><title xmlns="">Old</title></svg>`)
+		).toBe('Old');
 	});
 
 	it('answers of a first child with a great many attributes, without running out of stack', () => {
@@ -442,6 +466,15 @@ describe('readDrawingTitle', () => {
 		const text = `<svg xmlns="${SVG_NAMESPACE}"><g${' a'.repeat(4_000_000)}/></svg>`;
 		expect(readDrawingTitle(text)).toBeUndefined();
 		expect(withDrawingTitle(text, '')).toBe(text);
+	});
+
+	it('reads a title whose start tag has a great many attributes', () => {
+		// A pattern for the tag ran out of stack over millions; the scanner has none.
+		expect(
+			readDrawingTitle(
+				`<svg xmlns="${SVG_NAMESPACE}"><title${' a'.repeat(200_000)}>Name</title></svg>`
+			)
+		).toBe('Name');
 	});
 
 	it('answers at once of what leads to no title, however long', () => {
@@ -554,6 +587,10 @@ describe('withDrawingTitle', () => {
 			`<svg xmlns="${SVG_NAMESPACE}"><title id="t">New</title>${layer}</svg>`
 		);
 		expect(withDrawingTitle(text, '')).toBe(`<svg xmlns="${SVG_NAMESPACE}">${layer}</svg>`);
+		// A bare value ends before the `/>`, so this one closes itself too.
+		expect(
+			withDrawingTitle(`<svg xmlns="${SVG_NAMESPACE}"><title id=t/>${layer}</svg>`, 'New')
+		).toBe(`<svg xmlns="${SVG_NAMESPACE}"><title id=t>New</title>${layer}</svg>`);
 	});
 
 	it('keeps the title’s own start tag, so what names it by its id still does', () => {
@@ -563,13 +600,18 @@ describe('withDrawingTitle', () => {
 		).toBe(`${root}<title id="ttl" xml:lang="en" >New</title></svg>`);
 	});
 
-	it('writes the title 0.1.0 wrote in no namespace as SVG’s, where it was', () => {
+	it('writes a title in no namespace anew, as SVG’s, where it was', () => {
+		// As 0.1.0 wrote one. Its own attributes may bind a prefix or the default
+		// namespace, so it is not kept: the new one is SVG's whatever they said.
 		const root = `<svg:svg xmlns:svg="${SVG_NAMESPACE}">`;
-		const text = `${root}\n  <title id="t">Old</title><svg:g/></svg:svg>`;
-		const titled = withDrawingTitle(text, 'New');
-		expect(titled).toBe(`${root}\n  <svg:title id="t">New</svg:title><svg:g/></svg:svg>`);
-		expect(readDrawingTitle(titled)).toBe('New');
-		expect(withDrawingTitle(text, '')).toBe(`${root}<svg:g/></svg:svg>`);
+		for (const open of ['<title>', '<title id="t" xmlns="">', '<title xmlns:svg="http://x">']) {
+			const text = `${root}\n  ${open}Old</title><svg:g/></svg:svg>`;
+			expect(readDrawingTitle(text)).toBe('Old');
+			const titled = withDrawingTitle(text, 'New');
+			expect(titled).toBe(`${root}\n  <svg:title>New</svg:title><svg:g/></svg:svg>`);
+			expect(readDrawingTitle(titled)).toBe('New');
+			expect(withDrawingTitle(text, '')).toBe(`${root}<svg:g/></svg:svg>`);
+		}
 	});
 
 	it('writes SVG’s title under the root’s prefix where SVG is not the default namespace', () => {
