@@ -71,7 +71,10 @@ What the app writes on "new drawing" (`emptyDrawing`): the root with its namespa
 
 - `draw:id` is the drawing's identity: a UUID given once and never changed, so a rename or a move on one device is the same drawing to another, and a file copied between two accounts is the same drawing in each.
   The attribute's prefix is whatever the file binds the namespace to; `draw` is what this app writes when the file has none.
+  Where a file binds it under two, the id is the one under the first.
 - `<title>`, the first child of the root, is the drawing's title, which other tools show.
+  It is SVG's `title`, under whatever prefix binds SVG's namespace, after any whitespace, comments or processing instructions; a `title` in no namespace, as 0.1.0 wrote under an `svg:svg` root, is read too, and a rename makes it SVG's.
+  A title that could end in two places, as one whose first `</title>` a comment in it holds, is not read: a rename puts a new title ahead of it and takes nothing away.
   The filename is the title's slug (`drawingFilename`), kept unique in its folder (`uniqueFilename`); where a file has no title, its name is its filename's stem (`titleFromFilename`).
 - `viewBox` is the canvas; `width` and `height` beside it say the same in user units for tools that read only those.
   A file with neither is shown at a size of the app's choosing (`readDrawingSize`, `DEFAULT_DRAWING_SIZE`).

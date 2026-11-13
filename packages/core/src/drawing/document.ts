@@ -63,11 +63,15 @@ const skipped = (
 	}
 };
 
-/** Where a run from `from` of what `stop` does not match ends: `from` itself where there is none. */
-const runEnd = (text: string, from: number, stop: RegExp): number =>
-	skipped(text, from, (_, at) =>
-		at < text.length && !stop.test(text.charAt(at)) ? at + 1 : undefined
-	);
+/**
+ * Where a run from `from` of what `stop` does not match ends: `from` itself
+ * where there is none. One search, not a test of each character: `stop`
+ * matches a single character, so it has nothing to backtrack over.
+ */
+const runEnd = (text: string, from: number, stop: RegExp): number => {
+	const at = text.slice(from).search(stop);
+	return at === -1 ? Math.max(from, text.length) : from + at;
+};
 
 /** Where a run of whitespace from `from` ends. */
 const spaceEnd = (text: string, from: number): number => runEnd(text, from, NOT_SPACE);
@@ -163,17 +167,15 @@ const prologEnd = (text: string): number => skipped(text, 0, prologItemEnd);
 
 /**
  * The run of things from `from` that `item` reads one after another, as
- * `skipped` reads it, and each of them: no more than `most`, where it stops.
+ * `skipped` reads it, and each of them.
  */
 const readRun = <T extends Readonly<{ end: number }>>(
 	text: string,
 	from: number,
-	item: (text: string, at: number) => T | undefined,
-	most: number
+	item: (text: string, at: number) => T | undefined
 ): Readonly<{ items: readonly T[]; end: number }> => {
 	const items: T[] = [];
 	const end = skipped(text, from, (_, at) => {
-		if (items.length >= most) return undefined;
 		const next = item(text, at);
 		// eslint-disable-next-line functional/immutable-data -- built here, and only read once returned
 		if (next !== undefined && next.end > at) items.push(next);
@@ -182,15 +184,10 @@ const readRun = <T extends Readonly<{ end: number }>>(
 	return { items, end };
 };
 
-/**
- * The most attributes a start tag this reads may have: a root or a title with
- * more is not read. One has tens; a file with a great many more was written to
- * do this, and each one read is kept, so the bound is on the memory as well.
- */
-const MOST_ATTRIBUTES = 100_000;
-
 /** What a name cannot hold, and what a value without quotes cannot. */
 const NOT_NAME = /[\s"'<>/=]/;
+/** What a name can start with, as XML has it: after a `<`, what starts a tag, not text. */
+const NAME_START = /[A-Za-z_:\u0080-\uffff]/;
 const NOT_BARE = /[\s"'=<>`]/;
 
 interface Attribute {
@@ -230,6 +227,20 @@ const spacedAttributeAt = (text: string, at: number): Attribute | undefined => {
 	return end === from ? undefined : { name, value: text.slice(from, end), start, end };
 };
 
+/**
+ * Just past where a tag whose attributes end at `attributesEnd` closes, with
+ * `>` or `/>` and any whitespace before it, and which; `undefined` where
+ * neither follows.
+ */
+const tagClose = (
+	text: string,
+	attributesEnd: number
+): Readonly<{ end: number; selfClosing: boolean }> | undefined => {
+	const close = spaceEnd(text, attributesEnd);
+	if (text.startsWith('/>', close)) return { end: close + 2, selfClosing: true };
+	return text.charAt(close) === '>' ? { end: close + 1, selfClosing: false } : undefined;
+};
+
 interface StartTag {
 	/** Where the tag begins and ends in the text, so it can be put back. */
 	readonly start: number;
@@ -262,26 +273,27 @@ const startTagAt = (text: string, start: number, localName: string): StartTag | 
 	const name = text.slice(start + 1, nameEnd);
 	const colon = name.indexOf(':');
 	if (colon === 0 || name.slice(colon + 1) !== localName) return undefined;
-	const { items, end: attributesEnd } = readRun(
-		text,
-		nameEnd,
-		spacedAttributeAt,
-		MOST_ATTRIBUTES
-	);
-	const close = spaceEnd(text, attributesEnd);
-	const selfClosing = text.startsWith('/>', close);
-	if (!selfClosing && text.charAt(close) !== '>') return undefined;
+	const { items, end: attributesEnd } = readRun(text, nameEnd, spacedAttributeAt);
+	const close = tagClose(text, attributesEnd);
+	if (close === undefined) return undefined;
 	return {
 		start,
-		end: close + (selfClosing ? 2 : 1),
+		end: close.end,
 		attributesEnd,
 		name,
 		prefix: colon === -1 ? undefined : name.slice(0, colon),
 		attributeList: items,
 		attributes: new Map(items.map(({ name, value }) => [name, value])),
-		selfClosing,
+		selfClosing: close.selfClosing,
 	};
 };
+
+/** A tag's attributes as the text has them, each after one space, but those `dropped` names. */
+const attributesText = (text: string, tag: StartTag, dropped: ReadonlySet<string>): string =>
+	tag.attributeList
+		.filter(({ name }) => !dropped.has(name))
+		.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
+		.join('');
 
 /**
  * Whether a tag that does not close itself ends in a bare value's slash and
@@ -351,8 +363,10 @@ const drawingPrefixes = (root: StartTag): readonly string[] =>
  * The last of the root's attributes named one of `names`: the one read where
  * a name is there twice.
  */
-const lastAmong = (root: StartTag, names: readonly string[]): Attribute | undefined =>
-	root.attributeList.filter(({ name }) => names.includes(name)).at(-1);
+const lastAmong = (root: StartTag, names: readonly string[]): Attribute | undefined => {
+	const named = new Set(names);
+	return root.attributeList.filter(({ name }) => named.has(name)).at(-1);
+};
 
 /**
  * A drawing's id, or `undefined` for a file with none, or one this app cannot
@@ -370,14 +384,16 @@ export const readDrawingId = (text: string): string | undefined => {
 /**
  * The prefix to bind the app's namespace to on a root that binds it to none:
  * `draw`, or `draw2`, `draw3`, …, the first that `bound`, the prefixes the
- * root binds already, does not hold: found within one more than it holds, by
- * `skipped`, not a recursion, so however many are bound it does not run out
- * of stack. The editor's too (`drawingPrefixOf`), so both choose the same one.
+ * root binds already, does not hold. Of one more candidate than it holds, one
+ * is free; looked for among them, not by a recursion, so however many are
+ * bound it does not run out of stack. The editor's too (`drawingPrefixOf`),
+ * so both choose the same one.
  */
 export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string => {
 	const numbered = (n: number): string =>
 		n === 1 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${n}`;
-	return numbered(skipped('', 1, (_, n) => (bound.has(numbered(n)) ? n + 1 : undefined)));
+	const candidates = Array.from({ length: bound.size + 1 }, (_, index) => numbered(index + 1));
+	return candidates.find((candidate) => !bound.has(candidate)) ?? PREFERRED_PREFIX;
 };
 
 const freePrefix = (root: StartTag): string =>
@@ -399,9 +415,9 @@ export const withDrawingId = (text: string, id: string): string => {
 	const declaration = prefixes.length === 0 ? `xmlns:${prefix}="${DRAWING_NAMESPACE}" ` : '';
 	// In place of the one read (`readDrawingId`), or one under the prefix about
 	// to be declared, so a file given its id once is the same bytes given it
-	// again; or, where there is none, of one under another prefix bound to the
-	// namespace, written under the first, so the root holds one id in it, not
-	// two. Found among the attributes, so the same characters in another
+	// again; or, where there is none, of the last under another prefix bound to
+	// the namespace, written under the first, instead of a new one beside it.
+	// Found among the attributes, so the same characters in another
 	// attribute's value are not taken for it. At the end of the tag otherwise.
 	const existing =
 		lastAmong(root, [`${prefix}:id`]) ??
@@ -477,10 +493,7 @@ export const withDrawingViewport = (
 ): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) return undefined;
-	const kept = root.attributeList
-		.filter(({ name }) => !VIEWPORT.has(name))
-		.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
-		.join('');
+	const kept = attributesText(text, root, VIEWPORT);
 	const viewport = `viewBox="${box.x} ${box.y} ${box.width} ${box.height}" width="${size.width}" height="${size.height}"`;
 	return `${text.slice(0, root.start)}<${root.name}${kept} ${viewport}${root.selfClosing ? '/' : ''}>${text.slice(root.end)}`;
 };
@@ -537,34 +550,35 @@ interface TitleElement {
 /**
  * Whether a title named `name` that opens before `from` ends at `until`, where
  * its first `</name>` starts, as XML reads it: whether no comment, CDATA
- * section or processing instruction in its text holds that end tag or starts
- * before it and never closes, and no element of its own name opens in it,
- * whose end tag that one would be. One of its name that closes itself is
- * passed over. Walked from `<` to `<`, and no further than `until`.
+ * section, processing instruction or start tag in its text holds that end tag,
+ * as a quoted value can, or starts before it and never closes; and no element
+ * of its own name opens in it, whose end tag that one would be. One of its
+ * name that closes itself is passed over. A `<` before a name that starts no
+ * tag a `>` closes is one a tool could read either way, so it is not passed
+ * either. Walked from `<` to `<`, each tag once, no further than `until`.
  */
 const endsAt = (text: string, name: string, from: number, until: number): boolean => {
-	// Just past an element of the title's name at `at` that closes itself, its
-	// attributes passed over rather than kept, as `startTagAt` would keep them.
-	const selfClosedEnd = (at: number): number | undefined => {
+	// Just past a start tag at `at`, its attributes passed over rather than
+	// kept, as `startTagAt` keeps them; one character where no name starts.
+	const tagEnd = (at: number): number | undefined => {
+		if (!NAME_START.test(text.charAt(at + 1))) return at + 1;
+		const nameEnd = runEnd(text, at + 1, NOT_NAME);
 		const attributesEnd = skipped(
 			text,
-			at + name.length + 1,
-			(_, from) => spacedAttributeAt(text, from)?.end
+			nameEnd,
+			(_, next) => spacedAttributeAt(text, next)?.end
 		);
-		const close = spaceEnd(text, attributesEnd);
-		return text.startsWith('/>', close) ? close + 2 : undefined;
+		const close = tagClose(text, attributesEnd);
+		const opensOwnName = text.slice(at + 1, nameEnd) === name && close?.selfClosing === false;
+		return close === undefined || opensOwnName ? undefined : close.end;
 	};
-	// Past what starts at a `<`: one character, a section, or an element of the
-	// title's name that closes itself; `undefined` where none of them ends.
+	// Past what starts at a `<`: a section or a tag; `undefined` where it does not end.
 	const past = (at: number): number | undefined =>
 		text.startsWith('<![CDATA[', at)
 			? closedBy(text, ']]>', at + 9)
 			: text.startsWith('<!--', at) || text.startsWith('<?', at)
 				? commentOrInstructionEnd(text, at)
-				: text.startsWith(`<${name}`, at) &&
-					  NOT_NAME.test(text.charAt(at + name.length + 1))
-					? selfClosedEnd(at)
-					: at + 1;
+				: tagEnd(at);
 	const reached = skipped(text, text.indexOf('<', from), (_, at) => {
 		if (at === -1 || at >= until) return undefined;
 		const after = past(at);
@@ -636,6 +650,9 @@ const NOT_XML = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|\p{Surroga
  */
 export const cleanDrawingTitle = (title: string): string => title.replace(NOT_XML, '').trim();
 
+/** The attribute a rename replaces on a title it makes SVG's. */
+const DEFAULT_NAMESPACE: ReadonlySet<string> = new Set(['xmlns']);
+
 const escapeText = (text: string): string =>
 	text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -673,10 +690,7 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const svgDefault = svgIsDefault(root);
 	if (!found.svg || (found.tag.prefix !== undefined && svgDefault)) {
 		const declared = svgDefault ? '' : ` xmlns="${SVG_NAMESPACE}"`;
-		const kept = found.tag.attributeList
-			.filter((attribute) => attribute.name !== 'xmlns')
-			.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
-			.join('');
+		const kept = attributesText(text, found.tag, DEFAULT_NAMESPACE);
 		return `${before}${tag}${lead}<title${declared}${kept}>${escapeText(trimmed)}</title>${after}`;
 	}
 	const open = found.tag.selfClosing
