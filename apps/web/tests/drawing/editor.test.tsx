@@ -1703,6 +1703,49 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(theirs);
 	});
 
+	it('keeps asking while the store refuses the save in StrictMode, where React starts the session twice', async () => {
+		const { db, made } = await renderEditor('expanded', 'Harbor', ROOT, { strict: true });
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		try {
+			act(() => lastOpened().edit(made.text.replace('</svg>', '<g id="layer-2"/></svg>')));
+			// Past the pause, and the first start's close.
+			await pastTheSave();
+
+			expect(asksBeforeLeaving()).toBe(true);
+		} finally {
+			db.drawings.hook('updating').unsubscribe(refuse);
+		}
+	});
+
+	it('asks again for a stroke that lands after the editor closed, until its save is in', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		const encoding: { land: () => void } = { land: () => undefined };
+		act(() =>
+			document.pending(
+				new Promise<void>((resolve) => {
+					encoding.land = resolve;
+				})
+			)
+		);
+
+		view.unmount();
+		// Closed with the stroke still being encoded: nothing to save yet.
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		act(() => {
+			document.edit(stroke);
+			encoding.land();
+		});
+
+		expect(asksBeforeLeaving()).toBe(true);
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
 	it('keeps asking while the store refuses the copy that edits under a change from elsewhere are kept in', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
@@ -1945,8 +1988,12 @@ describe('the drawing open deleted under unsaved edits', () => {
 		const user = userEvent.setup();
 		const { db, made, onBack, onReplaced } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
-		// Edited, with the save waiting on the pause.
-		act(() => lastOpened().edit(mine));
+		// Edited, with the save waiting on the pause, and a stroke still being
+		// encoded, which never lands.
+		act(() => {
+			lastOpened().edit(mine);
+			lastOpened().pending(new Promise<void>(() => undefined));
+		});
 
 		await user.click(screen.getByRole('button', { name: 'More' }));
 		await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
