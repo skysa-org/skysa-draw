@@ -1,6 +1,6 @@
 # 0002. Carried over from skysa-notes
 
-*2026-11-03. Cited in the code as §12, "Carried over from skysa-notes". A `§` here means a section of [`ARCHITECTURE.md`](../ARCHITECTURE.md).*
+*2026-11-03. Superseded 2026-11-13 by [0005](0005-on-the-kit.md): the layers below are the shared kit's now, and this record is kept for where they came from. Cited in the code as §12, "Carried over from skysa-notes". A `§` here means a section of [`ARCHITECTURE.md`](../ARCHITECTURE.md).*
 
 **This repository began as a copy of every layer of skysa-notes that does not care what a file holds, and records where each piece came from.**
 The two apps are to be used the same way by the same parent project: a cloud deployment consumes each as a git submodule, calls its `createApp`, hands it an `EntitlementProvider`, a `RateLimiter` and a relay, and builds its web app with its own `DRAW_BRAND` (§13).

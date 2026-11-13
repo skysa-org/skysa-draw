@@ -7,9 +7,9 @@ import { createStore } from '@skysa/client';
  * The folder's own row is the field; everything else reads this.
  *
  * One at a time: a rename field takes the focus, so there is never a second.
- * Laid over what the store says for display and never written anywhere, the
- * same as a drawing's name (`liveEdits.ts`), and a store for the same reason: a
- * keystroke redraws what shows the name, not every pane in the app.
+ * Laid over what the store says for display and never written anywhere, and a
+ * store of its own so that a keystroke redraws what shows the name, not every
+ * pane in the app.
  *
  * A name given stays until the store has caught up with it, rather than going
  * when the rename's write resolves. Gone then, everything showing it would

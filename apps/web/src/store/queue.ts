@@ -216,8 +216,8 @@ export const queueMove = (db: QueueDb, drawing: DrawingRecord, from: string): Qu
  * same name meanwhile. The write puts *this* device's file at the path first,
  * the other device's write then binds its drawing to that file rather than making
  * one, and the delete behind it takes the other device's drawing away with it —
- * a drawing nobody deleted, gone from every device. The two-browser soak found it
- * (`apps/web/tests/soak.test.ts`).
+ * a drawing nobody deleted, gone from every device. skysa-notes' two-browser
+ * soak found it.
  *
  * A write already at the network is withdrawn from the queue only, which is
  * what `settle` handles: the file it creates is still recorded on the row, so

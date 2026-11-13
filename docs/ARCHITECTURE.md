@@ -8,7 +8,7 @@ Open work is in GitHub issues.
 A `§` in the code or the records means a section of this file.
 Where a section says "see the record", the record holds the whole reasoning and this file holds the decision.
 
-The repository started as a copy of the content-agnostic layers of [skysa-notes](https://github.com/skysa-org/skysa-notes), whose architecture document this one follows section for section, so that a reader of either finds the other familiar (§12).
+The repository started as a copy of the content-agnostic layers of [skysa-notes](https://github.com/skysa-org/skysa-notes), whose architecture document this one follows section for section, so that a reader of either finds the other familiar; those layers are now the shared kit both apps run on (§12).
 
 ## 1. Core decisions (settled)
 
@@ -27,7 +27,7 @@ The repository started as a copy of the content-agnostic layers of [skysa-notes]
 | Deployment | One Cloudflare Worker serves the SPA and `/api`; D1 for the database; self-hostable end to end (`self-hosting.md`) | One origin, first-party cookies, free tier enough for one person |
 | What an operator can change | The `EntitlementProvider`, `RateLimiter` and relay seams of `createApp`, the env flags, and the `DRAW_BRAND` build input (§8, §13) | No deployment-specific code in the repository |
 | License | AGPL-3.0-only, with a CLA (§13) | Same as skysa-notes |
-| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), now the shared kit both apps run on | Each product exports its own API and core to the parent project |
+| Relationship to skysa-notes | A copy of its content-agnostic layers, with provenance (§12; `decisions/0002-carried-over-from-skysa-notes.md`), now the shared kit both apps run on, at one exact version (`decisions/0005-on-the-kit.md`) | Each product exports its own API and core to the parent project, and a fix to a shared layer is made once |
 
 ## 2. Architecture overview
 
@@ -642,7 +642,8 @@ The lint's shared rules, the compiler's settings and Prettier's are the kit's, `
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
 The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
 Those layers have moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4): the server (§6), the protocol, the adapters and the naming rules (§4, §5), the sync engine and the sync client (§7), the PWA build (§8) and the lint's shared rules (§11).
-A fix to any of them is a kit PR.
+Decided 2026-11-13; see [`decisions/0005-on-the-kit.md`](decisions/0005-on-the-kit.md), which supersedes 0002 and says what went where, what this app hands the kit and keeps, and why a 0.1.0 server database is reset.
+A fix to any of them is a kit PR, and this app takes it by moving its pin, one exact version for every `@skysa/*` package (`apps/web/tests/kitVersion.test.ts`).
 
 ## 13. Distribution and licensing
 

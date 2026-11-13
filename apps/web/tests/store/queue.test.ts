@@ -120,7 +120,8 @@ describe('the push queue a local change leaves behind', () => {
 		// `queueWrite` already applied from the other end. Sending the write
 		// first would create the file only to remove it, and a file at that
 		// path is what another device's drawing binds to instead of making one of
-		// its own: the delete then takes that drawing too (`soak.test.ts`).
+		// its own: the delete then takes that drawing too (skysa-notes' soak
+		// found it).
 		expect((await queued(db)).map((op) => op.op)).toEqual(['delete']);
 	});
 
@@ -667,12 +668,12 @@ describe('a drawing deleted before its write was ever sent, on two devices', () 
 	 * What that costs the other device depends on what the engine makes of a
 	 * path it finds occupied, and the worst of it is not what this reproduces.
 	 * Here their drawing survives under a conflict name: a copy of a file nobody
-	 * conflicted over, for the user to tidy up. In the soak's seed 39 — a
-	 * longer run — no copy is made, their drawing
-	 * goes with the file, and it is gone from both devices. That seed is the
-	 * loss; this is the guard that holds the mechanism still whatever the
-	 * engine decides afterward, and fails, deterministically, on a withdrawn
-	 * write that runs anyway.
+	 * conflicted over, for the user to tidy up. In skysa-notes' soak, at its
+	 * seed 39 — a longer run — no copy is made, their drawing goes with the
+	 * file, and it is gone from both devices. That seed is the loss; this is
+	 * the guard that holds the mechanism still whatever the engine decides
+	 * afterward, and fails, deterministically, on a withdrawn write that runs
+	 * anyway.
 	 */
 	const twoDevices = async () => {
 		const fake = createFakeProvider();
