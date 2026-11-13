@@ -54,8 +54,9 @@ const closedBy = (text: string, close: string, from: number): number | undefined
 
 /**
  * Just past a doctype's internal subset and its `>`, from inside its `[`: the
- * first `]` that nothing but whitespace separates from a `>`, so that a `]` in
- * a quoted value inside it does not end it.
+ * first `]` that nothing but whitespace separates from a `>`. A `]` followed
+ * by anything else, as one in a quoted value may be, does not end it; one in
+ * a quoted value followed by `>` does, as it did when a pattern read this.
  */
 const subsetEnd = (text: string, from: number): number | undefined => {
 	// eslint-disable-next-line functional/no-let -- see `prologEnd`
@@ -69,14 +70,17 @@ const subsetEnd = (text: string, from: number): number | undefined => {
 	return undefined;
 };
 
-/** Just past a doctype, from after its `<!DOCTYPE`: its `>`, or its subset's. */
+/**
+ * Just past a doctype, from after its `<!DOCTYPE`: its `>`, or its subset's
+ * where a `[` comes before that `>`. With no `>` ahead it is never closed,
+ * subset or not. The `[` is looked for only up to the `>`, so that each of a
+ * great many doctypes costs its own length, not the rest of the file's.
+ */
 const doctypeEnd = (text: string, from: number): number | undefined => {
 	const close = text.indexOf('>', from);
-	const open = text.indexOf('[', from);
-	if (open === -1 || (close !== -1 && close < open)) {
-		return close === -1 ? undefined : close + 1;
-	}
-	return subsetEnd(text, open + 1);
+	if (close === -1) return undefined;
+	const open = text.slice(from, close).indexOf('[');
+	return open === -1 ? close + 1 : subsetEnd(text, from + open + 1);
 };
 
 /**

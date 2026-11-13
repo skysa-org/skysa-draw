@@ -1,3 +1,4 @@
+import * as protocol from '@skysa/protocol';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type * as Core from '../src/index.js';
@@ -87,6 +88,22 @@ type Types = [
 describe('core’s main entry', () => {
 	it('offers these values and no others', () => {
 		expect(Object.keys(core).sort()).toEqual(SURFACE);
+	});
+
+	it('offers every value of the kit’s protocol, for an operator’s policy', () => {
+		// Its values, that is: what the kit adds there an operator's Worker entry
+		// may import from here, as `docs/self-hosting.md` has it import the types.
+		// Its schemas and functions are the kit's to use, and only those the
+		// barrel names (`alwaysAllowed`, `neverLimited`) are offered.
+		const isData = (value: unknown): boolean =>
+			typeof value !== 'function' &&
+			(typeof value !== 'object' || value === null || Object.values(value).every(isData));
+		const spoken = Object.entries(protocol).filter(([, value]) => isData(value));
+
+		expect(spoken.length).toBeGreaterThan(0);
+		expect(spoken.filter(([name, value]) => core[name as keyof typeof core] !== value)).toEqual(
+			[]
+		);
 	});
 
 	it('offers these types', () => {

@@ -87,6 +87,28 @@ describe('isDrawingText', () => {
 		expect(performance.now() - started).toBeLessThan(200);
 	});
 
+	it('reads a prolog of a great many doctypes in time to their length', () => {
+		// Each doctype's `[` was once looked for to the end of the file, so 400,000
+		// of them were seconds.
+		const text = `${'<!DOCTYPE>'.repeat(400_000)}<svg xmlns="http://www.w3.org/2000/svg"/>`;
+		const started = performance.now();
+		expect(isDrawingText(text)).toBe(true);
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
+	it('ends a subset at a quoted ] that a > follows, as the pattern it replaced did', () => {
+		expect(
+			isDrawingText(
+				'<!DOCTYPE svg [ <!ENTITY x "a]>b"> ]><svg xmlns="http://www.w3.org/2000/svg"/>'
+			)
+		).toBe(false);
+		expect(
+			isDrawingText(
+				'<!DOCTYPE svg [ <!ENTITY x "a]b"> ]><svg xmlns="http://www.w3.org/2000/svg"/>'
+			)
+		).toBe(true);
+	});
+
 	it('reads a prolog of a great many comments without running out of stack', () => {
 		const text = `${'<!-- -->'.repeat(100_000)}<svg xmlns="http://www.w3.org/2000/svg"/>`;
 		expect(isDrawingText(text)).toBe(true);

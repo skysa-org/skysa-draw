@@ -16,19 +16,21 @@ export const otherTab = (db: DrawDatabase) =>
 
 /**
  * Its transaction on `tables`, going until it is let go. Started at once, and
- * let go after the test whatever happens.
+ * let go after the test whatever happens, a transaction that would not start
+ * included: the connection is closed either way, so a later test can still
+ * delete the database.
  */
 export const holding = (other: IDBDatabase, tables: string[], mode: IDBTransactionMode) => {
-	const store = other.transaction(tables, mode).objectStore(tables[0] ?? 'prefs');
 	const held = { going: true };
-	const again = () => {
-		if (held.going) store.count().onsuccess = again;
-	};
-	again();
 	const release = () => {
 		held.going = false;
 		other.close();
 	};
 	cleanups.unshift(release);
+	const store = other.transaction(tables, mode).objectStore(tables[0] ?? 'prefs');
+	const again = () => {
+		if (held.going) store.count().onsuccess = again;
+	};
+	again();
 	return release;
 };
