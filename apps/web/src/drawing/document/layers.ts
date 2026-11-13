@@ -269,25 +269,22 @@ export const giveLayerIds = (root: SVGSVGElement): void => {
 	});
 };
 
+/**
+ * The root's declarations of a prefix, `xmlns:draw="…"` and the rest, but not
+ * of the default namespace.
+ */
+const prefixDeclarations = (root: Element): readonly Attr[] =>
+	[...root.attributes].filter(
+		(attribute) => attribute.namespaceURI === XMLNS_NAMESPACE && attribute.prefix === 'xmlns'
+	);
+
 /** The prefix the root binds to the app's namespace, where it binds one. */
 export const boundDrawingPrefix = (root: Element): string | undefined =>
-	[...root.attributes].find(
-		(attribute) =>
-			attribute.namespaceURI === XMLNS_NAMESPACE &&
-			attribute.prefix === 'xmlns' &&
-			attribute.value === DRAWING_NAMESPACE
-	)?.localName;
+	prefixDeclarations(root).find((attribute) => attribute.value === DRAWING_NAMESPACE)?.localName;
 
-/** The prefixes the root binds, `draw` and the rest, but not the default namespace. */
+/** The prefixes the root binds, `draw` and the rest. */
 const boundPrefixes = (root: Element): ReadonlySet<string> =>
-	new Set(
-		[...root.attributes]
-			.filter(
-				(attribute) =>
-					attribute.namespaceURI === XMLNS_NAMESPACE && attribute.prefix === 'xmlns'
-			)
-			.map((attribute) => attribute.localName)
-	);
+	new Set(prefixDeclarations(root).map((attribute) => attribute.localName));
 
 /**
  * The prefix the app's attributes are written with: the one the root binds to

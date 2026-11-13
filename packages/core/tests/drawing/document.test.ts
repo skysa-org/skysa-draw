@@ -456,6 +456,8 @@ describe('readDrawingTitle', () => {
 		for (const rest of [
 			'<title>a</title b> c</title\n><g/></svg>',
 			'<title>a</title/>c</title><g/></svg>',
+			// An end tag of another name to an HTML parser, and none to XML.
+			'<title>a</title\u00a0>b</title><g/></svg>',
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
@@ -521,6 +523,22 @@ describe('readDrawingTitle', () => {
 		const text = `<svg xmlns="${SVG_NAMESPACE}"><g${' a'.repeat(4_000_000)}/></svg>`;
 		expect(readDrawingTitle(text)).toBeUndefined();
 		expect(withDrawingTitle(text, '')).toBe(text);
+	});
+
+	it('reads no root of more attributes than the pattern before it could, nor writes one', () => {
+		// Each is kept while the tag is read; millions ran a tab out of memory.
+		const root = (count: number) =>
+			`<svg xmlns="${SVG_NAMESPACE}"${' a="b"'.repeat(count - 1)}>`;
+		expect(isDrawingText(`${root(1_000_000)}<g/></svg>`)).toBe(true);
+		expect(isDrawingText(`${root(1_000_001)}<g/></svg>`)).toBe(false);
+		// An id would take the root past what is read, so none is given.
+		expect(() => withDrawingId(`${root(1_000_000)}<g/></svg>`, ID)).toThrow(RangeError);
+		// A title with one fewer, so a rename that declares SVG's namespace on
+		// it leaves one that is read.
+		const titled = (count: number) =>
+			`<svg xmlns="${SVG_NAMESPACE}"><title${' a="b"'.repeat(count)}>Name</title></svg>`;
+		expect(readDrawingTitle(titled(999_999))).toBe('Name');
+		expect(readDrawingTitle(titled(1_000_000))).toBeUndefined();
 	});
 
 	it('reads a root and a title with a great many attributes, as it always did', () => {
@@ -771,6 +789,9 @@ describe('withDrawingTitle', () => {
 			`<title>Doc <title xmlns="http://www.w3.org/1999/xhtml">x</title> end</title>${layer}</svg>`,
 			`<title>A<a title="see </title>"/>B</title>${layer}</svg>`,
 			`<title>a<b</title>${layer}</svg>`,
+			// A comment to an HTML parser, to the next `>`, and no markup to XML.
+			`<title>a<!X </title> >b</title>${layer}</svg>`,
+			`<title>a</ </title> >b</title>${layer}</svg>`,
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
