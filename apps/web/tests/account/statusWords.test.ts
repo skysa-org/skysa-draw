@@ -10,7 +10,7 @@ import {
 
 /**
  * What the storage panel says about how syncing is going, as tables: the
- * scheduler's status in, the words out (`account/statusWords.ts`). The panel's
+ * scheduler's status in, the words out (`components/account/statusWords.ts`). The panel's
  * own tests (`AccountPanel.test.tsx`) check that the line and its tooltip are
  * drawn, through a few of these words. Where the sentence above the line and
  * the bar are drawn has no test in this app; skysa-notes has one

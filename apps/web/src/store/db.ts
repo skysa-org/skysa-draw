@@ -17,8 +17,8 @@ import { watchForNewerTab } from './staleTab.js';
  * docs/decisions/0002-carried-over-from-skysa-notes.md). The kit reaches it
  * through ports: the engine's `SyncStore` (`sync/store.ts`), the client's
  * (`sync/dexiePorts.ts`), and the database itself as the `CredentialStore`
- * the client's connect, credential and relay calls take, for its `credentials`
- * table (docs/decisions/0005-on-the-kit.md).
+ * every client call that reads a credential takes, for its `credentials` table
+ * (docs/decisions/0005-on-the-kit.md).
  */
 
 /**

@@ -85,9 +85,8 @@ export interface Keeping {
 }
 
 /**
- * One answer for the whole tab. The request is to be made where a drawing is
- * created (nothing makes it yet: docs/ARCHITECTURE.md §10) and the answer is
- * shown in the storage panel, which are two components that
+ * One answer for the whole tab. The request is made where a drawing is created
+ * and the answer is shown in the storage panel, which are two components that
  * know nothing of each other, so the answer is held here and both read it.
  *
  * `keeper` is asked on every call rather than once, so a test can stand in for
