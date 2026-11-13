@@ -9,7 +9,7 @@ import { ROOT } from '@skysa/storage';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode, useState } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
 import { Editor } from '../../src/drawing/Editor.js';
@@ -1253,6 +1253,41 @@ describe('the editor saving', () => {
 		view.unmount();
 
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
+	});
+
+	it('settles as the page is hidden, so a stroke still being encoded is saved with it', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		// A stroke whose encoding has not landed, and which is an edit only
+		// once it does: here, once the document is asked to settle, as a phone
+		// may freeze the page with nothing else running.
+		const encoding: { land: () => void } = { land: () => undefined };
+		vi.spyOn(document, 'settle').mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					encoding.land = () => {
+						document.edit(stroke);
+						resolve();
+					};
+				})
+		);
+		Object.defineProperty(window.document, 'visibilityState', {
+			value: 'hidden',
+			configurable: true,
+		});
+		onTestFinished(() => {
+			Reflect.deleteProperty(window.document, 'visibilityState');
+		});
+
+		act(() => {
+			window.document.dispatchEvent(new Event('visibilitychange'));
+		});
+		act(() => {
+			encoding.land();
+		});
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
 	});
 
 	it('waits for a copy being kept for a change from elsewhere, which the edits are in', async () => {

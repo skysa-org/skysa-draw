@@ -550,12 +550,13 @@ The service worker and the manifest are built by the kit's `@skysa/pwa` from wha
 How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#pwa-specifics): `generateSW`, the app shell precached, `NetworkOnly` for `/api/*` and the provider origins so drawing content never sits in the HTTP cache, nothing inline written into the page (§9), a waiting worker that takes over only when the user says (`registerType: 'prompt'`, so a new build never swaps itself in under a half-drawn stroke), and the checklist a browser applies before it offers to install, which is a test there.
 What follows is this app's own.
 
-- `UpdatePrompt` offers the reload; its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
+- `UpdatePrompt` offers the reload. It has the open drawing write what it holds first (`settleEditors`, below), and then its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab (the kit's `makeWay`), so the new build can take over at once.
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
 - What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
   The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
+  It settles too when the page is hidden, which a phone may freeze or end without a `pagehide`.
   Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
   An open editor that has not answered is taken to hold its drawing all the same, as it said when it registered, so a source let go keeps its rows.
   Asked to settle, it waits for raster work still pending, writes its pending save, and waits for it and for any save an edit sets off meanwhile; a settle asked for while one is going joins it, so the same text is never sent twice at once.
@@ -620,7 +621,7 @@ Known gaps in what is built, each for an issue:
 - A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
 - A save, or a new drawing, the store refuses for any reason but a delete says nothing on screen (`drawing/useOpenDrawing.ts`); a refused save is tried again at the next change, or when the editor is asked to settle, and is counted as held until it goes in, or until the editor closes, when it is tried once more and then goes with it.
-- Strokes still waiting on the autosave's pause are not written when the page goes, a tab closed, a reload or the update bar's Reload: the `pagehide` flush starts no transaction before the page is gone, since the save hashes the text first (#16).
+- Strokes still waiting on the autosave's pause are not written when the user closes the tab or reloads it: the `pagehide` flush starts no transaction before the page is gone, since the save hashes the text first (#16).
 - The open drawing follows the source showing, not the one its row is in, and switching sources does not settle it first; a changed row handed to it during the user's own delete still keeps a copy; one handed to it before a stroke's raster work lands opens over the stroke; a copy kept only in part is kept again at the next save; a closing session puts a replacement where the drawing was last seen, not where it was deleted; and a session that has closed still opens what it keeps, and says nothing of it (#18).
 - An undo back to the text the drawing opened with, or to one this session saved before, counts as saved though the row may hold a later save, so a refused save of it is neither named when the editor settles nor kept under a change or a delete from elsewhere (#13).
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.

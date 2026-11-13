@@ -518,13 +518,16 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// (`named`), so that a source let go meanwhile keeps its rows: settling
 		// is not over, and the edits may yet need them.
 		const withdraw = beforeClosing(settle.bind(undefined), named);
-		// The save is asynchronous, but IndexedDB finishes a transaction that
-		// was started before the page went, so starting it is enough.
+		// A page going starts the pending save, though the save opens no
+		// transaction before the page is gone (#16). A page hidden, which a
+		// phone may freeze or end with no `pagehide`, runs on for a moment, and
+		// settles: raster work still pending is waited for and saved with the
+		// rest, rather than left to the pause.
 		const onPageHide = () => {
 			void flush();
 		};
 		const onVisibility = () => {
-			if (window.document.visibilityState === 'hidden') void flush();
+			if (window.document.visibilityState === 'hidden') void settle();
 		};
 		window.addEventListener('pagehide', onPageHide);
 		window.document.addEventListener('visibilitychange', onVisibility);
