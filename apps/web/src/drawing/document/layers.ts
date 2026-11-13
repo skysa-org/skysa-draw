@@ -228,20 +228,18 @@ export const idsIn = (root: Element): ReadonlySet<string> =>
 	new Set([root, ...root.querySelectorAll('[id]')].map(idOf).filter((id) => id !== ''));
 
 /**
- * The smallest number of `layer-n` that none of `taken` is. Among the first
- * `taken.size + 1` numbers one is always free, so the search ends there.
+ * The smallest `n` from 1 that is not `taken`, where at most `count` are.
+ * Among the first `count + 1` numbers one is always free, so the search ends
+ * there: a layer's id, and a prefix for the app's namespace.
  */
-const firstFreeNumber = (taken: ReadonlySet<string>): number => {
-	const used = new Set([...taken].map(layerNumber).filter((n): n is number => n !== undefined));
-	return (
-		Array.from({ length: used.size + 1 }, (_, index) => index + 1).find((n) => !used.has(n)) ??
-		used.size + 1
-	);
-};
+const firstFreeNumber = (count: number, taken: (n: number) => boolean): number =>
+	Array.from({ length: count + 1 }, (_, index) => index + 1).find((n) => !taken(n)) ?? count + 1;
 
 /** `layer-n` for the smallest `n` no id in `taken` has. */
-export const freeLayerIdAmong = (taken: ReadonlySet<string>): string =>
-	layerId(firstFreeNumber(taken));
+export const freeLayerIdAmong = (taken: ReadonlySet<string>): string => {
+	const used = new Set([...taken].map(layerNumber).filter((n): n is number => n !== undefined));
+	return layerId(firstFreeNumber(used.size, (n) => used.has(n)));
+};
 
 /** `layer-n` for the smallest `n` free in the document (§3). */
 export const freeLayerId = (root: Element): string => freeLayerIdAmong(idsIn(root));
@@ -278,21 +276,17 @@ export const boundDrawingPrefix = (root: Element): string | undefined =>
 	)?.localName;
 
 /**
- * `draw`, or `draw2`, `draw3`, … where the root binds `draw` to something else.
- * A search, not a recursion, as `freePrefix` is in core: among one more
- * candidate than the root binds prefixes, one is free.
+ * `draw`, or `draw2`, `draw3`, … where the root binds `draw` to something else:
+ * a search, not a recursion, as `freePrefix` is in core.
  */
 const freeDrawingPrefix = (root: Element): string => {
-	const taken = new Set(
+	const bound = new Set(
 		[...root.attributes]
 			.filter((attribute) => attribute.namespaceURI === XMLNS_NAMESPACE)
 			.map((attribute) => attribute.localName)
 	);
-	return (
-		Array.from({ length: taken.size + 1 }, (_, i) => (i === 0 ? 'draw' : `draw${i + 1}`)).find(
-			(candidate) => !taken.has(candidate)
-		) ?? 'draw'
-	);
+	const candidate = (n: number): string => (n === 1 ? 'draw' : `draw${n}`);
+	return candidate(firstFreeNumber(bound.size, (n) => bound.has(candidate(n))));
 };
 
 /**

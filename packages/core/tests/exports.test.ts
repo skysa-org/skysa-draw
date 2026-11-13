@@ -38,6 +38,7 @@ const SURFACE = [
 	'UNTITLED_SLUG',
 	'alwaysAllowed',
 	'attachmentName',
+	'cleanDrawingTitle',
 	'conflictContent',
 	'conflictPath',
 	'drawingFilename',

@@ -31,23 +31,46 @@ const PREFERRED_PREFIX = 'draw';
  */
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** Whitespace, as `\s` reads it: the byte-order mark is among it. */
+/** Whitespace, as `\s` reads it: the byte-order mark is among it; and what is not. */
 const SPACE = /\s/;
+const NOT_SPACE = /\S/;
 
 /**
- * Where a run from `from` of what `stop` does not match ends: `from` itself
- * where there is none. A loop, as `skipped` is.
+ * Where a run of things from `from` ends, that `item` reads one after another
+ * and answers just past each: where the next is none, or one that starts and
+ * never ends. Every scan in this file is this loop.
+ *
+ * This file reads the prolog, the start tags and what lies between them with
+ * `indexOf` rather than patterns, and in this loop rather than by recursion,
+ * so that it is linear in the text however the text is written. Patterns for
+ * them took seconds over a file another tool left half written (a doctype
+ * never closed before a long run of spaces, a long run of spaces before no
+ * title), or ran out of stack over millions of attributes; recursion would run
+ * out of stack over thousands of comments.
  */
-const runEnd = (text: string, from: number, stop: RegExp): number => {
-	// eslint-disable-next-line functional/no-let -- see `skipped`
+const skipped = (
+	text: string,
+	from: number,
+	item: (text: string, at: number) => number | undefined
+): number => {
+	// eslint-disable-next-line functional/no-let -- see above: linear, and no stack to run out of
 	let at = from;
-	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
-	while (at < text.length && !stop.test(text.charAt(at))) at += 1;
-	return at;
+	// eslint-disable-next-line functional/no-loop-statements -- see above
+	for (;;) {
+		const next = item(text, at);
+		if (next === undefined || next <= at) return at;
+		at = next;
+	}
 };
 
+/** Where a run from `from` of what `stop` does not match ends: `from` itself where there is none. */
+const runEnd = (text: string, from: number, stop: RegExp): number =>
+	skipped(text, from, (_, at) =>
+		at < text.length && !stop.test(text.charAt(at)) ? at + 1 : undefined
+	);
+
 /** Where a run of whitespace from `from` ends. */
-const spaceEnd = (text: string, from: number): number => runEnd(text, from, /\S/);
+const spaceEnd = (text: string, from: number): number => runEnd(text, from, NOT_SPACE);
 
 /** Just past the first `close` from `from`, or `undefined` where there is none. */
 const closedBy = (text: string, close: string, from: number): number | undefined => {
@@ -57,31 +80,38 @@ const closedBy = (text: string, close: string, from: number): number | undefined
 
 /** Just past `mark`, whitespace and a `>` at `at`, where they are there. */
 const markClosedAt = (text: string, mark: string, at: number): number | undefined => {
-	if (!text.startsWith(mark, at)) return undefined;
+	if (at === -1 || !text.startsWith(mark, at)) return undefined;
 	const after = spaceEnd(text, at + mark.length);
 	return text.charAt(after) === '>' ? after + 1 : undefined;
 };
 
 /**
  * The first `mark` from `from` that nothing but whitespace separates from a
- * `>`: where it starts, and just past the `>`. A loop, as `skipped` is; the
- * whitespace after one `mark` ends before the next, so each is read once.
+ * `>`, among the places `next` steps to from `first`: where it starts, and
+ * just past the `>`. The whitespace after one `mark` ends before the next, so
+ * each is read once. `next` answers -1, as `indexOf` does, where there is
+ * nowhere more to look, or `undefined` where the search is to stop unanswered.
  */
+const closingMark = (
+	text: string,
+	mark: string,
+	first: number,
+	next: (at: number) => number | undefined
+): Readonly<{ at: number; end: number }> | undefined => {
+	const at = skipped(text, first, (_, at) =>
+		at === -1 || markClosedAt(text, mark, at) !== undefined ? undefined : next(at)
+	);
+	const end = markClosedAt(text, mark, at);
+	return end === undefined ? undefined : { at, end };
+};
+
+/** The first `mark` from `from` that nothing but whitespace separates from a `>` (`closingMark`). */
 const markThenClose = (
 	text: string,
 	mark: string,
 	from: number
-): Readonly<{ at: number; end: number }> | undefined => {
-	// eslint-disable-next-line functional/no-let -- see `skipped`
-	let at = text.indexOf(mark, from);
-	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
-	while (at !== -1) {
-		const end = markClosedAt(text, mark, at);
-		if (end !== undefined) return { at, end };
-		at = text.indexOf(mark, at + 1);
-	}
-	return undefined;
-};
+): Readonly<{ at: number; end: number }> | undefined =>
+	closingMark(text, mark, text.indexOf(mark, from), (at) => text.indexOf(mark, at + 1));
 
 /**
  * Just past a doctype's internal subset and its `>`, from inside its `[`: the
@@ -106,52 +136,31 @@ const doctypeEnd = (text: string, from: number): number | undefined => {
 };
 
 /**
- * Just past whitespace or a comment that starts at `at`, each comment ending
- * at its first `-->` as XML's do: what may come before the root, and before
- * its title. `undefined` where neither starts there, or a comment never ends.
+ * Just past a comment or a processing instruction that starts at `at`, each
+ * ending at its first close as XML's do. `undefined` where neither starts
+ * there, or one never ends.
  */
-const spaceOrCommentEnd = (text: string, at: number): number | undefined => {
-	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
+const commentOrInstructionEnd = (text: string, at: number): number | undefined => {
 	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
+	if (text.startsWith('<?', at)) return closedBy(text, '?>', at + 2);
 	return undefined;
 };
+
+/**
+ * Just past whitespace, a comment or a processing instruction that starts at
+ * `at`: what XML calls "Misc", which may come before the root, and between it
+ * and its title. `undefined` where none starts there, or one never ends.
+ */
+const miscEnd = (text: string, at: number): number | undefined =>
+	SPACE.test(text.charAt(at)) ? spaceEnd(text, at) : commentOrInstructionEnd(text, at);
 
 /**
  * Just past what the prolog may hold that starts at `at`: whitespace, a
  * processing instruction or the XML declaration, a comment, or a doctype.
  * `undefined` where none starts there, or one starts and never ends.
  */
-const prologItemEnd = (text: string, at: number): number | undefined => {
-	if (text.startsWith('<?', at)) return closedBy(text, '?>', at + 2);
-	if (text.startsWith('<!DOCTYPE', at)) return doctypeEnd(text, at + 9);
-	return spaceOrCommentEnd(text, at);
-};
-
-/**
- * Just past the run of things from `from` that `item` reads one after another:
- * where the next is none of them, or one that starts and never ends.
- *
- * This file reads the prolog, and the whitespace and comments before a title,
- * with `indexOf` rather than patterns, and in loops rather than by recursion,
- * so that it is linear in the text however the text is written. Patterns for
- * them took seconds over a file another tool left half written: a doctype
- * never closed before a long run of spaces, a long run of spaces before no
- * title. Recursion would run out of stack over thousands of comments.
- */
-const skipped = (
-	text: string,
-	from: number,
-	item: (text: string, at: number) => number | undefined
-): number => {
-	// eslint-disable-next-line functional/no-let -- see above: linear, and no stack to run out of
-	let at = from;
-	// eslint-disable-next-line functional/no-loop-statements -- see above
-	for (;;) {
-		const next = item(text, at);
-		if (next === undefined || next <= at) return at;
-		at = next;
-	}
-};
+const prologItemEnd = (text: string, at: number): number | undefined =>
+	text.startsWith('<!DOCTYPE', at) ? doctypeEnd(text, at + 9) : miscEnd(text, at);
 
 /**
  * Where the prolog ends: everything XML allows before the root element, a BOM,
@@ -171,16 +180,13 @@ const readRun = <T extends Readonly<{ end: number }>>(
 	item: (text: string, at: number) => T | undefined
 ): Readonly<{ items: readonly T[]; end: number }> => {
 	const items: T[] = [];
-	// eslint-disable-next-line functional/no-let -- see `skipped`
-	let at = from;
-	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
-	for (;;) {
+	const end = skipped(text, from, (_, at) => {
 		const next = item(text, at);
-		if (next === undefined || next.end <= at) return { items, end: at };
 		// eslint-disable-next-line functional/immutable-data -- built here, and only read once returned
-		items.push(next);
-		at = next.end;
-	}
+		if (next !== undefined && next.end > at) items.push(next);
+		return next?.end;
+	});
+	return { items, end };
 };
 
 /** What a name cannot hold, and what a value without quotes cannot. */
@@ -199,17 +205,13 @@ interface Attribute {
  * The attribute after whitespace at `at`: its name, and `=` and a value where
  * they follow, with whitespace about the `=`. The value is in double or single
  * quotes, or bare up to whitespace or what else such a value cannot hold. A
- * bare value takes a slash before the tag's `>`, as HTML reads one, unless
- * `slashCloses`, when the slash is the tag's own: XML has every value quoted,
- * so which was meant is for the reader to say (`rootTagOf`, `firstTitle`).
- * `undefined` where there is no whitespace there, or no attribute after it,
- * or an `=` with no value.
+ * bare value takes a slash before the tag's `>`, as HTML reads one, and as
+ * the pattern this replaced did: XML has every value quoted, so the tag may
+ * have been meant to close itself, and `firstTitle` does not read a title
+ * that ends so (`endsInBareSlash`). `undefined` where there is no whitespace
+ * there, or no attribute after it, or an `=` with no value.
  */
-const spacedAttributeAt = (
-	text: string,
-	at: number,
-	slashCloses: boolean
-): Attribute | undefined => {
+const spacedAttributeAt = (text: string, at: number): Attribute | undefined => {
 	const start = spaceEnd(text, at);
 	const nameEnd = runEnd(text, start, NOT_NAME);
 	if (start === at || nameEnd === start) return undefined;
@@ -224,8 +226,7 @@ const spacedAttributeAt = (
 			? undefined
 			: { name, value: text.slice(from + 1, close), start, end: close + 1 };
 	}
-	const run = runEnd(text, from, NOT_BARE);
-	const end = slashCloses && run > from + 1 && text.startsWith('/>', run - 1) ? run - 1 : run;
+	const end = runEnd(text, from, NOT_BARE);
 	return end === from ? undefined : { name, value: text.slice(from, end), start, end };
 };
 
@@ -255,20 +256,13 @@ interface StartTag {
  * else. Scanned in a loop, as the prolog is: a pattern for it ran out of
  * stack over a great many attributes.
  */
-const startTagAt = (
-	text: string,
-	start: number,
-	localName: string,
-	slashCloses = false
-): StartTag | undefined => {
+const startTagAt = (text: string, start: number, localName: string): StartTag | undefined => {
 	if (text.charAt(start) !== '<') return undefined;
 	const nameEnd = runEnd(text, start + 1, NOT_NAME);
 	const name = text.slice(start + 1, nameEnd);
 	const colon = name.indexOf(':');
 	if (colon === 0 || name.slice(colon + 1) !== localName) return undefined;
-	const { items, end: attributesEnd } = readRun(text, nameEnd, (_, at) =>
-		spacedAttributeAt(text, at, slashCloses)
-	);
+	const { items, end: attributesEnd } = readRun(text, nameEnd, spacedAttributeAt);
 	const close = spaceEnd(text, attributesEnd);
 	const selfClosing = text.startsWith('/>', close);
 	if (!selfClosing && text.charAt(close) !== '>') return undefined;
@@ -294,19 +288,10 @@ const endsInBareSlash = (text: string, tag: StartTag): boolean =>
 
 /**
  * The root's start tag, where the prolog is followed by an `svg`, with or
- * without a prefix. Where its last value is bare and runs into `/>`
- * (`endsInBareSlash`), the slash is the value's where the root's end tag
- * follows, as in `xml:base=http://a/b/><g/></svg>`, and the tag's own close
- * where none does, as in `height=10/>`: what its author meant either way.
+ * without a prefix. A bare value that runs into its `/>` keeps the slash, so
+ * the root is open, as it always was read here; the rewrites read it so too.
  */
-const rootTagOf = (text: string): StartTag | undefined => {
-	const start = prologEnd(text);
-	const tag = startTagAt(text, start, 'svg');
-	if (tag === undefined || !endsInBareSlash(text, tag)) return tag;
-	return markThenClose(text, `</${tag.name}`, tag.end) === undefined
-		? startTagAt(text, start, 'svg', true)
-		: tag;
-};
+const rootTagOf = (text: string): StartTag | undefined => startTagAt(text, prologEnd(text), 'svg');
 
 /**
  * A start tag opened up to its last attribute, without the whitespace and the
@@ -505,40 +490,42 @@ interface TitleElement {
 /**
  * Where a title's text ends, from `from`, and just past its end tag: the first
  * `</name` that nothing but whitespace separates from a `>`, past whatever
- * comments and CDATA sections the text holds, which may hold one. `undefined`
- * where none closes it. A loop, as `skipped` is.
+ * comments, CDATA sections and processing instructions the text holds, which
+ * may hold one. `undefined` where none closes it.
  */
 const titleEnd = (
 	text: string,
 	name: string,
 	from: number
 ): Readonly<{ at: number; end: number }> | undefined => {
-	const mark = `</${name}`;
-	// eslint-disable-next-line functional/no-let -- see `skipped`
-	let at = text.indexOf('<', from);
-	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
-	while (at !== -1) {
-		const skip = text.startsWith('<!--', at)
+	// Past what starts at a `<`: one character, or a section that never ends.
+	const sectionEnd = (at: number): number | undefined =>
+		text.startsWith('<!--', at)
 			? closedBy(text, '-->', at + 4)
 			: text.startsWith('<![CDATA[', at)
 				? closedBy(text, ']]>', at + 9)
-				: at + 1;
-		if (skip === undefined) return undefined;
-		const end = markClosedAt(text, mark, at);
-		if (end !== undefined) return { at, end };
-		at = text.indexOf('<', skip);
-	}
-	return undefined;
+				: text.startsWith('<?', at)
+					? closedBy(text, '?>', at + 2)
+					: at + 1;
+	return closingMark(text, `</${name}`, text.indexOf('<', from), (at) => {
+		const after = sectionEnd(at);
+		return after === undefined ? undefined : text.indexOf('<', after);
+	});
 };
 
 /**
  * The first `<title>` after the root tag, which is where SVG puts a document's
- * name and where this app writes it: past whatever whitespace and comments
- * lead to it (`spaceOrCommentEnd`). Its start tag is read as the root's is,
- * so a `>` in a quoted value does not end it, and one that closes itself is
- * an empty title. Its end tag is found by `titleEnd`. One whose last value is
- * bare and runs into `/>` (`endsInBareSlash`) may close itself or not, and is
- * not read: a rename then puts a title ahead of it, and takes nothing away.
+ * name and where this app writes it: past whatever whitespace, comments and
+ * processing instructions lead to it (`miscEnd`). Its start tag is read as the
+ * root's is, so a `>` in a quoted value does not end it, and one that closes
+ * itself is an empty title.
+ *
+ * Where it could end in two places, it is not read, and a rename puts a new
+ * title ahead of it and takes nothing away: one whose last value is bare and
+ * runs into `/>` (`endsInBareSlash`) may close itself or not; and where a
+ * comment, CDATA section or processing instruction in it holds its first
+ * `</title>`, or starts before it and never closes, XML ends it elsewhere
+ * (`titleEnd`), and a tool that knows none of them there.
  *
  * SVG's title, under whatever prefix binds SVG; or a `title` with no prefix
  * in no namespace, as this app's 0.1.0 wrote one under an `svg:svg` root, and
@@ -546,14 +533,17 @@ const titleEnd = (
  * child is something else, or the title never closes.
  */
 const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
-	const tag = startTagAt(text, skipped(text, root.end, spaceOrCommentEnd), 'title');
+	const tag = startTagAt(text, skipped(text, root.end, miscEnd), 'title');
 	if (tag === undefined || endsInBareSlash(text, tag)) return undefined;
 	const namespace = namespaceOf(tag, root);
 	const svg = namespace === SVG_NAMESPACE;
 	if (!svg && (tag.prefix !== undefined || namespace !== '')) return undefined;
 	if (tag.selfClosing) return { tag, svg, end: tag.end, close: tag.end };
 	const end = titleEnd(text, tag.name, tag.end);
-	return end === undefined ? undefined : { tag, svg, end: end.at, close: end.end };
+	if (end === undefined || end.end !== markThenClose(text, `</${tag.name}`, tag.end)?.end) {
+		return undefined;
+	}
+	return { tag, svg, end: end.at, close: end.end };
 };
 
 /**
@@ -578,8 +568,12 @@ export const readDrawingTitle = (text: string): string | undefined => {
 // eslint-disable-next-line no-control-regex
 const NOT_XML = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|\p{Surrogate}/gu;
 
-/** A title as it is written: without what XML has no place for, and trimmed. */
-const cleanTitle = (title: string): string => title.replace(NOT_XML, '').trim();
+/**
+ * A title as it is written: without what XML has no place for, and trimmed.
+ * What the store keeps for a drawing's title too, so the row and the file
+ * agree, and a title of nothing else is a blank one.
+ */
+export const cleanDrawingTitle = (title: string): string => title.replace(NOT_XML, '').trim();
 
 const escapeText = (text: string): string =>
 	text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -593,7 +587,7 @@ const escapeText = (text: string): string =>
 export const withDrawingTitle = (text: string, title: string): string => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) throw new RangeError('not an SVG document');
-	const trimmed = cleanTitle(title);
+	const trimmed = cleanDrawingTitle(title);
 	const name = titleName(root);
 	const element = `<${name}>${escapeText(trimmed)}</${name}>`;
 	const before = text.slice(0, root.start);
@@ -611,16 +605,17 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	if (trimmed === '') return `${before}${tag}${lead.trimEnd()}${after}`;
 	// The title keeps its attributes, so an `id` the root's `aria-labelledby`
 	// names still names it. SVG's keeps its start tag as it is, opened where it
-	// closed itself. One in no namespace is named as SVG's, without the one
-	// attribute that could bind that name to something else.
+	// closed itself. One in no namespace has SVG's made its default, in place of
+	// its own `xmlns` where it has one: no prefix changes, so neither does what
+	// any of its attributes means.
 	if (!found.svg) {
-		const colon = name.indexOf(':');
-		const binding = colon === -1 ? 'xmlns' : `xmlns:${name.slice(0, colon)}`;
+		const declared =
+			root.attributes.get('xmlns') === SVG_NAMESPACE ? '' : ` xmlns="${SVG_NAMESPACE}"`;
 		const kept = found.tag.attributeList
-			.filter((attribute) => attribute.name !== binding)
+			.filter((attribute) => attribute.name !== 'xmlns')
 			.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
 			.join('');
-		return `${before}${tag}${lead}<${name}${kept}>${escapeText(trimmed)}</${name}>${after}`;
+		return `${before}${tag}${lead}<title${declared}${kept}>${escapeText(trimmed)}</title>${after}`;
 	}
 	const open = found.tag.selfClosing
 		? `${openedTag(text, found.tag)}>`
@@ -654,9 +649,9 @@ export const emptyDrawing = ({
 		throw new RangeError('a drawing is wider and taller than nothing');
 	}
 	const titled =
-		title === undefined || cleanTitle(title) === ''
+		title === undefined || cleanDrawingTitle(title) === ''
 			? ''
-			: `\n  <title>${escapeText(cleanTitle(title))}</title>`;
+			: `\n  <title>${escapeText(cleanDrawingTitle(title))}</title>`;
 	// After the title, as §3 shows it: the title is the root's first child, and
 	// the layer the first thing that draws. Its kind is written, not left to be
 	// inferred, so the file says what the app meant.

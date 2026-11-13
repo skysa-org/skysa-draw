@@ -11,6 +11,7 @@
 
 export { APP_FOLDER_NAME, DRAW_FOLDER, DRAWING_EXTENSION, syncsHidden } from './config.js';
 export {
+	cleanDrawingTitle,
 	DEFAULT_DRAWING_SIZE,
 	DRAWING_NAMESPACE,
 	type DrawingSize,

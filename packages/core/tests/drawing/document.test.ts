@@ -246,14 +246,28 @@ describe('withDrawingId', () => {
 		expect(performance.now() - started).toBeLessThan(500);
 	});
 
-	it('keeps a tag that closes itself so, where its last value ends in a slash', () => {
-		// XML would not have the value bare; the slash is taken for the close.
-		expect(withDrawingId(`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10/>`, ID)).toBe(
-			`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10 xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}"/>`
+	it('reads a bare value’s slash before the root’s > as the value’s, and writes after it', () => {
+		// XML would not have the value bare. HTML reads the slash so, and so did
+		// the pattern this had; the rewrites now read it as the reader does.
+		const text = `<svg xmlns="${SVG_NAMESPACE}" width=10 height=10/>`;
+		expect(readDrawingSize(text)).toBeUndefined();
+		expect(withDrawingId(text, ID)).toBe(
+			`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10/ xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}">`
 		);
+		expect(withDrawingTitle(text, 'T')).toBe(`${text}\n  <title>T</title>`);
 		const bare = `<svg xmlns="${SVG_NAMESPACE}" xmlns:draw="${DRAWING_NAMESPACE}" draw:id=z/>`;
-		expect(readDrawingId(bare)).toBe('z');
-		expect(withDrawingId(bare, ID)).toBe(bare.replace('draw:id=z', `draw:id="${ID}"`));
+		expect(readDrawingId(bare)).toBeUndefined();
+		expect(withDrawingId(bare, ID)).toBe(bare.replace('draw:id=z/', `draw:id="${ID}"`));
+		// Whatever follows: its end tag, or content and none, as a file cut short has.
+		const based = `<svg xmlns="${SVG_NAMESPACE}" xml:base=http://a/b/>`;
+		expect(withDrawingId(`${based}<g/></svg>`, ID)).toBe(
+			`${based.slice(0, -1)} xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}"><g/></svg>`
+		);
+		expect(readDrawingTitle(`${text}\n<title>Kept</title><g id="layer-1">`)).toBe('Kept');
+		// A namespace with the slash in it is not SVG's.
+		const slashed = `<svg xmlns=${SVG_NAMESPACE}/>`;
+		expect(isDrawingText(slashed)).toBe(false);
+		expect(() => withDrawingId(slashed, ID)).toThrow(RangeError);
 	});
 
 	it('finds the id under any prefix bound to the namespace, and keeps that prefix', () => {
@@ -332,14 +346,6 @@ describe('readDrawingSize', () => {
 		expect(readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}" width="800"/>`)).toBeUndefined();
 		expect(readDrawingSize(`<svg xmlns="${SVG_NAMESPACE}"/>`)).toBeUndefined();
 		expect(readDrawingSize('<html/>')).toBeUndefined();
-	});
-
-	it('reads a bare value that runs into the tag’s close as its author meant', () => {
-		const text = `<svg xmlns="${SVG_NAMESPACE}" width=10 height=10/>`;
-		expect(readDrawingSize(text)).toEqual({ width: 10, height: 10 });
-		expect(withDrawingTitle(text, 'T')).toBe(
-			`<svg xmlns="${SVG_NAMESPACE}" width=10 height=10><title>T</title></svg>`
-		);
 	});
 
 	it('reads a width and height with space around a px, as it always has', () => {
@@ -493,6 +499,8 @@ describe('readDrawingTitle', () => {
 			`<!--${'--><!--'.repeat(50_000)}x`,
 			`<title>${'</title '.repeat(50_000)}`,
 			`<title${' a=b'.repeat(50_000)}`,
+			`${'<?x?>'.repeat(50_000)}<?`,
+			`<title>${'<!--x-->'.repeat(50_000)}`,
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 		}
@@ -620,18 +628,23 @@ describe('withDrawingTitle', () => {
 	});
 
 	it('names a title in no namespace as SVG’s, where it was, and keeps its attributes', () => {
-		// As 0.1.0 wrote one. Of its attributes, only one that would bind the new
-		// name to something else goes.
+		// As 0.1.0 wrote one. SVG's namespace is made its default, in place of its
+		// own `xmlns`, so no prefix, and no attribute's meaning, changes.
 		const root = `<svg:svg xmlns:svg="${SVG_NAMESPACE}" aria-labelledby="t">`;
+		const svg = `xmlns="${SVG_NAMESPACE}"`;
 		for (const [open, renamed] of [
-			['<title>', '<svg:title>'],
-			['<title id="t" xmlns="">', '<svg:title id="t" xmlns="">'],
-			['<title xmlns:svg="http://x"  id=\'t\'>', "<svg:title id='t'>"],
+			['<title>', `<title ${svg}>`],
+			['<title id="t" xmlns="">', `<title ${svg} id="t">`],
+			[
+				'<title xmlns:svg="http://x"  id=\'t\'>',
+				`<title ${svg} xmlns:svg="http://x" id='t'>`,
+			],
+			['<title xmlns:svg="urn:x" svg:a="1">', `<title ${svg} xmlns:svg="urn:x" svg:a="1">`],
 		] as const) {
 			const text = `${root}\n  ${open}Old</title><svg:g/></svg:svg>`;
 			expect(readDrawingTitle(text)).toBe('Old');
 			const titled = withDrawingTitle(text, 'New');
-			expect(titled).toBe(`${root}\n  ${renamed}New</svg:title><svg:g/></svg:svg>`);
+			expect(titled).toBe(`${root}\n  ${renamed}New</title><svg:g/></svg:svg>`);
 			expect(readDrawingTitle(titled)).toBe('New');
 			expect(withDrawingTitle(text, '')).toBe(`${root}<svg:g/></svg:svg>`);
 		}
@@ -641,14 +654,37 @@ describe('withDrawingTitle', () => {
 		);
 	});
 
-	it('ends a title at its end tag, not at one in a comment or CDATA within it', () => {
+	it('reads no title whose first end tag a comment, CDATA or instruction in it holds', () => {
+		// XML ends it at a later one, and a tool that knows none of them at that
+		// one: it is not read, and a rename puts a new title ahead of it.
 		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
-		for (const inner of ['A<!-- </title> -->', 'A<![CDATA[</title>]]>']) {
-			const text = `${root}<title>${inner}</title><g/></svg>`;
-			expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
-			expect(withDrawingTitle(text, '')).toBe(`${root}<g/></svg>`);
+		const layer = '<g id="layer-1"><!-- c --><path d="M0 0"><title>tip</title></path></g>';
+		for (const rest of [
+			`<title>A<!-- </title> -->B</title>${layer}</svg>`,
+			`<title>A<![CDATA[</title>]]>B</title>${layer}</svg>`,
+			`<title>A<?pi </title> ?>B</title>${layer}</svg>`,
+			`<title>x <!-- y</title>${layer}</svg>`,
+			`<title>x <![CDATA[ y</title>${layer}<style><![CDATA[a{}]]></style></svg>`,
+			`<title>A<!-- </title> x</svg>`,
+		]) {
+			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
+			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
+				`${root}\n  <title>New</title>${rest}`
+			);
+			expect(withDrawingTitle(`${root}${rest}`, '')).toBe(`${root}${rest}`);
 		}
-		expect(readDrawingTitle(`${root}<title>A<!-- </title> x</svg>`)).toBeUndefined();
+		// One that closes before it is read as part of the text, as it always was.
+		const text = `${root}<title>A<!-- c -->B</title><g/></svg>`;
+		expect(readDrawingTitle(text)).toBe('A<!-- c -->B');
+		expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
+	});
+
+	it('reads and writes a title after a processing instruction, as XML puts one there', () => {
+		const root = `<svg xmlns="${SVG_NAMESPACE}">\n<?xml-stylesheet href="a.css"?>\n`;
+		const text = `${root}<title>Plan</title><g/></svg>`;
+		expect(readDrawingTitle(text)).toBe('Plan');
+		expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
+		expect(withDrawingTitle(text, '')).toBe(`${root.trimEnd()}<g/></svg>`);
 	});
 
 	it('writes no character XML has no place for', () => {
@@ -660,18 +696,6 @@ describe('withDrawingTitle', () => {
 		expect(emptyDrawing({ id: ID, title: '\u0000' })).toBe(text);
 		// A tab, a line break, and a character beyond the BMP are XML's.
 		expect(readDrawingTitle(withDrawingTitle(text, 'a\tb\nc 🎉'))).toBe('a\tb\nc 🎉');
-	});
-
-	it('reads and writes a root whose bare value ends in a slash, as its end tag says', () => {
-		// Its end tag follows, so the slash is the value's, and the root is open.
-		const root = `<svg xmlns="${SVG_NAMESPACE}" xml:base=http://a/b/>`;
-		expect(readDrawingTitle(`${root}<title>X</title><g/></svg>`)).toBe('X');
-		expect(withDrawingTitle(`${root}<g/></svg>`, 'T')).toBe(
-			`${root}\n  <title>T</title><g/></svg>`
-		);
-		expect(withDrawingId(`${root}<g/></svg>`, ID)).toBe(
-			`${root.slice(0, -1)} xmlns:draw="${DRAWING_NAMESPACE}" draw:id="${ID}"><g/></svg>`
-		);
 	});
 
 	it('writes SVG’s title under the root’s prefix where SVG is not the default namespace', () => {
