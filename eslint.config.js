@@ -15,6 +15,19 @@ import globals from 'globals';
  * reach.
  */
 
+/**
+ * The kit's cell rule, with this app's word for where a cell comes from: core's
+ * own `cell()`, until it is the kit's (`@skysa/storage`) with the rest of
+ * core's shared layers. Set in every block below that sets the rule, and in one
+ * over all of src, since a block replaces the kit's list rather than adding to
+ * it.
+ */
+const CELL = CELL_SYNTAX.map((rule) => ({
+	...rule,
+	message:
+		'a value that changes is a cell (skysa-notes#457): cell() and Cell<T>, from @skysa/draw-core, or from src/cell.js inside core.',
+}));
+
 /** What nothing in packages/core/src may import. */
 const CORE_IMPORTS = [
 	{
@@ -72,18 +85,20 @@ export default skysa({
 	// Handed in rather than detected; keep in sync with apps/web's react dependency.
 	react: { files: ['apps/web/**/*.{ts,tsx}'], version: '19.3.0' },
 	blocks: [
+		{
+			// A value that changes is a cell, in every package's src, by this
+			// app's word for where it comes from (`CELL`, above).
+			files: ['**/src/**/*.ts', '**/src/**/*.tsx'],
+			rules: { 'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX, ...CELL] },
+		},
+
 		// ---- The app's words ------------------------------------------------
 
 		{
 			// The cell rule too, since this sets the rule again for every .tsx.
 			files: ['apps/web/src/**/*.tsx'],
 			rules: {
-				'no-restricted-syntax': [
-					'error',
-					...RESTRICTED_SYNTAX,
-					...INLINE_WORDS,
-					...CELL_SYNTAX,
-				],
+				'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX, ...INLINE_WORDS, ...CELL],
 			},
 		},
 
@@ -110,7 +125,7 @@ export default skysa({
 		{
 			// A provider moves bytes and names for the sync engine; it knows nothing
 			// of the engine. What both need — a conflict copy's name, say — lives
-			// below them both, in names/ (#449). Repeats core's patterns, since a
+			// below them both, in names/ (skysa-notes#449). Repeats core's patterns, since a
 			// rule set here replaces the one above rather than adding to it.
 			files: ['packages/core/src/providers/**/*.ts'],
 			rules: {
@@ -241,7 +256,7 @@ export default skysa({
 				'no-restricted-syntax': [
 					'error',
 					...RESTRICTED_SYNTAX,
-					...CELL_SYNTAX,
+					...CELL,
 					{
 						selector:
 							"MemberExpression[object.name='globalThis'][property.name='process']",
@@ -362,7 +377,10 @@ export default skysa({
 			// and a canvas's size are set, not derived. Allowed under those names,
 			// `ctx` and `canvas`, in the editor alone; the drawing's own DOM is
 			// changed through `setAttribute`, a call, which needs no carve-out.
+			// Not in a test, which the kit's relaxations, coming before this,
+			// leave free to mutate.
 			files: ['apps/web/src/drawing/**/*.ts'],
+			ignores: ['**/*.test.ts'],
 			rules: {
 				'functional/immutable-data': [
 					'error',
