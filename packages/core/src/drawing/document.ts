@@ -87,31 +87,22 @@ const markClosedAt = (text: string, mark: string, at: number): number | undefine
 
 /**
  * The first `mark` from `from` that nothing but whitespace separates from a
- * `>`, among the places `next` steps to from `first`: where it starts, and
- * just past the `>`. The whitespace after one `mark` ends before the next, so
- * each is read once. `next` answers -1, as `indexOf` does, where there is
- * nowhere more to look.
+ * `>`: where it starts, and just past the `>`. The whitespace after one `mark`
+ * ends before the next, so each is read once.
  */
-const closingMark = (
-	text: string,
-	mark: string,
-	first: number,
-	next: (at: number) => number
-): Readonly<{ at: number; end: number }> | undefined => {
-	const at = skipped(text, first, (_, at) =>
-		at === -1 || markClosedAt(text, mark, at) !== undefined ? undefined : next(at)
-	);
-	const end = markClosedAt(text, mark, at);
-	return end === undefined ? undefined : { at, end };
-};
-
-/** The first `mark` from `from` that nothing but whitespace separates from a `>` (`closingMark`). */
 const markThenClose = (
 	text: string,
 	mark: string,
 	from: number
-): Readonly<{ at: number; end: number }> | undefined =>
-	closingMark(text, mark, text.indexOf(mark, from), (at) => text.indexOf(mark, at + 1));
+): Readonly<{ at: number; end: number }> | undefined => {
+	const at = skipped(text, text.indexOf(mark, from), (_, at) =>
+		at === -1 || markClosedAt(text, mark, at) !== undefined
+			? undefined
+			: text.indexOf(mark, at + 1)
+	);
+	const end = markClosedAt(text, mark, at);
+	return end === undefined ? undefined : { at, end };
+};
 
 /**
  * Just past a doctype's internal subset and its `>`, from inside its `[`: the
@@ -336,38 +327,40 @@ const drawingPrefixes = (root: StartTag): readonly string[] =>
 		.filter(([name, value]) => name.startsWith('xmlns:') && value === DRAWING_NAMESPACE)
 		.map(([name]) => name.slice('xmlns:'.length));
 
-/** The last attribute named `name`, which is the one read where there are two. */
-const lastNamed = (root: StartTag, name: string): Attribute | undefined =>
-	root.attributeList.filter((attribute) => attribute.name === name).at(-1);
-
 /**
- * The attribute that holds the drawing's id: the last `id` under any prefix
- * the root binds to `DRAWING_NAMESPACE`, as the last of a name is the one read.
+ * The attribute that holds the drawing's id, under `prefixes`, those the root
+ * binds to `DRAWING_NAMESPACE` or the one about to be: the last `id` under the
+ * first of them, as this file has always read it, so the id a file is known
+ * by does not change; or, where there is none, the last under another. The
+ * last of a name is the one read where there are two.
  */
-const idAttribute = (root: StartTag): Attribute | undefined => {
-	const names = new Set(drawingPrefixes(root).map((prefix) => `${prefix}:id`));
-	return root.attributeList.filter(({ name }) => names.has(name)).at(-1);
+const idAttribute = (root: StartTag, prefixes: readonly string[]): Attribute | undefined => {
+	const lastAmong = (names: readonly string[]): Attribute | undefined =>
+		root.attributeList.filter(({ name }) => names.includes(name)).at(-1);
+	const names = prefixes.map((prefix) => `${prefix}:id`);
+	return lastAmong(names.slice(0, 1)) ?? lastAmong(names);
 };
 
 /** A drawing's id, or `undefined` for a file with none, or one this app cannot use. */
 export const readDrawingId = (text: string): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) return undefined;
-	const id = idAttribute(root)?.value;
+	const id = idAttribute(root, drawingPrefixes(root))?.value;
 	return id !== undefined && ID.test(id) ? id : undefined;
 };
 
 /**
  * The prefix to bind the app's namespace to on a root that binds it to none:
  * `draw`, or `draw2`, `draw3`, …, the first that `bound`, the prefixes the
- * root binds already, does not hold. A search among one more than it holds,
- * not a recursion, so however many are bound it does not run out of stack;
- * the editor's too (`drawingPrefixOf`), so both choose the same one.
+ * root binds already, does not hold: found within one more than it holds, by
+ * `skipped`, not a recursion, so however many are bound it does not run out
+ * of stack. The editor's too (`drawingPrefixOf`), so both choose the same one.
  */
-export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string =>
-	Array.from({ length: bound.size + 1 }, (_, i) =>
-		i === 0 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${i + 1}`
-	).find((candidate) => !bound.has(candidate)) ?? PREFERRED_PREFIX;
+export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string => {
+	const numbered = (n: number): string =>
+		n === 1 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${n}`;
+	return numbered(skipped('', 1, (_, n) => (bound.has(numbered(n)) ? n + 1 : undefined)));
+};
 
 const freePrefix = (root: StartTag): string =>
 	freeDrawingPrefixAmong(
@@ -397,7 +390,7 @@ export const withDrawingId = (text: string, id: string): string => {
 	// (`idAttribute`), or one under the prefix about to be declared. Found
 	// among the attributes, so the same characters in another attribute's
 	// value are not taken for it. At the end of the tag otherwise.
-	const existing = prefixes.length === 0 ? lastNamed(root, `${prefix}:id`) : idAttribute(root);
+	const existing = idAttribute(root, prefixes.length === 0 ? [prefix] : prefixes);
 	return existing === undefined
 		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
 		: `${text.slice(0, existing.start)}${declaration}${existing.name}="${id}"${text.slice(existing.end)}`;
@@ -450,6 +443,30 @@ export const readDrawingSize = (text: string): DrawingSize | undefined => {
 		: undefined;
 };
 
+/** The root's attributes `withDrawingViewport` sets, and so takes away first. */
+const VIEWPORT: ReadonlySet<string> = new Set(['viewBox', 'width', 'height']);
+
+/**
+ * The same text with its root's `viewBox` set to `box`, and its `width` and
+ * `height` to `size`, in place of any it has, its other attributes and every
+ * byte outside the root tag as they were: how a render asks for the size it
+ * wants (the web app's export). `undefined` where there is no root to read.
+ */
+export const withDrawingViewport = (
+	text: string,
+	box: Readonly<{ x: number; y: number; width: number; height: number }>,
+	size: DrawingSize
+): string | undefined => {
+	const root = rootTagOf(text);
+	if (root === undefined) return undefined;
+	const kept = root.attributeList
+		.filter(({ name }) => !VIEWPORT.has(name))
+		.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
+		.join('');
+	const viewport = `viewBox="${box.x} ${box.y} ${box.width} ${box.height}" width="${size.width}" height="${size.height}"`;
+	return `${text.slice(0, root.start)}<${root.name}${kept} ${viewport}${root.selfClosing ? '/' : ''}>${text.slice(root.end)}`;
+};
+
 /** The five references XML predefines, and numeric ones, as the characters they name. */
 const decodeReferences = (text: string): string =>
 	text.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi, (whole, name: string) => {
@@ -496,20 +513,22 @@ interface TitleElement {
 }
 
 /**
- * Where a title's text ends, from `from`, and just past its end tag: the first
- * `</name` that nothing but whitespace separates from a `>`, past whatever
- * comments, CDATA sections and processing instructions the text holds, which
- * may hold one. `undefined` where none closes it, or an element of the same
- * name opens in it first, whose end tag would be taken for the title's.
+ * Whether a title named `name` that opens before `from` ends at `until`, where
+ * its first `</name>` starts, as XML reads it: whether no comment, CDATA
+ * section or processing instruction in its text holds that end tag or starts
+ * before it and never closes, and no element of its own name opens in it,
+ * whose end tag that one would be. One of its name that closes itself is
+ * passed over. Walked from `<` to `<`, and no further than `until`.
  */
-const titleEnd = (
-	text: string,
-	name: string,
-	from: number
-): Readonly<{ at: number; end: number }> | undefined => {
-	// Past what starts at a `<`: one character, or a section; `undefined` for
-	// a section that never ends, or an element named as the title is.
-	const sectionEnd = (at: number): number | undefined =>
+const endsAt = (text: string, name: string, from: number, until: number): boolean => {
+	const local = name.slice(name.indexOf(':') + 1);
+	const selfClosedEnd = (at: number): number | undefined => {
+		const inner = startTagAt(text, at, local);
+		return inner?.name === name && inner.selfClosing ? inner.end : undefined;
+	};
+	// Past what starts at a `<`: one character, a section, or an element of the
+	// title's name that closes itself; `undefined` where none of them ends.
+	const past = (at: number): number | undefined =>
 		text.startsWith('<!--', at)
 			? closedBy(text, '-->', at + 4)
 			: text.startsWith('<![CDATA[', at)
@@ -518,12 +537,14 @@ const titleEnd = (
 					? closedBy(text, '?>', at + 2)
 					: text.startsWith(`<${name}`, at) &&
 						  NOT_NAME.test(text.charAt(at + name.length + 1))
-						? undefined
+						? selfClosedEnd(at)
 						: at + 1;
-	return closingMark(text, `</${name}`, text.indexOf('<', from), (at) => {
-		const after = sectionEnd(at);
-		return after === undefined ? -1 : text.indexOf('<', after);
+	const reached = skipped(text, text.indexOf('<', from), (_, at) => {
+		if (at === -1 || at >= until) return undefined;
+		const after = past(at);
+		return after === undefined || after > until ? undefined : text.indexOf('<', after);
 	});
+	return reached === until;
 };
 
 /**
@@ -538,7 +559,7 @@ const titleEnd = (
  * runs into `/>` (`endsInBareSlash`) may close itself or not; and where a
  * comment, CDATA section or processing instruction in it holds its first
  * `</title>`, or starts before it and never closes, XML ends it elsewhere
- * (`titleEnd`), and a tool that knows none of them there. So does one that
+ * (`endsAt`), and a tool that knows none of them there. So does one that
  * holds an element of its own name, whose end tag comes first.
  *
  * SVG's title, under whatever prefix binds SVG; or a `title` with no prefix
@@ -553,10 +574,8 @@ const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
 	const svg = namespace === SVG_NAMESPACE;
 	if (!svg && (tag.prefix !== undefined || namespace !== '')) return undefined;
 	if (tag.selfClosing) return { tag, svg, end: tag.end, close: tag.end };
-	const end = titleEnd(text, tag.name, tag.end);
-	if (end === undefined || end.end !== markThenClose(text, `</${tag.name}`, tag.end)?.end) {
-		return undefined;
-	}
+	const end = markThenClose(text, `</${tag.name}`, tag.end);
+	if (end === undefined || !endsAt(text, tag.name, tag.end, end.at)) return undefined;
 	return { tag, svg, end: end.at, close: end.end };
 };
 

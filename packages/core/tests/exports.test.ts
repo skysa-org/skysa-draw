@@ -65,6 +65,7 @@ const SURFACE = [
 	'uniqueFilename',
 	'withDrawingId',
 	'withDrawingTitle',
+	'withDrawingViewport',
 ];
 
 /** Every type the entry offers; see the last test. */

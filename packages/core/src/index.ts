@@ -25,6 +25,7 @@ export {
 	SVG_NAMESPACE,
 	withDrawingId,
 	withDrawingTitle,
+	withDrawingViewport,
 } from './drawing/document.js';
 export { conflictContent, DRAW_FORMAT } from './drawing/format.js';
 export {

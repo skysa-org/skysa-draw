@@ -12,6 +12,7 @@ import {
 	SVG_NAMESPACE,
 	withDrawingId,
 	withDrawingTitle,
+	withDrawingViewport,
 } from '../../src/drawing/document.js';
 
 const ID = '7f1b8c2e-4a7d-4d1f-9a3b-5c6d7e8f9a0b';
@@ -271,9 +272,15 @@ describe('withDrawingId', () => {
 	});
 
 	it('finds the id under any prefix bound to the namespace, and keeps that prefix', () => {
-		const text = `<svg xmlns="${SVG_NAMESPACE}" xmlns:a="${DRAWING_NAMESPACE}" xmlns:b="${DRAWING_NAMESPACE}" b:id="keep"/>`;
+		const both = `<svg xmlns="${SVG_NAMESPACE}" xmlns:a="${DRAWING_NAMESPACE}" xmlns:b="${DRAWING_NAMESPACE}"`;
+		const text = `${both} b:id="keep"/>`;
 		expect(readDrawingId(text)).toBe('keep');
 		expect(withDrawingId(text, ID)).toBe(text.replace('b:id="keep"', `b:id="${ID}"`));
+		// Under the first prefix where it has one there, as it was always read,
+		// so the id a file is known by does not change.
+		const two = `${both} a:id="first" b:id="second"/>`;
+		expect(readDrawingId(two)).toBe('first');
+		expect(withDrawingId(two, ID)).toBe(two.replace('a:id="first"', `a:id="${ID}"`));
 	});
 
 	it('declares the namespace for an id the file has without it', () => {
@@ -508,6 +515,38 @@ describe('readDrawingTitle', () => {
 	});
 });
 
+describe('withDrawingViewport', () => {
+	const BOX = { x: 10, y: 20, width: 300, height: 200 };
+	const SIZE = { width: 600, height: 400 };
+
+	it('sets the root’s viewBox, width and height in place of its own, and keeps the rest', () => {
+		const text = emptyDrawing({ id: ID });
+		const sized = withDrawingViewport(text, BOX, SIZE);
+		expect(sized).toBe(
+			text.replace(
+				' viewBox="0 0 1600 1000" width="1600" height="1000">',
+				' viewBox="10 20 300 200" width="600" height="400">'
+			)
+		);
+		expect(readDrawingId(sized ?? '')).toBe(ID);
+	});
+
+	it('keeps the prolog, the prefix and a root that closes itself', () => {
+		const root = `<svg:svg xmlns:svg="${SVG_NAMESPACE}" width=5 a="b"/>`;
+		expect(withDrawingViewport(`${WITH_SUBSET.split('<svg')[0]}${root}`, BOX, SIZE)).toBe(
+			`${WITH_SUBSET.split('<svg')[0]}<svg:svg xmlns:svg="${SVG_NAMESPACE}" a="b" viewBox="10 20 300 200" width="600" height="400"/>`
+		);
+	});
+
+	it('is nothing for text with no root to read, and reads a root of many attributes', () => {
+		expect(withDrawingViewport('<html/>', BOX, SIZE)).toBeUndefined();
+		const many = `<svg xmlns="${SVG_NAMESPACE}"${' a="b"'.repeat(200_000)}><g/></svg>`;
+		expect(
+			withDrawingViewport(many, BOX, SIZE)?.endsWith(' width="600" height="400"><g/></svg>')
+		).toBe(true);
+	});
+});
+
 describe('emptyDrawing', () => {
 	it('is a drawing this app reads back whole', () => {
 		const text = emptyDrawing({ id: ID, title: 'Logo', size: { width: 400, height: 300 } });
@@ -674,10 +713,13 @@ describe('withDrawingTitle', () => {
 			);
 			expect(withDrawingTitle(`${root}${rest}`, '')).toBe(`${root}${rest}`);
 		}
-		// One that closes before the end tag is read as part of the text, as it always was.
-		const text = `${root}<title>A<!-- c -->B</title><g/></svg>`;
-		expect(readDrawingTitle(text)).toBe('A<!-- c -->B');
-		expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
+		// One that closes before the end tag is read as part of the text, as it
+		// always was, and so is an element of the title's name that closes itself.
+		for (const inner of ['A<!-- c -->B', 'A<title/>B', 'A<title id="x" />B']) {
+			const text = `${root}<title>${inner}</title><g/></svg>`;
+			expect(readDrawingTitle(text)).toBe(inner);
+			expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
+		}
 	});
 
 	it('reads and writes a title after a processing instruction, as XML puts one there', () => {
