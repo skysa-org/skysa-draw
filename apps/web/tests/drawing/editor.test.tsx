@@ -1076,30 +1076,23 @@ describe('the editor saving', () => {
 
 	it('asks before the page goes while a stroke is still being encoded, and not once every one lands as nothing', async () => {
 		await renderEditor('expanded');
-		/** A stroke whose encoding the test lands. */
-		const stroke = () => {
-			const encoding: { land: () => void } = { land: () => undefined };
-			const landing = new Promise<void>((resolve) => {
-				encoding.land = resolve;
-			});
-			return { encoding, landing };
-		};
-		const first = stroke();
-		const second = stroke();
+		// Strokes whose encoding the test lands.
+		const first = Promise.withResolvers<void>();
+		const second = Promise.withResolvers<void>();
 
 		act(() => {
-			lastOpened().pending(first.landing);
-			lastOpened().pending(second.landing);
+			lastOpened().pending(first.promise);
+			lastOpened().pending(second.promise);
 		});
 		expect(asksBeforeLeaving()).toBe(true);
 		await pastTheSave();
 		expect(asksBeforeLeaving()).toBe(true);
 
 		// Strokes that reached no pixel, say: no edit.
-		first.encoding.land();
+		first.resolve();
 		await pastTheSave();
 		expect(asksBeforeLeaving()).toBe(true);
-		second.encoding.land();
+		second.resolve();
 		await waitFor(() => {
 			expect(asksBeforeLeaving()).toBe(false);
 			expect(leavingHeld()).toBe(false);
@@ -1724,25 +1717,64 @@ describe('the editor saving', () => {
 		const { db, made, view } = await renderEditor('expanded');
 		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
 		const document = lastOpened();
-		const encoding: { land: () => void } = { land: () => undefined };
-		act(() =>
-			document.pending(
-				new Promise<void>((resolve) => {
-					encoding.land = resolve;
-				})
-			)
-		);
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
 
 		view.unmount();
 		// Closed with the stroke still being encoded: nothing to save yet.
 		await waitFor(() => expect(leavingHeld()).toBe(false));
 		act(() => {
 			document.edit(stroke);
-			encoding.land();
+			encoding.resolve();
 		});
 
 		expect(asksBeforeLeaving()).toBe(true);
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it('asks after the editor closed while the save of a stroke landing then waits on raster work', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		view.unmount();
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		// Another stroke, still being encoded as the save starts.
+		const encoding = Promise.withResolvers<void>();
+		const settle = vi.spyOn(document, 'settle').mockReturnValueOnce(encoding.promise);
+
+		act(() => document.edit(stroke));
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		expect(asksBeforeLeaving()).toBe(true);
+		encoding.resolve();
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it('asks after the editor closed while a stroke landing then is kept in a copy beside a change from elsewhere', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		view.unmount();
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		// The change, which no live query brings the closed editor.
+		await saveDrawing(db, made.id, theirs);
+		// The save's own settle, then the copy's, which the test holds.
+		const copying = Promise.withResolvers<void>();
+		const settle = vi
+			.spyOn(document, 'settle')
+			.mockReturnValueOnce(Promise.resolve())
+			.mockReturnValueOnce(copying.promise);
+
+		act(() => document.edit(mine));
+		await waitFor(() => expect(settle).toHaveBeenCalledTimes(2));
+
+		expect(asksBeforeLeaving()).toBe(true);
+		copying.resolve();
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
+		expect(await rowText(db, made.id)).toBe(theirs);
 		await waitFor(() => expect(leavingHeld()).toBe(false));
 	});
 

@@ -127,6 +127,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * (`expected`): until it lands, it is not saved.
 	 */
 	const sending = cell<string | undefined>(undefined);
+	/**
+	 * Saves started and not over: from the pause's end, past raster work it
+	 * waits for and the store, to a copy it sets off (`offerStored`).
+	 */
+	const saves = cell(0);
 	const timer = cell<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
@@ -151,17 +156,20 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
-	 * Whether a page going now would lose anything: the pause, a save on its
-	 * way, raster work pending, or an edit the store has not taken, a refused
-	 * save's among them. Not while the user is deleting the drawing, which
-	 * takes the edits with it; and once the editor has closed, only a save
-	 * still to come: what the store refused went with it, and raster work that
-	 * lands yet sets off a save of its own. The cheap answers first, since
-	 * telling unsaved edits reads the text.
+	 * Whether a page going now would lose anything: the pause, a save under
+	 * way, a copy being kept, raster work pending, or an edit the store has not
+	 * taken, a refused save's among them. Not while the user is deleting the
+	 * drawing, which takes the edits with it; and once the editor has closed,
+	 * only a save or a copy still to come or under way, which a stroke landing
+	 * then sets off: what the store refused went with the editor, and raster
+	 * work that lands yet sets off a save of its own. The cheap answers first,
+	 * since telling unsaved edits reads the text.
 	 */
 	const losing = (): boolean => {
 		if (deleting.current) return false;
-		if (timer.current !== undefined || sending.current !== undefined) return true;
+		if (timer.current !== undefined || saves.current > 0 || kept.current !== undefined) {
+			return true;
+		}
 		if (starts.current === 0) return false;
 		if (encoding.current > 0) return true;
 		try {
@@ -201,6 +209,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const save = (document: EditorDocument): Promise<void> => {
 		timer.current = undefined;
 		firstChangeAt.current = undefined;
+		saves.current += 1;
 		set({ saving: 'saving' });
 		const work = (async () => {
 			await document.settle();
@@ -248,10 +257,14 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
-		})().catch(() => {
-			// The document would not settle, or the row could not be read.
-			if (state.current.document === document) set({ saving: 'idle' });
-		});
+		})()
+			.catch(() => {
+				// The document would not settle, or the row could not be read.
+				if (state.current.document === document) set({ saving: 'idle' });
+			})
+			.finally(() => {
+				saves.current -= 1;
+			});
 		inFlight.current = work;
 		void work.then(letGo);
 		return work;
