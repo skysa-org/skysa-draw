@@ -33,7 +33,11 @@ import {
 	writeLayerKind,
 } from '../../src/drawing/document/layers.js';
 import type { Command } from '../../src/drawing/document/model.js';
-import { parseDrawing, XLINK_NAMESPACE } from '../../src/drawing/document/sanitize.js';
+import {
+	parseDrawing,
+	XLINK_NAMESPACE,
+	XMLNS_NAMESPACE,
+} from '../../src/drawing/document/sanitize.js';
 
 /**
  * The commands (docs/ARCHITECTURE.md §7, "Commands and history"): what each
@@ -454,6 +458,16 @@ describe('the layer helpers the commands are made of', () => {
 		writeLayerKind(live, layer, 'raster');
 		expect(layer.getAttribute('draw2:kind')).toBe('raster');
 		expect(layersOf(live)[0]?.kind).toBe('raster');
+	});
+
+	it('declares a free prefix however many are taken', () => {
+		const taken = Array.from(
+			{ length: 20_000 },
+			(_, i) => ` xmlns:draw${i === 0 ? '' : i + 1}="urn:example:other"`
+		).join('');
+		const live = open(`<svg xmlns="${SVG_NAMESPACE}"${taken}><g id="a"/></svg>`);
+		expect(drawingPrefixOf(live)).toBe('draw20001');
+		expect(live.getAttributeNS(XMLNS_NAMESPACE, 'draw20001')).toBe(DRAWING_NAMESPACE);
 	});
 
 	it('reads what a layer says of itself, the style before the attribute', () => {

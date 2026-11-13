@@ -35,21 +35,31 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const SPACE = /\s/;
 
 /**
- * Where a run of whitespace from `from` ends: `from` itself where there is
- * none. A loop, as `skipped` is.
+ * Where a run from `from` of what `stop` does not match ends: `from` itself
+ * where there is none. A loop, as `skipped` is.
  */
-const spaceEnd = (text: string, from: number): number => {
+const runEnd = (text: string, from: number, stop: RegExp): number => {
 	// eslint-disable-next-line functional/no-let -- see `skipped`
 	let at = from;
 	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
-	while (at < text.length && SPACE.test(text.charAt(at))) at += 1;
+	while (at < text.length && !stop.test(text.charAt(at))) at += 1;
 	return at;
 };
+
+/** Where a run of whitespace from `from` ends. */
+const spaceEnd = (text: string, from: number): number => runEnd(text, from, /\S/);
 
 /** Just past the first `close` from `from`, or `undefined` where there is none. */
 const closedBy = (text: string, close: string, from: number): number | undefined => {
 	const at = text.indexOf(close, from);
 	return at === -1 ? undefined : at + close.length;
+};
+
+/** Just past `mark`, whitespace and a `>` at `at`, where they are there. */
+const markClosedAt = (text: string, mark: string, at: number): number | undefined => {
+	if (!text.startsWith(mark, at)) return undefined;
+	const after = spaceEnd(text, at + mark.length);
+	return text.charAt(after) === '>' ? after + 1 : undefined;
 };
 
 /**
@@ -66,8 +76,8 @@ const markThenClose = (
 	let at = text.indexOf(mark, from);
 	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
 	while (at !== -1) {
-		const after = spaceEnd(text, at + mark.length);
-		if (text.charAt(after) === '>') return { at, end: after + 1 };
+		const end = markClosedAt(text, mark, at);
+		if (end !== undefined) return { at, end };
 		at = text.indexOf(mark, at + 1);
 	}
 	return undefined;
@@ -151,62 +161,31 @@ const skipped = (
  */
 const prologEnd = (text: string): number => skipped(text, 0, prologItemEnd);
 
-/** What a name cannot hold, and what a value without quotes cannot. */
-const NOT_NAME = /[\s"'<>/=]/;
-const NOT_BARE = /[\s"'=<>`]/;
-
-/** Where a run from `from` of what `stop` does not match ends. A loop, as `skipped` is. */
-const runEnd = (text: string, from: number, stop: RegExp): number => {
+/**
+ * The run of things from `from` that `item` reads one after another, as
+ * `skipped` reads it, and each of them.
+ */
+const readRun = <T extends Readonly<{ end: number }>>(
+	text: string,
+	from: number,
+	item: (text: string, at: number) => T | undefined
+): Readonly<{ items: readonly T[]; end: number }> => {
+	const items: T[] = [];
 	// eslint-disable-next-line functional/no-let -- see `skipped`
 	let at = from;
 	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
-	while (at < text.length && !stop.test(text.charAt(at))) at += 1;
-	return at;
+	for (;;) {
+		const next = item(text, at);
+		if (next === undefined || next.end <= at) return { items, end: at };
+		// eslint-disable-next-line functional/immutable-data -- built here, and only read once returned
+		items.push(next);
+		at = next.end;
+	}
 };
 
-/**
- * Just past a value without quotes that starts at `at`: up to whitespace or
- * what else such a value cannot hold, or to a `/>` after its first character,
- * which closes the tag. XML has every value quoted; a `width=10/>` some tool
- * wrote ends its value before the slash, as its author meant.
- */
-const bareEnd = (text: string, at: number): number => {
-	const end = runEnd(text, at, NOT_BARE);
-	return end > at + 1 && text.startsWith('/>', end - 1) ? end - 1 : end;
-};
-
-/**
- * Just past the value that starts at `at`, after an attribute's `=`: one in
- * double or single quotes to its closing quote, or one without to `bareEnd`.
- * `undefined` where none starts there, or a quote is never closed.
- */
-const valueEnd = (text: string, at: number): number | undefined => {
-	const quote = text.charAt(at);
-	if (quote === '"' || quote === "'") return closedBy(text, quote, at + 1);
-	const end = bareEnd(text, at);
-	return end === at ? undefined : end;
-};
-
-/**
- * Just past whitespace and the attribute after it, from `at`: its name, and
- * `=` and a value where they follow, with whitespace about the `=`.
- * `undefined` where there is no whitespace there, or no attribute after it,
- * or an `=` with no value.
- */
-const spacedAttributeEnd = (text: string, at: number): number | undefined => {
-	const name = spaceEnd(text, at);
-	const nameEnd = runEnd(text, name, NOT_NAME);
-	if (name === at || nameEnd === name) return undefined;
-	const equals = spaceEnd(text, nameEnd);
-	return text.charAt(equals) === '=' ? valueEnd(text, spaceEnd(text, equals + 1)) : nameEnd;
-};
-
-/**
- * An attribute, as `spacedAttributeEnd` reads one: a name, and a value in
- * double quotes, single quotes or bare. Only run over attributes it has read,
- * so a bare value never meets a `/>`.
- */
-const ATTRIBUTE = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+/** What a name cannot hold, and what a value without quotes cannot. */
+const NOT_NAME = /[\s"'<>/=]/;
+const NOT_BARE = /[\s"'=<>`]/;
 
 interface Attribute {
 	readonly name: string;
@@ -215,6 +194,40 @@ interface Attribute {
 	readonly start: number;
 	readonly end: number;
 }
+
+/**
+ * The attribute after whitespace at `at`: its name, and `=` and a value where
+ * they follow, with whitespace about the `=`. The value is in double or single
+ * quotes, or bare up to whitespace or what else such a value cannot hold. A
+ * bare value takes a slash before the tag's `>`, as HTML reads one, unless
+ * `slashCloses`, when the slash is the tag's own: XML has every value quoted,
+ * so which was meant is for the reader to say (`rootTagOf`, `firstTitle`).
+ * `undefined` where there is no whitespace there, or no attribute after it,
+ * or an `=` with no value.
+ */
+const spacedAttributeAt = (
+	text: string,
+	at: number,
+	slashCloses: boolean
+): Attribute | undefined => {
+	const start = spaceEnd(text, at);
+	const nameEnd = runEnd(text, start, NOT_NAME);
+	if (start === at || nameEnd === start) return undefined;
+	const name = text.slice(start, nameEnd);
+	const equals = spaceEnd(text, nameEnd);
+	if (text.charAt(equals) !== '=') return { name, value: '', start, end: nameEnd };
+	const from = spaceEnd(text, equals + 1);
+	const quote = text.charAt(from);
+	if (quote === '"' || quote === "'") {
+		const close = text.indexOf(quote, from + 1);
+		return close === -1
+			? undefined
+			: { name, value: text.slice(from + 1, close), start, end: close + 1 };
+	}
+	const run = runEnd(text, from, NOT_BARE);
+	const end = slashCloses && run > from + 1 && text.startsWith('/>', run - 1) ? run - 1 : run;
+	return end === from ? undefined : { name, value: text.slice(from, end), start, end };
+};
 
 interface StartTag {
 	/** Where the tag begins and ends in the text, so it can be put back. */
@@ -234,48 +247,66 @@ interface StartTag {
 	readonly selfClosing: boolean;
 }
 
-/** The attributes of a start tag's `body`, which begins at `offset` in the text. */
-const attributesOf = (body: string, offset: number): readonly Attribute[] =>
-	[...body.matchAll(ATTRIBUTE)].map((match) => ({
-		name: match[1] ?? '',
-		value: match[2] ?? match[3] ?? match[4] ?? '',
-		start: offset + match.index,
-		end: offset + match.index + match[0].length,
-	}));
-
 /**
  * The start tag at `start` of an element named `localName`, with one prefix
  * or none, as XML's namespaces allow: its name, attributes each after
- * whitespace (`spacedAttributeEnd`), and `>` or `/>` with any whitespace
+ * whitespace (`spacedAttributeAt`), and `>` or `/>` with any whitespace
  * before it. `undefined` where there is another element there, or something
- * else. Read with `skipped`, as the prolog is: a pattern for it ran out of
+ * else. Scanned in a loop, as the prolog is: a pattern for it ran out of
  * stack over a great many attributes.
  */
-const startTagAt = (text: string, start: number, localName: string): StartTag | undefined => {
+const startTagAt = (
+	text: string,
+	start: number,
+	localName: string,
+	slashCloses = false
+): StartTag | undefined => {
 	if (text.charAt(start) !== '<') return undefined;
 	const nameEnd = runEnd(text, start + 1, NOT_NAME);
 	const name = text.slice(start + 1, nameEnd);
 	const colon = name.indexOf(':');
 	if (colon === 0 || name.slice(colon + 1) !== localName) return undefined;
-	const attributesEnd = skipped(text, nameEnd, spacedAttributeEnd);
+	const { items, end: attributesEnd } = readRun(text, nameEnd, (_, at) =>
+		spacedAttributeAt(text, at, slashCloses)
+	);
 	const close = spaceEnd(text, attributesEnd);
 	const selfClosing = text.startsWith('/>', close);
 	if (!selfClosing && text.charAt(close) !== '>') return undefined;
-	const attributeList = attributesOf(text.slice(nameEnd, attributesEnd), nameEnd);
 	return {
 		start,
 		end: close + (selfClosing ? 2 : 1),
 		attributesEnd,
 		name,
 		prefix: colon === -1 ? undefined : name.slice(0, colon),
-		attributeList,
-		attributes: new Map(attributeList.map(({ name, value }) => [name, value])),
+		attributeList: items,
+		attributes: new Map(items.map(({ name, value }) => [name, value])),
 		selfClosing,
 	};
 };
 
-/** The root's start tag, where the prolog is followed by an `svg`, with or without a prefix. */
-const rootTagOf = (text: string): StartTag | undefined => startTagAt(text, prologEnd(text), 'svg');
+/**
+ * Whether a tag that does not close itself ends in a bare value's slash and
+ * its `>`, as `height=10/>` does: one its author may have meant to close
+ * itself, or one whose value ends in a slash.
+ */
+const endsInBareSlash = (text: string, tag: StartTag): boolean =>
+	!tag.selfClosing && text.charAt(tag.end - 2) === '/';
+
+/**
+ * The root's start tag, where the prolog is followed by an `svg`, with or
+ * without a prefix. Where its last value is bare and runs into `/>`
+ * (`endsInBareSlash`), the slash is the value's where the root's end tag
+ * follows, as in `xml:base=http://a/b/><g/></svg>`, and the tag's own close
+ * where none does, as in `height=10/>`: what its author meant either way.
+ */
+const rootTagOf = (text: string): StartTag | undefined => {
+	const start = prologEnd(text);
+	const tag = startTagAt(text, start, 'svg');
+	if (tag === undefined || !endsInBareSlash(text, tag)) return tag;
+	return markThenClose(text, `</${tag.name}`, tag.end) === undefined
+		? startTagAt(text, start, 'svg', true)
+		: tag;
+};
 
 /**
  * A start tag opened up to its last attribute, without the whitespace and the
@@ -314,30 +345,43 @@ export const readDrawingProlog = (text: string): string | undefined => {
 	return root === undefined || !isSvgRoot(root) ? undefined : text.slice(0, root.start);
 };
 
-/** The prefix the root binds to `DRAWING_NAMESPACE`, where it binds one. */
-const drawingPrefix = (root: StartTag): string | undefined =>
+/** The prefixes the root binds to `DRAWING_NAMESPACE`, in order. */
+const drawingPrefixes = (root: StartTag): readonly string[] =>
 	[...root.attributes]
 		.filter(([name, value]) => name.startsWith('xmlns:') && value === DRAWING_NAMESPACE)
-		.map(([name]) => name.slice('xmlns:'.length))[0];
+		.map(([name]) => name.slice('xmlns:'.length));
+
+/** The last attribute named `name`, which is the one read where there are two. */
+const lastNamed = (root: StartTag, name: string): Attribute | undefined =>
+	root.attributeList.filter((attribute) => attribute.name === name).at(-1);
+
+/**
+ * The attribute that holds the drawing's id: the last `id` under any prefix
+ * the root binds to `DRAWING_NAMESPACE`, as the last of a name is the one read.
+ */
+const idAttribute = (root: StartTag): Attribute | undefined => {
+	const names = new Set(drawingPrefixes(root).map((prefix) => `${prefix}:id`));
+	return root.attributeList.filter(({ name }) => names.has(name)).at(-1);
+};
 
 /** A drawing's id, or `undefined` for a file with none, or one this app cannot use. */
 export const readDrawingId = (text: string): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) return undefined;
-	const prefix = drawingPrefix(root);
-	const id = prefix === undefined ? undefined : root.attributes.get(`${prefix}:id`);
+	const id = idAttribute(root)?.value;
 	return id !== undefined && ID.test(id) ? id : undefined;
 };
 
 /** A prefix not bound on the root: `draw`, or `draw2`, `draw3`, … where it is taken. */
 const freePrefix = (root: StartTag): string => {
-	const free = (candidate: string): boolean => !root.attributes.has(`xmlns:${candidate}`);
-	if (free(PREFERRED_PREFIX)) return PREFERRED_PREFIX;
-	// One of as many more as the root has attributes is free.
+	const taken = [...root.attributes.keys()].filter((name) =>
+		name.startsWith(`xmlns:${PREFERRED_PREFIX}`)
+	);
+	// One of as many as are taken, and one more, is free.
 	return (
-		Array.from({ length: root.attributes.size }, (_, i) => `${PREFERRED_PREFIX}${i + 2}`).find(
-			free
-		) ?? PREFERRED_PREFIX
+		Array.from({ length: taken.length + 1 }, (_, i) =>
+			i === 0 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${i + 1}`
+		).find((candidate) => !root.attributes.has(`xmlns:${candidate}`)) ?? PREFERRED_PREFIX
 	);
 };
 
@@ -352,17 +396,18 @@ export const withDrawingId = (text: string, id: string): string => {
 	if (!ID.test(id)) throw new RangeError(`a drawing's id is a UUID or the like, not ${id}`);
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) throw new RangeError('not an SVG document');
-	const bound = drawingPrefix(root);
-	const prefix = bound ?? freePrefix(root);
-	const attribute = `${bound === undefined ? `xmlns:${prefix}="${DRAWING_NAMESPACE}" ` : ''}${prefix}:id="${id}"`;
-	// In place where the file has the attribute, so a file given its id once
-	// is the same bytes given it again: the last of that name, which is the
-	// one read. Found among the attributes, so the same characters in another
-	// attribute's value are not taken for it. At the end of the tag otherwise.
-	const existing = root.attributeList.filter(({ name }) => name === `${prefix}:id`).at(-1);
+	const prefixes = drawingPrefixes(root);
+	const prefix = prefixes[0] ?? freePrefix(root);
+	const declaration = prefixes.length === 0 ? `xmlns:${prefix}="${DRAWING_NAMESPACE}" ` : '';
+	// In place where the file has the attribute, under its own prefix, so a
+	// file given its id once is the same bytes given it again: the one read
+	// (`idAttribute`), or one under the prefix about to be declared. Found
+	// among the attributes, so the same characters in another attribute's
+	// value are not taken for it. At the end of the tag otherwise.
+	const existing = prefixes.length === 0 ? lastNamed(root, `${prefix}:id`) : idAttribute(root);
 	return existing === undefined
-		? `${text.slice(0, root.start)}${openedTag(text, root)} ${attribute}${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
-		: `${text.slice(0, existing.start)}${attribute}${text.slice(existing.end)}`;
+		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
+		: `${text.slice(0, existing.start)}${declaration}${existing.name}="${id}"${text.slice(existing.end)}`;
 };
 
 export interface DrawingSize {
@@ -458,12 +503,42 @@ interface TitleElement {
 }
 
 /**
+ * Where a title's text ends, from `from`, and just past its end tag: the first
+ * `</name` that nothing but whitespace separates from a `>`, past whatever
+ * comments and CDATA sections the text holds, which may hold one. `undefined`
+ * where none closes it. A loop, as `skipped` is.
+ */
+const titleEnd = (
+	text: string,
+	name: string,
+	from: number
+): Readonly<{ at: number; end: number }> | undefined => {
+	const mark = `</${name}`;
+	// eslint-disable-next-line functional/no-let -- see `skipped`
+	let at = text.indexOf('<', from);
+	// eslint-disable-next-line functional/no-loop-statements -- see `skipped`
+	while (at !== -1) {
+		const skip = text.startsWith('<!--', at)
+			? closedBy(text, '-->', at + 4)
+			: text.startsWith('<![CDATA[', at)
+				? closedBy(text, ']]>', at + 9)
+				: at + 1;
+		if (skip === undefined) return undefined;
+		const end = markClosedAt(text, mark, at);
+		if (end !== undefined) return { at, end };
+		at = text.indexOf('<', skip);
+	}
+	return undefined;
+};
+
+/**
  * The first `<title>` after the root tag, which is where SVG puts a document's
  * name and where this app writes it: past whatever whitespace and comments
  * lead to it (`spaceOrCommentEnd`). Its start tag is read as the root's is,
  * so a `>` in a quoted value does not end it, and one that closes itself is
- * an empty title. Its end tag is the first `</title` under the same name that
- * nothing but whitespace separates from a `>`.
+ * an empty title. Its end tag is found by `titleEnd`. One whose last value is
+ * bare and runs into `/>` (`endsInBareSlash`) may close itself or not, and is
+ * not read: a rename then puts a title ahead of it, and takes nothing away.
  *
  * SVG's title, under whatever prefix binds SVG; or a `title` with no prefix
  * in no namespace, as this app's 0.1.0 wrote one under an `svg:svg` root, and
@@ -472,12 +547,12 @@ interface TitleElement {
  */
 const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
 	const tag = startTagAt(text, skipped(text, root.end, spaceOrCommentEnd), 'title');
-	if (tag === undefined) return undefined;
+	if (tag === undefined || endsInBareSlash(text, tag)) return undefined;
 	const namespace = namespaceOf(tag, root);
 	const svg = namespace === SVG_NAMESPACE;
 	if (!svg && (tag.prefix !== undefined || namespace !== '')) return undefined;
 	if (tag.selfClosing) return { tag, svg, end: tag.end, close: tag.end };
-	const end = markThenClose(text, `</${tag.name}`, tag.end);
+	const end = titleEnd(text, tag.name, tag.end);
 	return end === undefined ? undefined : { tag, svg, end: end.at, close: end.end };
 };
 
@@ -495,6 +570,17 @@ export const readDrawingTitle = (text: string): string | undefined => {
 	return title === '' ? undefined : title;
 };
 
+/**
+ * What XML 1.0 has no place for in text: the control characters but tab, line
+ * feed and carriage return, U+FFFE and U+FFFF, and a surrogate with no
+ * partner. A title holding one would leave a file no XML parser reads.
+ */
+// eslint-disable-next-line no-control-regex
+const NOT_XML = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|\p{Surrogate}/gu;
+
+/** A title as it is written: without what XML has no place for, and trimmed. */
+const cleanTitle = (title: string): string => title.replace(NOT_XML, '').trim();
+
 const escapeText = (text: string): string =>
 	text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -507,7 +593,7 @@ const escapeText = (text: string): string =>
 export const withDrawingTitle = (text: string, title: string): string => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) throw new RangeError('not an SVG document');
-	const trimmed = title.trim();
+	const trimmed = cleanTitle(title);
 	const name = titleName(root);
 	const element = `<${name}>${escapeText(trimmed)}</${name}>`;
 	const before = text.slice(0, root.start);
@@ -523,10 +609,19 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const lead = text.slice(root.end, found.tag.start);
 	const after = text.slice(found.close);
 	if (trimmed === '') return `${before}${tag}${lead.trimEnd()}${after}`;
-	// SVG's title keeps its own start tag, attributes and all, so an `id` the
-	// root's `aria-labelledby` names still names it, and is opened where it
-	// closed itself. One in no namespace is written anew, as SVG's.
-	if (!found.svg) return `${before}${tag}${lead}${element}${after}`;
+	// The title keeps its attributes, so an `id` the root's `aria-labelledby`
+	// names still names it. SVG's keeps its start tag as it is, opened where it
+	// closed itself. One in no namespace is named as SVG's, without the one
+	// attribute that could bind that name to something else.
+	if (!found.svg) {
+		const colon = name.indexOf(':');
+		const binding = colon === -1 ? 'xmlns' : `xmlns:${name.slice(0, colon)}`;
+		const kept = found.tag.attributeList
+			.filter((attribute) => attribute.name !== binding)
+			.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
+			.join('');
+		return `${before}${tag}${lead}<${name}${kept}>${escapeText(trimmed)}</${name}>${after}`;
+	}
 	const open = found.tag.selfClosing
 		? `${openedTag(text, found.tag)}>`
 		: text.slice(found.tag.start, found.tag.end);
@@ -559,9 +654,9 @@ export const emptyDrawing = ({
 		throw new RangeError('a drawing is wider and taller than nothing');
 	}
 	const titled =
-		title === undefined || title.trim() === ''
+		title === undefined || cleanTitle(title) === ''
 			? ''
-			: `\n  <title>${escapeText(title.trim())}</title>`;
+			: `\n  <title>${escapeText(cleanTitle(title))}</title>`;
 	// After the title, as §3 shows it: the title is the root's first child, and
 	// the layer the first thing that draws. Its kind is written, not left to be
 	// inferred, so the file says what the app meant.

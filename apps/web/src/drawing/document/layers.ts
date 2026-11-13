@@ -277,12 +277,22 @@ export const boundDrawingPrefix = (root: Element): string | undefined =>
 			attribute.value === DRAWING_NAMESPACE
 	)?.localName;
 
-/** `draw`, or `draw2`, `draw3`, … where the root binds `draw` to something else. */
-const freeDrawingPrefix = (root: Element, n = 1): string => {
-	const candidate = n === 1 ? 'draw' : `draw${n}`;
-	return root.hasAttributeNS(XMLNS_NAMESPACE, candidate)
-		? freeDrawingPrefix(root, n + 1)
-		: candidate;
+/**
+ * `draw`, or `draw2`, `draw3`, … where the root binds `draw` to something else.
+ * A search, not a recursion, as `freePrefix` is in core: among one more
+ * candidate than the root binds prefixes, one is free.
+ */
+const freeDrawingPrefix = (root: Element): string => {
+	const taken = new Set(
+		[...root.attributes]
+			.filter((attribute) => attribute.namespaceURI === XMLNS_NAMESPACE)
+			.map((attribute) => attribute.localName)
+	);
+	return (
+		Array.from({ length: taken.size + 1 }, (_, i) => (i === 0 ? 'draw' : `draw${i + 1}`)).find(
+			(candidate) => !taken.has(candidate)
+		) ?? 'draw'
+	);
 };
 
 /**
