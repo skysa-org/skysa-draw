@@ -1063,6 +1063,19 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(edited);
 	});
 
+	it('writes raster work still pending when asked to settle: a stroke is an edit once its encoding lands', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		vi.spyOn(document, 'settle').mockImplementationOnce(() => {
+			document.edit(stroke);
+			return Promise.resolve();
+		});
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(stroke);
+	});
+
 	it('names the drawing when settling, while the store will not take what it holds', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const refuse = () => {
@@ -1100,6 +1113,37 @@ describe('the editor saving', () => {
 		expect(flushEditors()).toHaveLength(1);
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
 		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+	});
+
+	it('writes raster work still pending as it closes', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		vi.spyOn(document, 'settle').mockImplementationOnce(() => {
+			document.edit(stroke);
+			return Promise.resolve();
+		});
+		view.unmount();
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+	});
+
+	it('tries once more as it closes a save the store refused', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+		await pastTheSave();
+		expect(await rowText(db, made.id)).toBe(made.text);
+
+		// The store takes it again, and the drawing is closed before another change.
+		db.drawings.hook('updating').unsubscribe(refuse);
+		view.unmount();
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
 	});
 
 	it('waits for a copy being kept for a change from elsewhere, which the edits are in', async () => {
@@ -1159,6 +1203,46 @@ describe('the editor saving', () => {
 		expect(copy?.text).toBe(
 			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
 		);
+	});
+
+	it('waits for a copy a change from elsewhere sets off while a refused save is tried again', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		// The store refuses this editor's text, and takes the change from elsewhere.
+		const refuse = (changes: object) => {
+			if ('text' in changes && String(changes.text).includes('layer-2')) {
+				throw new Error('the store refused');
+			}
+		};
+		db.drawings.hook('updating', refuse);
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		const begun: { copy: () => void } = { copy: () => undefined };
+		vi.spyOn(document, 'settle')
+			// Settling's own, then the pending save's, which the store refuses.
+			.mockImplementationOnce(() => Promise.resolve())
+			.mockImplementationOnce(() => Promise.resolve())
+			// The retry's: the change from elsewhere lands, and the retry waits
+			// for the copy it sets off to begin.
+			.mockImplementationOnce(async () => {
+				await saveDrawing(db, made.id, theirs);
+				await new Promise<void>((resolve) => {
+					begun.copy = resolve;
+				});
+			})
+			// The copy's, held past the retry.
+			.mockImplementationOnce(() => {
+				begun.copy();
+				return new Promise((resolve) => setTimeout(resolve, 50));
+			});
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+		db.drawings.hook('updating').unsubscribe(refuse);
 	});
 
 	it('names the drawing as it was, deleted elsewhere with nothing taken in its place', async () => {

@@ -409,30 +409,36 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	/**
 	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
 	 * it holds written now, and this drawing named, by `drawingRef`, if the
-	 * store still has not taken it. The pending save goes first, then a copy
-	 * being kept, since the edits are its: one under way already, which has
-	 * stopped the save's timer, or one the save sets off by finding the row
-	 * changed. Edits a save before it left behind — the store refused it — are
-	 * tried once more, since nothing else would try them until the next
-	 * change. Kept in a drawing of their own, or going with the user's delete,
-	 * the edits are not this drawing's to name.
+	 * store still has not taken it. Raster work still pending goes first, since
+	 * a stroke is an edit only once its encoding lands, as `keepDeleted` waits
+	 * for it too; then the pending save; then a copy being kept, since the
+	 * edits are its: one under way already, which has stopped the save's
+	 * timer, or one the save set off by finding the row changed, once the
+	 * change has reached the editor. Edits a save before it left behind — the
+	 * store refused it — are tried once more, since nothing else would try
+	 * them until the next change, and a copy that sets off meanwhile is waited
+	 * for in turn. Kept in a drawing of their own, or going with the user's
+	 * delete, the edits are not this drawing's to name; anything else not in
+	 * the store is, an edit made while it settles among it.
 	 *
 	 * Edits held for a row deleted elsewhere, whose new drawing in its place
 	 * the store refused (`keepDeleted`), are named by the row as it was, so
 	 * that its source, and only its source, counts them as held.
 	 */
 	const settle = async (): Promise<readonly string[]> => {
+		/** Edits the store has not taken, which no copy and no delete of the user's has. */
+		const held = (): boolean => !keeping.current && !deleting.current && hasUnsavedEdits();
+		await state.current.document?.settle();
 		await flush();
 		await keepsDone();
 		const document = state.current.document;
-		if (document === undefined || keeping.current || deleting.current || !hasUnsavedEdits()) {
-			return [];
-		}
+		if (document === undefined || !held()) return [];
 		// A save of an edit made since is this one.
 		stopTimer();
 		await save(document);
+		await keepsDone();
 		const row = known.current;
-		return row !== undefined && hasUnsavedEdits() ? [drawingRef(row)] : [];
+		return row !== undefined && held() ? [drawingRef(row)] : [];
 	};
 
 	/**
@@ -472,10 +478,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		return () => {
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
-			// Withdrawn once the last save has settled, so that settling
-			// meanwhile waits for it. A save the store refused goes with the
-			// editor: nothing could open what it held again (§10).
-			void flush().finally(withdraw);
+			// Settled as it closes, raster work and a refused save's retry with
+			// it, and withdrawn only then, however that went, so that settling
+			// meanwhile waits for it. What the store still refuses goes with
+			// the editor: nothing could open what it held again (§10).
+			void settle().then(withdraw, withdraw);
 		};
 	};
 

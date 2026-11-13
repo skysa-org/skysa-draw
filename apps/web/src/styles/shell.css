@@ -203,8 +203,9 @@ button:not(.primary):hover {
 }
 
 /*
- * The bars along the window's foot: the stale window's (`StaleTabGate`) over
- * the one that says a new build is waiting (`UpdatePrompt`). One stack, so
+ * The bars along the window's foot (`main.tsx`): the stale window's
+ * (`StaleTabGate`) over the one that says a new build is waiting
+ * (`UpdatePrompt`). One stack, so
  * two at once sit one above the other; and under a sheet or a drawer, whose
  * own actions are along the foot too, so that a press meant for one of them
  * never lands on a bar's Reload.

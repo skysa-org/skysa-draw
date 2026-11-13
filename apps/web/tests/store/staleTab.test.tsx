@@ -248,14 +248,17 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		expect(inertAlready.hasAttribute('inert')).toBe(true);
 	});
 
-	it('keeps every key, paste and drop from the page while it shows: the editor hears none', async () => {
+	it('keeps every key pressed, paste and drop from the page while it shows: the editor hears none', async () => {
 		const user = userEvent.setup();
 		await outOfDate();
 		// As the editor's shortcuts listen: on the window, as the key comes back up.
 		const shortcut = vi.fn();
+		const released = vi.fn();
 		window.addEventListener('keydown', shortcut);
+		window.addEventListener('keyup', released);
 		onTestFinished(() => {
 			window.removeEventListener('keydown', shortcut);
+			window.removeEventListener('keyup', released);
 		});
 		// And as a picture is placed from a paste or a drop: on the window.
 		const placed = vi.fn();
@@ -269,6 +272,9 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 
 		await user.keyboard('z');
 		expect(shortcut).not.toHaveBeenCalled();
+		// A key let go is heard: one held as the notice came, Space for the
+		// hand, is not held for good.
+		expect(released).toHaveBeenCalled();
 		const paste = new Event('paste', { bubbles: true, cancelable: true });
 		const drop = new Event('drop', { bubbles: true, cancelable: true });
 		screen.getByRole('button', { name: 'Reload' }).dispatchEvent(paste);

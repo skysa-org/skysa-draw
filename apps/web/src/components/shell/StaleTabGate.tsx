@@ -19,13 +19,19 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * the page is made inert while it shows, the sheets and drawers in their
  * portals with it, and anything put there later: the drawing can still be
  * seen behind the notice, and nothing behind it can be pressed, focused or
- * typed into. The page's own listeners hear no key, paste or drop either,
- * the editor's shortcuts and its picture placing among them; the notice's
- * buttons answer by the browser's own handling of a key, which that leaves
- * alone. Only a listener on the window's capture phase put there before the
- * notice comes still hears a key, as a gesture under way has one until it
- * ends. What the editor held was written before the database closed
- * (`beforeClosing`).
+ * typed into. The page's own listeners hear no key pressed, paste or drop
+ * either, the editor's shortcuts and its picture placing among them; the
+ * notice's buttons answer by the browser's own handling of a key, which that
+ * leaves alone. A key let go is heard, so that one held as the notice came
+ * — Space, for the hand — is not held for good. Only a listener on the
+ * window's capture phase put there before the notice came still hears a key
+ * pressed: a gesture's under way, until it ends, and work under way's
+ * (`Applying`), whose cover holds every key, the notice's buttons' with them,
+ * until the work is done, while a press on them goes through. What the
+ * editor held was written before the database closed (`beforeClosing`).
+ *
+ * Beside the router, not in its root route (`main.tsx`), so that a screen
+ * put in place of the app on an error still has the notice over it.
  *
  * It can be put aside, as skysa-notes' can. A save the store refused earlier
  * says nothing yet (docs/ARCHITECTURE.md §10), so the open drawing may hold
@@ -52,7 +58,6 @@ const refuse = (event: Event): void => {
 
 const KEPT = [
 	['keydown', keepKey],
-	['keyup', keepKey],
 	['paste', refuse],
 	['dragover', refuse],
 	['drop', refuse],

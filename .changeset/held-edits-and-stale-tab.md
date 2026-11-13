@@ -1,5 +1,5 @@
 ---
-'@skysa/draw-web': patch
+'@skysa/draw-web': minor
 ---
 
 The open drawing's edits are written before anything acts on what the device holds: a newer version of the app closing this window's database, a disconnect, a source let go, or an export.
@@ -8,4 +8,4 @@ A window a newer version has closed now says so over the whole window, and stops
 It can be put aside to export the drawing first.
 A window waiting for an older one to let go says that too, instead of hanging.
 The bar that says a new version is ready no longer covers a sheet's buttons on a phone.
-The browser is asked to keep the drawings when the first is made on a device with nothing connected, and again when the app is installed, so Safari or Chromium does not clear a library that exists nowhere else.
+The browser is asked to keep the drawings when the first is made in the device's own library, and again when the app is installed, so Safari or Chromium does not clear a library that exists nowhere else.
