@@ -3,6 +3,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { t } from '../../i18n/t.js';
 import { settleEditors } from '../../store/heldEdits.js';
+import { letLeave } from '../../store/leaving.js';
 
 /** How long Reload may go unanswered before the prompt says what else to do. */
 const SLOW_MS = 10_000;
@@ -28,8 +29,9 @@ const reloadPage = () => {
  * the database does (`settleEditors`). Meanwhile it says it is updating, and
  * never that it is slow: the take-over has come, and only the drawing is left
  * to write. The reload follows however that went, a settle that rejects
- * among it: the page is the new worker's now, which does not serve the old
- * build.
+ * among it, and without the leave prompt that edits not yet in the store hold
+ * (`store/leaving.ts`): the page is the new worker's now, which does not serve
+ * the old build.
  */
 export const UpdatePrompt = ({
 	beforeUpdate = () => Promise.resolve(),
@@ -49,7 +51,11 @@ export const UpdatePrompt = ({
 	} = useRegisterSW({
 		onNeedReload: () => {
 			setUpdating('settling');
-			void settleEditors().then(reload, reload);
+			const leave = () => {
+				letLeave();
+				reload();
+			};
+			void settleEditors().then(leave, leave);
 		},
 	});
 

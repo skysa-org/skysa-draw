@@ -551,13 +551,15 @@ How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main
 What follows is this app's own.
 
 - `UpdatePrompt` offers the reload; its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
-  Once it has, every window that offered it has its open drawing write what it holds (`settleEditors`, below), and then reloads.
+  Once it has, every window that offered it has its open drawing write what it holds (`settleEditors`, below), and then reloads, without the leave prompt (below).
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
 - What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
   The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
   When the page is hidden, which a phone may freeze or end without a `pagehide`, or goes, it starts the pending save once raster work still pending has landed, the stroke it makes among the edits, outside any settle, so that a settle asked later is one of its own.
+  A page the user closes or reloads is gone before that save has opened its transaction, so while the session holds anything the store has not taken (raster work, the pause, a save on its way, a save refused), the browser asks before the page goes (`store/leaving.ts`, `beforeunload`).
+  The listener is there only while something is held, so a page with nothing to lose keeps the back-forward cache.
   Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
   An open editor that has not answered is taken to hold its drawing all the same, as it said when it registered, so a source let go keeps its rows.
   Asked to settle, it waits for raster work still pending, writes its pending save, and waits for it and for any save an edit sets off meanwhile; a settle asked for while one is going joins it, so the same text is never sent twice at once.
@@ -622,7 +624,7 @@ Known gaps in what is built, each for an issue:
 - A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
 - A save, or a new drawing, the store refuses for any reason but a delete says nothing on screen (`drawing/useOpenDrawing.ts`); a refused save is tried again at the next change, or when the editor is asked to settle, and is counted as held until it goes in, or until the editor closes, when it is tried once more and then goes with it.
-- Strokes still waiting on the autosave's pause are not written when the user closes the tab or reloads it: the save started at `pagehide` opens no transaction before the page is gone, since it hashes the text first (#16).
+- A browser that does not ask before the page goes, as a phone's seldom does, loses strokes still waiting on the autosave's pause when the user closes the tab or reloads it: the save started at `pagehide` opens no transaction before the page is gone, since it hashes the text first (#16).
 - A new build's take-over reloads each window once its settle answers, whatever the answer: edits the store refused, or an editor that did not answer in `FLUSH_WAIT_MS`, go with the reload; a window that reloads first into a build with a newer database closes it under the others' settles after `CLOSE_GRACE_MS` (`store/staleTab.ts`); and a window whose user put the bar aside is reloaded without a word (#16).
 - The open drawing follows the source showing, not the one its row is in, and switching sources does not settle it first; a changed row handed to it during the user's own delete still keeps a copy; one handed to it before a stroke's raster work lands opens over the stroke; a copy kept only in part is kept again at the next save; a closing session puts a replacement where the drawing was last seen, not where it was deleted; and a session that has closed still opens what it keeps, and says nothing of it (#18).
 - An undo back to the text the drawing opened with, or to one this session saved before, counts as saved though the row may hold a later save, so a refused save of it is neither named when the editor settles nor kept under a change or a delete from elsewhere (#13).

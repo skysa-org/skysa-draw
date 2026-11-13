@@ -33,7 +33,11 @@ import { serializeDrawing } from './serialize.js';
  * is never re-serialized (CLAUDE.md, "a drawing becomes dirty only on a user's
  * edit").
  */
-export const openDocument = (text: string): EditorDocument | undefined => {
+export const openDocument = (
+	text: string,
+	/** Told of work a save must wait for, as it starts (`pending`). */
+	onPending?: (work: Promise<unknown>) => void
+): EditorDocument | undefined => {
 	const parsed = parseDrawing(text);
 	if (parsed === undefined) return undefined;
 	try {
@@ -120,6 +124,7 @@ export const openDocument = (text: string): EditorDocument | undefined => {
 
 	const pending = (job: Promise<unknown>): void => {
 		work.add(job);
+		onPending?.(job);
 		const forget = (): void => {
 			work.delete(job);
 		};

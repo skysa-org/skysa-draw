@@ -8,6 +8,7 @@ import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.j
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../store/drawings.js';
 import { beforeClosing, inTime } from '../store/heldEdits.js';
 import { useDrawing } from '../store/hooks.js';
+import { holdLeaving, releaseLeaving } from '../store/leaving.js';
 import { foundOf } from '../store/rowStates.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
@@ -129,10 +130,47 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const timer = cell<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
+	/**
+	 * The page's leave prompt (`store/leaving.ts`), held from an edit, or raster
+	 * work, until nothing would be lost (`letGo`).
+	 */
+	const leaving = Symbol(id);
+	/** Raster work started and not landed yet: strokes that are edits only once they do. */
+	const encoding = cell(0);
 
 	const set = (patch: Partial<Opened>) => {
 		state.current = { ...state.current, ...patch };
 		listeners.forEach((listener) => listener());
+	};
+
+	/**
+	 * Lets go of the leave prompt once nothing would be lost: no raster work
+	 * pending, no pause, no save on its way, and no edit the store has not
+	 * taken, a refused save's among them. Asked once things go quiet, after a
+	 * save, a keep or raster work, and the cheap answers first, since telling
+	 * unsaved edits reads the text.
+	 */
+	const letGo = (): void => {
+		if (encoding.current > 0 || timer.current !== undefined || sending.current !== undefined) {
+			return;
+		}
+		try {
+			if (!hasUnsavedEdits()) releaseLeaving(leaving);
+		} catch {
+			// Text that will not take the drawing's id, which no save could
+			// write either: held, as a refused save's edits are.
+		}
+	};
+
+	/** Raster work started: a stroke whose edit, once it lands, sets off the pause. */
+	const onPending = (work: Promise<unknown>): void => {
+		encoding.current += 1;
+		holdLeaving(leaving);
+		const landed = () => {
+			encoding.current -= 1;
+			letGo();
+		};
+		void work.then(landed, landed);
 	};
 
 	/**
@@ -186,6 +224,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			if (state.current.document === document) set({ saving: 'idle' });
 		});
 		inFlight.current = work;
+		void work.then(letGo);
 		return work;
 	};
 
@@ -199,6 +238,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// An edit made while a copy is kept goes into the copy (`keepCopy`), and
 		// one made while the user deletes the drawing goes with it.
 		if (keeping.current || deleting.current) return;
+		holdLeaving(leaving);
 		const now = Date.now();
 		const since = firstChangeAt.current ?? now;
 		firstChangeAt.current = since;
@@ -218,7 +258,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// nothing to add.
 		stopTimer();
 		openedText.current = text;
-		const document = openDocument(text);
+		const document = openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
 		// reach the row too.
@@ -351,6 +391,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		kept.current = work;
 		void work.then(() => {
 			if (kept.current === work) kept.current = undefined;
+			letGo();
 		});
 	};
 
@@ -507,6 +548,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const remove = async (): Promise<void> => {
 		deleting.current = true;
 		stopTimer();
+		releaseLeaving(leaving);
 		try {
 			await deleteDrawing(db, id);
 		} catch (error) {
@@ -551,7 +593,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			// `FLUSH_WAIT_MS` has gone by, so that settling meanwhile waits for
 			// it. What the store still refuses goes with the editor: nothing
 			// could open what it held again (§10).
-			void inTime(settle(), []).then(withdraw);
+			void inTime(settle(), []).then(() => {
+				releaseLeaving(leaving);
+				withdraw();
+			});
 		};
 	};
 

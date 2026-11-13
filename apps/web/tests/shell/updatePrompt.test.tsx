@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UpdatePrompt } from '../../src/components/shell/UpdatePrompt.js';
 import type * as HeldEdits from '../../src/store/heldEdits.js';
 import { beforeClosing } from '../../src/store/heldEdits.js';
+import { holdLeaving, letLeave } from '../../src/store/leaving.js';
 
 const worker = vi.hoisted(() => ({ update: vi.fn(() => Promise.resolve()) }));
 const registration = vi.hoisted(
@@ -139,6 +140,25 @@ describe("the new build's bar", () => {
 			}
 		}
 	);
+
+	it('reloads without asking first, whatever the open drawing still holds', async () => {
+		const asked: boolean[] = [];
+		const reload = vi.fn(() => {
+			asked.push(!window.dispatchEvent(new Event('beforeunload', { cancelable: true })));
+		});
+		// Edits the store would not take, which the page asks before it loses.
+		holdLeaving(Symbol('a drawing'));
+		try {
+			render(<UpdatePrompt reload={reload} />);
+
+			takeOver();
+
+			await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+			expect(asked).toEqual([false]);
+		} finally {
+			letLeave();
+		}
+	});
 
 	it("reloads however settling went, the page being the new build's", async () => {
 		settling.rejects = true;
