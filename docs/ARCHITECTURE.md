@@ -648,16 +648,19 @@ packages/
 docs/             this file, history.md, decisions/, self-hosting.md, google-oauth.md
 .changeset/       one version for the three packages
 .github/          CI (verify, changeset check, generated files, size, minimum Node), release, CLA
+eslint.config.js  the kit's lint, skysa() from @skysa/eslint-config, with this app's own blocks;
+                  tsconfig.base.json and .prettierrc.json name the kit's settings
 ```
 
 Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor nor the API client, `api/`, `errors/` and `hooks/` import neither the store nor the sync layer nor the UI, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
 Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
+The rest of the lint, the compiler's settings and Prettier's are the kit's, `@skysa/eslint-config`: `eslint.config.js` hands its `skysa()` the layers above, the app's words (§7) and the canvas's carve-out, and `tsconfig.base.json` and `.prettierrc.json` name the kit's.
 
 ## 12. Carried over from skysa-notes
 
 Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
 The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
-Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server has moved (§6): a fix to it is a kit PR.
+Those layers are moving into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4), and the server (§6), the PWA build (§8) and the lint (§11) have moved: a fix to any of them is a kit PR.
 Until the rest has moved, a fix to a carried-over layer still here is a fix in both repositories.
 
 ## 13. Distribution and licensing
