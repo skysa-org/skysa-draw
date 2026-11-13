@@ -8,6 +8,7 @@ A title that could end in two places is not read, and a rename puts a new title 
 That something is a comment, a CDATA section, a processing instruction, a start or end tag whose quoted value holds it, a `<` or `</` before a name that no `>` closes, or a `<!`, or a `</` before anything but an ASCII letter, that an HTML parser reads as a comment; so is a comment or instruction that an HTML parser ends sooner than XML, at its first `>` or a `--!>`.
 So is a tag of the title's own name in any case, closing itself or not, as `<title/>`, or of an element whose text HTML reads as text, as `<textarea>` or `<script/>`, and an end tag of its name that XML does not end it at and HTML does, as `</TITLE>` or `</title x>`.
 An end tag with a space XML does not count as one before its `>`, as a no-break space, does not end a title either.
+A title in which an element is opened and not closed before its first `</title>`, which no XML parser reads and an HTML parser ends past it, is still read up to that end tag, as on 0.1.0, and a rename leaves what follows it.
 On 0.1.0, renaming such a title could take away the layers after it, or leave an end tag with nothing to close, so that no XML parser read the file.
 Giving a drawing its id no longer writes into another attribute's value that holds the same characters, which could leave a file that is no longer a drawing.
 Where a root has the id attribute twice, the one read is the one replaced.

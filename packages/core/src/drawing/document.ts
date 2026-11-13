@@ -515,9 +515,11 @@ export const withDrawingId = (text: string, id: string): string => {
 	// attribute of the same expanded name, which XML's namespaces refuse.
 	// Found among the attributes, so the same characters in another
 	// attribute's value are not taken for it. At the end of the tag otherwise.
+	const read = lastNamed(root, `${prefix}:id`);
+	if (declaration === '' && read !== undefined && valueOf(root, read) === id) return text;
 	const others = new Set(prefixes.slice(1).map((other) => `${other}:id`));
 	const existing =
-		lastNamed(root, `${prefix}:id`) ??
+		read ??
 		root.attributeList
 			.filter(
 				(attribute) =>
@@ -525,14 +527,6 @@ export const withDrawingId = (text: string, id: string): string => {
 					others.has(nameOf(root, attribute))
 			)
 			.at(-1);
-	if (
-		declaration === '' &&
-		existing !== undefined &&
-		isNamed(root, existing, `${prefix}:id`) &&
-		valueOf(root, existing) === id
-	) {
-		return text;
-	}
 	return existing === undefined
 		? `${text.slice(0, root.start)}${openedTag(root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
 		: `${text.slice(0, existing.start)}${declaration}${prefix}:id="${id}"${text.slice(existing.end)}`;
@@ -737,21 +731,19 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
 	// or is a `<!`, or a `</` before anything but an ASCII letter, which an
 	// HTML parser reads as a comment to the next `>`, and XML as no markup, or
 	// an end tag that no start tag in the title opened.
-	const past = (at: number): number | undefined =>
-		htmlName(text.slice(at, at + name.length + 2)) === `</${own}` &&
-		NOT_NAME.test(text.charAt(at + name.length + 2))
-			? undefined
-			: text.startsWith('<![CDATA[', at)
-				? closedBy(text, ']]>', at + 9)
-				: text.startsWith('<!--', at) || text.startsWith('<?', at)
-					? sectionEnd(at)
-					: text.startsWith('<!', at)
-						? undefined
-						: text.startsWith('</', at)
-							? ASCII_LETTER.test(text.charAt(at + 2))
-								? tagEnd(runEnd(text, at + 2, NOT_NAME))
-								: undefined
-							: startTagEnd(at);
+	const past = (at: number): number | undefined => {
+		const ownEnd =
+			htmlName(text.slice(at, at + name.length + 2)) === `</${own}` &&
+			NOT_NAME.test(text.charAt(at + name.length + 2));
+		if (ownEnd) return undefined;
+		if (text.startsWith('<![CDATA[', at)) return closedBy(text, ']]>', at + 9);
+		if (text.startsWith('<!--', at) || text.startsWith('<?', at)) return sectionEnd(at);
+		if (text.startsWith('<!', at)) return undefined;
+		if (!text.startsWith('</', at)) return startTagEnd(at);
+		return ASCII_LETTER.test(text.charAt(at + 2))
+			? tagEnd(runEnd(text, at + 2, NOT_NAME))
+			: undefined;
+	};
 	const reached = skipped(text, text.indexOf('<', from), (_, at) => {
 		if (at === -1 || at >= until) return undefined;
 		const after = past(at);
@@ -787,8 +779,10 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
 const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
 	const tag = startTagAt(text, skipped(text, root.end, miscEnd), 'title', MOST_ATTRIBUTES + 1);
 	if (tag === undefined || endsInBareSlash(tag)) return undefined;
-	const declarations = tag.attributeList.filter((attribute) => isNamed(tag, attribute, 'xmlns'));
-	if (tag.attributeList.length - declarations.length > MOST_ATTRIBUTES) return undefined;
+	const declarations = tag.attributeList.filter((attribute) =>
+		isNamed(tag, attribute, 'xmlns')
+	).length;
+	if (tag.attributeList.length - declarations > MOST_ATTRIBUTES) return undefined;
 	const namespace = namespaceOf(tag, root);
 	const svg = namespace === SVG_NAMESPACE;
 	if (!svg && (tag.prefix !== undefined || namespace !== '')) return undefined;

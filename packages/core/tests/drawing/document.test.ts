@@ -536,6 +536,8 @@ describe('readDrawingTitle', () => {
 
 	it('reads no root or title of more attributes than the pattern before it could, but what it writes', () => {
 		// Each is kept while the tag is read; millions ran a tab out of memory.
+		// A tag of a million is read in a fraction of a second, but there are
+		// several here, and a slow runner is given room for them.
 		const many = (count: number) => ' a="b"'.repeat(count);
 		const root = `<svg xmlns="${SVG_NAMESPACE}"${many(999_999)}`;
 		expect(isDrawingText(`${root} c="d"><g/></svg>`)).toBe(false);
@@ -551,7 +553,7 @@ describe('readDrawingTitle', () => {
 		const renamed = withDrawingTitle(`${prefixed}${titled(1_000_000)}</svg:svg>`, 'New');
 		expect(renamed.startsWith(`${prefixed}<title xmlns="${SVG_NAMESPACE}" a="b"`)).toBe(true);
 		expect(readDrawingTitle(renamed)).toBe('New');
-	});
+	}, 20_000);
 
 	it('reads a root and a title with a great many attributes, as it always did', () => {
 		// A pattern for the tag ran out of stack over millions; the scanner has

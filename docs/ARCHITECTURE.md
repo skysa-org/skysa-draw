@@ -75,6 +75,7 @@ What the app writes on "new drawing" (`emptyDrawing`): the root with its namespa
 - `<title>`, the first child of the root, is the drawing's title, which other tools show.
   It is SVG's `title`, under whatever prefix binds SVG's namespace, after any whitespace, comments or processing instructions; a `title` in no namespace, as 0.1.0 wrote under an `svg:svg` root, is read too, and a rename makes it SVG's.
   A title that could end in two places, as one whose first `</title>` a comment in it holds, is not read: a rename puts a new title ahead of it and takes nothing away.
+  One that could is read nonetheless, up to its first `</title>`: one in which an element is left open before it, as `<title>a<b></title>c</b></title>`, which an HTML parser ends at the second and no XML parser reads at all; a rename leaves `c</b></title>` after the new title.
   The filename is the title's slug (`drawingFilename`), kept unique in its folder (`uniqueFilename`); where a file has no title, its name is its filename's stem (`titleFromFilename`).
 - `viewBox` is the canvas; `width` and `height` beside it say the same in user units for tools that read only those.
   A file with neither is shown at a size of the app's choosing (`readDrawingSize`, `DEFAULT_DRAWING_SIZE`).
