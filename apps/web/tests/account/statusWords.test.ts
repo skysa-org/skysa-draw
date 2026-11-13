@@ -11,9 +11,9 @@ import {
 /**
  * What the storage panel says about how syncing is going, as tables: the
  * scheduler's status in, the words out (`account/statusWords.ts`). The panel's
- * own tests (`AccountPanel.test.tsx`) keep where the words are drawn — the
- * line, its tooltip under who the account is, the sentence above the line, the
- * bar — and leave every wording to these.
+ * own tests (`AccountPanel.test.tsx`) keep where the line and its tooltip are
+ * drawn and leave every wording to these; where the sentence above the line
+ * and the bar are drawn has no test here yet, as skysa-notes' panel has.
  */
 
 const status = (rest: Omit<SchedulerStatus, 'conflicts'>): SchedulerStatus => ({

@@ -604,6 +604,8 @@ Known gaps in what is built, each for an issue:
 - The pen finishes a path when the tool changes by watching the overlay being emptied, and listens for Enter and Escape on the document between clicks, since the viewport tells a tool only about strokes; a tool key pressed during a pen drag leaves the path open until Enter or Escape; a `finish` member of the tool contract, called by the viewport, would replace both.
 - A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
+- No editor registers what it holds with `beforeClosing` (`store/heldEdits.ts`), so a drawing's save still waiting on the autosave's debounce is not written first when a newer build retires the tab, nor counted or written before a disconnect, a source let go or an export.
+- The browser is never asked to keep the store: `keeping.ask` (`store/keeping.ts`) is made by nothing, so `navigator.storage.persist()` is never called, and the storage panel only reads the answer.
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.
 - A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.
 
@@ -639,11 +641,11 @@ The lint's shared rules, the compiler's settings and Prettier's are the kit's, `
 
 ## 12. Carried over from skysa-notes
 
-Decided 2026-11-03; see [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md), which lists each layer, its source commit and what changed on the way.
-The short version: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
+Decided 2026-11-13; see [`decisions/0005-on-the-kit.md`](decisions/0005-on-the-kit.md), which says what went where, what this app hands the kit and keeps, and why a 0.1.0 server database is reset.
+It supersedes [`decisions/0002-carried-over-from-skysa-notes.md`](decisions/0002-carried-over-from-skysa-notes.md) (2026-11-03), which lists each layer as it was copied, its source commit and what changed on the way.
+What was copied, in short: the API whole with a fresh schema, the provider adapters and their tests, the naming and path rules, the PWA, brand, CSP and tooling, the sync engine behind a document seam (§7, "Sync engine"), and the web app's store, sync layer and connect screens over it; not the markdown pipeline, the editors or any notes-only feature.
 Those layers have moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit) ([skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), step 4): the server (§6), the protocol, the adapters and the naming rules (§4, §5), the sync engine and the sync client (§7), the PWA build (§8) and the lint's shared rules (§11).
-Decided 2026-11-13; see [`decisions/0005-on-the-kit.md`](decisions/0005-on-the-kit.md), which supersedes 0002 and says what went where, what this app hands the kit and keeps, and why a 0.1.0 server database is reset.
-A fix to any of them is a kit PR, and this app takes it by moving its pin, one exact version for every `@skysa/*` package (`apps/web/tests/kitVersion.test.ts`).
+A fix to any of them is a kit PR, and this app takes it by moving its pin, one exact version for every kit package (`apps/web/tests/kitVersion.test.ts`).
 
 ## 13. Distribution and licensing
 

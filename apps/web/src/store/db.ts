@@ -11,10 +11,12 @@ import { watchForNewerTab } from './staleTab.js';
 /**
  * The local store. The app boots and renders from here before any network call,
  * and every read and write works offline; sync is a separate concern layered on
- * top (docs/ARCHITECTURE.md §7). The shape is skysa-notes' store, so the sync
- * engine ported from it finds what it expects, less the tables only notes has
- * (the clipboard, the pictures' smaller copies, the key file and the keys for
- * secrets; docs/decisions/0002-carried-over-from-skysa-notes.md).
+ * top (docs/ARCHITECTURE.md §7). The shape began as skysa-notes' store, less
+ * the tables only notes has (the clipboard, the pictures' smaller copies, the
+ * key file and the keys for secrets;
+ * docs/decisions/0002-carried-over-from-skysa-notes.md). The kit's sync engine
+ * and client reach it only through this app's ports, `sync/store.ts` and
+ * `sync/dexiePorts.ts` (docs/decisions/0005-on-the-kit.md).
  */
 
 /**

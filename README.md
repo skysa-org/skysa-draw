@@ -61,7 +61,7 @@ Entra or Google Cloud) and credentials in `apps/api/.dev.vars`; see
 | `pnpm run setup` | Prompt for credentials and write `apps/api/.dev.vars` |
 | `pnpm run deploy` | Build core, SPA and Worker, then `wrangler deploy` |
 
-Current status: **the architecture is in place; it does not draw yet.** Drawings and folders live in IndexedDB and work fully offline: make one, name it, delete it, and it is a real SVG file carrying its own id and title, shown as an image. The API that connects a storage account and mints its tokens, the Dropbox, OneDrive and Google Drive adapters and the sync engine are the shared kit's, and pass its tests there. What comes next, in order, is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
+Current status: **0.1.0, and not yet deployed: it draws, on vector and raster layers, and works fully offline, but it has been driven only in headless Chromium, not yet on a touch screen, with a stylus, in Safari or Firefox, or against a real storage account.** Drawings and folders live in IndexedDB: make one, draw in it, name it, delete it, and it is a real SVG file carrying its own id and title. The API that connects a storage account and mints its tokens, the Dropbox, OneDrive and Google Drive adapters and the sync engine are the shared kit's, and pass its tests there. What comes next, in order, is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
 
 One limit to know before choosing Google Drive: the app asks Drive for access only to the files it creates (the `drive.file` scope), so drawings copied into its folder on the Drive website, with Drive for desktop or by another app stay invisible to it. Dropbox and OneDrive show the app everything in its folder.
 

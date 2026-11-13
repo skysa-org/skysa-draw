@@ -415,7 +415,7 @@ const queuedOps = async (db: DrawDatabase): Promise<string[]> =>
 		(op) => `${op.op} ${op.path}${op.lazy === true ? ' (lazy)' : ''}`
 	);
 
-describe('a lazy write, and an edit’s (§7, "When a push goes")', () => {
+describe('a lazy write, and an edit’s (the kit’s "When a push goes")', () => {
 	// This app queues no write lazily; an app whose changes come every few
 	// seconds does, and the queue keeps the rules for both (`queueWrite`).
 	it('queues a lazy change lazily, once however many there are', async () => {
