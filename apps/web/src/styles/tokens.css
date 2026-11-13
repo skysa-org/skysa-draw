@@ -89,7 +89,8 @@
 	   `--z-sheet-over` the one opening over another still shutting. `--z-menu` is
 	   the options menu, and the bar saying another tab took over. A menu opened
 	   from inside a dialog goes over the dialog that opened it
-	   (`--z-dialog-menu`). */
+	   (`--z-dialog-menu`). `cardMotion.ts` writes a card in flight directly, as
+	   numbers, against these: `OVER_PANELS` and `OVER_ALL`. */
 	--z-sheet: 15;
 	--z-sheet-over: 16;
 	--z-popover: 20;
@@ -142,11 +143,12 @@
 	--ok: #16a34a;
 	--warn: #b45309;
 	--bad: #dc2626;
-	/* Code, in the app's own prose. `--code-*` is the chip an inline span is
-	   drawn as and the slab a block is; `--tok-*` is the palette a token is
-	   colored with, carried over from skysa-notes' editors. Eleven colors,
-	   because a palette nobody can hold in their head is a palette that ends
-	   up inconsistent. */
+	/* Code, in both editors and in the app's own prose. `--code-*` is the chip
+	   an inline span is drawn as and the slab a block is; `--tok-*` is the one
+	   palette both editors color a token with (`editor/features/code/highlight.ts`), which is
+	   why it is here and not in either of them. Eleven colors, because a
+	   palette nobody can hold in their head is a palette that ends up
+	   inconsistent. */
 	--code-surface: #f5f6f8;
 	--code-inline-fg: #be123c;
 	--tok-keyword: #7c3aed;
@@ -181,6 +183,10 @@
 	--on-bg: color-mix(in srgb, var(--accent) 14%, transparent);
 	--on-fg: var(--accent);
 	--hover-bg: color-mix(in srgb, var(--fg) 8%, transparent);
+	/* A row pinned to the top of its list (`store/pins.ts`): a wash of the
+	   "on" color, lighter than a pressed toggle's, since it is a row that is
+	   kept somewhere rather than a control that is on. */
+	--pinned-bg: color-mix(in srgb, var(--accent) 9%, transparent);
 	/* Keyboard focus: a ring, drawn outside the control, so it never reads
 	   as the control's own state. */
 	--ring: color-mix(in srgb, var(--accent) 70%, transparent);

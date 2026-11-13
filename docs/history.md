@@ -1,6 +1,7 @@
 # Build history
 
 The product is built in numbered phases, and this is the record of them: what each one delivered and what was learned doing it.
+The move onto the shared kit was not a phase of the product, and has a section of its own, in its place in time.
 Everything here is shipped unless a line says otherwise.
 
 This is history, so it is not kept current.
@@ -40,7 +41,6 @@ For how the app works now, read [`ARCHITECTURE.md`](ARCHITECTURE.md); a `§` her
 - Schema version 1 rewritten in place, since it had never shipped: drawings keyed by connection and id, a deleted drawing a tombstone until its delete is pushed, and the tables for the credential, the sync state and the files beside a drawing.
 - `saveDrawing` became a compare-and-set, and the editor counts a save still in flight as unsaved, so a change that arrives meanwhile keeps the edits as a copy.
 - Tests: core 7128, web 2352, API 423; the largest chunk grew from 121 kB to 210 kB of its 350 kB budget, the sync layer loading with the app.
-
 
 ## On the kit (2026-11-12 – 2026-11-13)
 - The layers record 0002 carried over moved into the shared kit, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit), as step 4 of [skysa-notes' record 0018](https://github.com/skysa-org/skysa-notes/blob/main/docs/decisions/0018-the-shared-kit.md), and record 0005 supersedes 0002 (`decisions/0005-on-the-kit.md`).

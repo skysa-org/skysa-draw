@@ -1,6 +1,6 @@
 # 0005. On the kit
 
-*2026-11-13. Cited in the code as §12, "Carried over from skysa-notes". A `§` here means a section of [`ARCHITECTURE.md`](../ARCHITECTURE.md). Supersedes [0002](0002-carried-over-from-skysa-notes.md).*
+*2026-11-13. Supersedes [0002](0002-carried-over-from-skysa-notes.md), and §12, "Carried over from skysa-notes", cites it first. A `§` here means a section of [`ARCHITECTURE.md`](../ARCHITECTURE.md).*
 
 **The layers this app took from skysa-notes are the shared kit's now, [skysa-org/skysa-kit](https://github.com/skysa-org/skysa-kit), and this app depends on its packages at one exact version; its drawing file, its names, its database and its screens are its own.**
 Record 0002 copied every layer of skysa-notes that does not care what a file holds, and named the trigger for a shared package: the first change that has to be made twice.
@@ -30,7 +30,7 @@ What it hands the kit:
 
 - `DRAW_FORMAT` (`drawing/format.ts`), the format: `.svg`, `image/svg+xml`, the `draw:id` a file claims, a conflict copy's contents, and a `.svg` that is not an SVG document held as unreadable.
 - `DRAW_FOLDER` (`config.ts`), the folder: `skysa-draw`, Drive's tag `drawapp`, and the marker `.drawapp.json` naming `skysa-draw` at version 1.
-- Its database, as the client's ports (`sync/dexiePorts.ts`, which `sync/drawingsSync.ts` hands the kit's scheduler) and as the engine's `SyncStore` (`sync/store.ts`), and the lock it has always taken (`sync/lock.ts`).
+- Its database, as the client's ports (`sync/dexiePorts.ts`, which `sync/drawingsSync.ts` hands the kit's scheduler), as the engine's `SyncStore` (`sync/store.ts`), and as the `CredentialStore` the client's connect, credential and relay calls take (its `credentials` table); and the lock it has always taken (`sync/lock.ts`).
 - Its own lint blocks, which `eslint.config.js` passes to the kit's `skysa()`.
 
 Nothing a user holds changed: the folder, the marker and the tag, `.svg` and its media type, a conflict copy's name, the lock `skysa-draw:sync:<id>`, and the database's name and version.

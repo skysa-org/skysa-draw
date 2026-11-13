@@ -2,7 +2,9 @@
  * The edits the editors are holding, which the store cannot see.
  *
  * An editor keeps what was typed for a moment before it saves it, and keeps an
- * edit whose save failed until one goes through (`editor/shared/useAutosave.ts`). None
+ * edit whose save failed until one goes through (skysa-notes' `useAutosave.ts`;
+ * here `drawing/useOpenDrawing.ts`, which does not register yet:
+ * docs/ARCHITECTURE.md §10). None
  * of that is in a row. So anything about to act on "what this device holds" has
  * to have the editors write first — a tab closing its database for a newer
  * build (`store/staleTab.ts`), and a source being let go, where a count of what
@@ -63,7 +65,7 @@ export interface SettledEditors {
 	 * The drawings that still have text here that could not be saved, by `drawingRef`,
 	 * as far as the editors said. A floor, not a census: a flush that answers
 	 * with no list is counted as holding none, because the registry cannot know
-	 * what it is not told. The editor's own flush (`Autosave.settle`) does
+	 * what it is not told. skysa-notes' editor's flush (`Autosave.settle`) does
 	 * answer with one. Named, so that whoever is about to remove a source's rows
 	 * can keep exactly these, whose row is not the whole of what the user wrote.
 	 */

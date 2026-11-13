@@ -14,9 +14,11 @@ import { watchForNewerTab } from './staleTab.js';
  * top (docs/ARCHITECTURE.md §7). The shape began as skysa-notes' store, less
  * the tables only notes has (the clipboard, the pictures' smaller copies, the
  * key file and the keys for secrets;
- * docs/decisions/0002-carried-over-from-skysa-notes.md). The kit's sync engine
- * and client reach it only through this app's ports, `sync/store.ts` and
- * `sync/dexiePorts.ts` (docs/decisions/0005-on-the-kit.md).
+ * docs/decisions/0002-carried-over-from-skysa-notes.md). The kit reaches it
+ * through ports: the engine's `SyncStore` (`sync/store.ts`), the client's
+ * (`sync/dexiePorts.ts`), and the `credentials` table, which the client's
+ * connect, credential and relay calls take as a `CredentialStore`
+ * (docs/decisions/0005-on-the-kit.md).
  */
 
 /**
