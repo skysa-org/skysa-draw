@@ -1,6 +1,7 @@
 import {
 	type BlendMode,
 	DRAWING_NAMESPACE,
+	freeDrawingPrefixAmong,
 	isBlendMode,
 	isGraphicsElement,
 	LAYER_ATTRIBUTES,
@@ -268,33 +269,34 @@ export const giveLayerIds = (root: SVGSVGElement): void => {
 	});
 };
 
+/**
+ * The root's declarations of a prefix, `xmlns:draw="…"` and the rest, but not
+ * of the default namespace.
+ */
+const prefixDeclarations = (root: Element): readonly Attr[] =>
+	[...root.attributes].filter(
+		(attribute) => attribute.namespaceURI === XMLNS_NAMESPACE && attribute.prefix === 'xmlns'
+	);
+
 /** The prefix the root binds to the app's namespace, where it binds one. */
 export const boundDrawingPrefix = (root: Element): string | undefined =>
-	[...root.attributes].find(
-		(attribute) =>
-			attribute.namespaceURI === XMLNS_NAMESPACE &&
-			attribute.prefix === 'xmlns' &&
-			attribute.value === DRAWING_NAMESPACE
-	)?.localName;
+	prefixDeclarations(root).find((attribute) => attribute.value === DRAWING_NAMESPACE)?.localName;
 
-/** `draw`, or `draw2`, `draw3`, … where the root binds `draw` to something else. */
-const freeDrawingPrefix = (root: Element, n = 1): string => {
-	const candidate = n === 1 ? 'draw' : `draw${n}`;
-	return root.hasAttributeNS(XMLNS_NAMESPACE, candidate)
-		? freeDrawingPrefix(root, n + 1)
-		: candidate;
-};
+/** The prefixes the root binds, `draw` and the rest. */
+const boundPrefixes = (root: Element): ReadonlySet<string> =>
+	new Set(prefixDeclarations(root).map((attribute) => attribute.localName));
 
 /**
  * The prefix the app's attributes are written with: the one the root binds to
- * its namespace, or `draw` declared on the root now where it binds none, as
- * `withDrawingId` declares it in core (§3: "the attribute's prefix is whatever
- * the file binds the namespace to").
+ * its namespace, or one declared on the root now where it binds none, as
+ * `withDrawingId` declares it in core: `draw`, or the first free after it
+ * (`freeDrawingPrefixAmong`; §3: "the attribute's prefix is whatever the file
+ * binds the namespace to").
  */
 export const drawingPrefixOf = (root: Element): string => {
 	const bound = boundDrawingPrefix(root);
 	if (bound !== undefined) return bound;
-	const prefix = freeDrawingPrefix(root);
+	const prefix = freeDrawingPrefixAmong(boundPrefixes(root));
 	root.setAttributeNS(XMLNS_NAMESPACE, `xmlns:${prefix}`, DRAWING_NAMESPACE);
 	return prefix;
 };

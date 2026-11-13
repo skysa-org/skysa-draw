@@ -1,4 +1,5 @@
 import {
+	cleanDrawingTitle,
 	emptyDrawing,
 	isDrawingText,
 	readDrawingId,
@@ -141,7 +142,12 @@ export const createDrawing = async (
 	}
 	const given = text === undefined ? undefined : readDrawingId(text);
 	const ownId = given ?? id;
-	const named = title ?? (text === undefined ? undefined : readDrawingTitle(text)) ?? 'Untitled';
+	// A title given is kept as the file has it: what XML has no place for left
+	// out, and trimmed. A blank one stays blank, and is shown as untitled.
+	const named =
+		title === undefined
+			? ((text === undefined ? undefined : readDrawingTitle(text)) ?? 'Untitled')
+			: cleanDrawingTitle(title);
 	const { hash, text: content } =
 		text === undefined
 			? await digestText(emptyDrawing({ id: ownId, title }))
@@ -260,7 +266,8 @@ export const renameDrawing = async (
 	options: (ConnectionScope & { now?: () => number }) | (() => number) = {}
 ): Promise<DrawingRecord | undefined> => {
 	const { now = Date.now, ...scope } = typeof options === 'function' ? { now: options } : options;
-	const trimmed = title.trim();
+	// As the file has it, so a title of nothing XML holds is a blank one.
+	const trimmed = cleanDrawingTitle(title);
 	if (trimmed === '') return undefined;
 	return db.transaction('rw', writerTables(db), async () => {
 		const current = await liveRow(db, await keyFor(db, id, scope));

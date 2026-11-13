@@ -1,4 +1,4 @@
-import { readDrawingProlog } from '@skysa/draw-core';
+import { withDrawingViewport } from '@skysa/draw-core';
 
 import type { EditorDocument } from '../document/model.js';
 import { type Box, canvasBox } from './box.js';
@@ -59,38 +59,19 @@ export const exportSize = (
 	};
 };
 
-/** The root's start tag, `svg` with or without a prefix, as core reads it (`drawing/document.ts`). */
-const ROOT_TAG =
-	/^<((?:[^\s"'<>/=:]+:)?svg)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/;
-
-/** One attribute of a start tag, with the space before it. */
-const ATTRIBUTE = /\s+([^\s"'<>/=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g;
-
-/** The root's attributes this render sets, and so takes away first. */
-const SIZING: ReadonlySet<string> = new Set(['width', 'height', 'viewBox']);
-
 /**
  * The text with its root's `viewBox` set to `box` and its `width` and
  * `height` to the pixels wanted, everything else as it was. The size is the
  * `<img>`'s natural size, so every browser renders the vectors at the size
  * they are drawn at rather than scaling a smaller bitmap up, and a file with
  * no size of its own, which Firefox will not draw on a canvas at all, has
- * one. Text whose root this cannot read is rendered as it is.
+ * one. Text whose root this cannot read is rendered as it is. Core reads and
+ * rewrites the root (`withDrawingViewport`), as it does for every other change
+ * to it, so a root is read, or refused, in time to its length, however many
+ * attributes it has.
  */
-const forRender = (text: string, box: Box, pixelWidth: number, pixelHeight: number): string => {
-	const prolog = readDrawingProlog(text);
-	if (prolog === undefined) return text;
-	const rest = text.slice(prolog.length);
-	const tag = ROOT_TAG.exec(rest);
-	if (tag === null) return text;
-	const [whole, name = 'svg', attributes = '', slash = ''] = tag;
-	const kept = [...attributes.matchAll(ATTRIBUTE)]
-		.filter(([, attribute = '']) => !SIZING.has(attribute))
-		.map(([written]) => written)
-		.join('');
-	const sizing = `viewBox="${box.x} ${box.y} ${box.width} ${box.height}" width="${pixelWidth}" height="${pixelHeight}"`;
-	return `${prolog}<${name}${kept} ${sizing}${slash}>${rest.slice(whole.length)}`;
-};
+const forRender = (text: string, box: Box, pixelWidth: number, pixelHeight: number): string =>
+	withDrawingViewport(text, box, { width: pixelWidth, height: pixelHeight }) ?? text;
 
 /**
  * The seam for what an SVG in an `<img>` cannot reach. An image renders

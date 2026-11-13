@@ -38,10 +38,12 @@ const SURFACE = [
 	'UNTITLED_SLUG',
 	'alwaysAllowed',
 	'attachmentName',
+	'cleanDrawingTitle',
 	'conflictContent',
 	'conflictPath',
 	'drawingFilename',
 	'emptyDrawing',
+	'freeDrawingPrefixAmong',
 	'imageInfo',
 	'isBlendMode',
 	'isDrawingName',
@@ -63,6 +65,7 @@ const SURFACE = [
 	'uniqueFilename',
 	'withDrawingId',
 	'withDrawingTitle',
+	'withDrawingViewport',
 ];
 
 /** Every type the entry offers; see the last test. */

@@ -193,6 +193,26 @@ describe('renameDrawing', () => {
 		await renameDrawing(db, made.id, '   ');
 		expect((await getDrawing(db, made.id))?.title).toBe('PLAN');
 	});
+
+	it('keeps a title as the file has it, so one of nothing XML holds is blank', async () => {
+		const db = freshDatabase();
+		const made = await createDrawing(db, { title: ' Plan\u0007 ' });
+		expect([made.title, readDrawingTitle(made.text)]).toEqual(['Plan', 'Plan']);
+
+		expect(await renameDrawing(db, made.id, '\u0007￿')).toBeUndefined();
+		const kept = await getDrawing(db, made.id);
+		expect([kept?.title, readDrawingTitle(kept?.text ?? '')]).toEqual(['Plan', 'Plan']);
+
+		const renamed = await renameDrawing(db, made.id, 'New\u0001');
+		expect([renamed?.title, readDrawingTitle(renamed?.text ?? '')]).toEqual(['New', 'New']);
+
+		// Made with nothing XML holds, its title is blank, as one made with a
+		// blank title is, which the list shows as untitled in its own words.
+		for (const title of ['\u0007', '']) {
+			const untitled = await createDrawing(db, { title });
+			expect([untitled.title, readDrawingTitle(untitled.text)]).toEqual(['', undefined]);
+		}
+	});
 });
 
 describe('deleteDrawing', () => {

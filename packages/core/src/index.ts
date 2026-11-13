@@ -11,10 +11,12 @@
 
 export { APP_FOLDER_NAME, DRAW_FOLDER, DRAWING_EXTENSION, syncsHidden } from './config.js';
 export {
+	cleanDrawingTitle,
 	DEFAULT_DRAWING_SIZE,
 	DRAWING_NAMESPACE,
 	type DrawingSize,
 	emptyDrawing,
+	freeDrawingPrefixAmong,
 	isDrawingText,
 	readDrawingId,
 	readDrawingProlog,
@@ -23,6 +25,7 @@ export {
 	SVG_NAMESPACE,
 	withDrawingId,
 	withDrawingTitle,
+	withDrawingViewport,
 } from './drawing/document.js';
 export { conflictContent, DRAW_FORMAT } from './drawing/format.js';
 export {
