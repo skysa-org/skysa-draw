@@ -15,6 +15,13 @@ export const isTombstone = (drawing: Pick<DrawingRecord, 'deletedLocally'> | und
 	drawing?.deletedLocally === 1;
 
 /**
+ * A row as the editor is handed it (`useDrawing`): `missing` where there is
+ * none, or it is a tombstone, waiting only for its delete to be sent.
+ */
+export const foundOf = (row: DrawingRecord | undefined): DrawingRecord | 'missing' =>
+	row !== undefined && isLive(row) ? row : 'missing';
+
+/**
  * A source that syncs: not one detached, which is kept only for what it never
  * sent (`SyncStateRecord.detached`).
  */

@@ -4,7 +4,7 @@ import { useDb } from './database.js';
 import type { DrawingRecord, FolderRecord } from './db.js';
 import { drawingsIn, getDrawing } from './drawings.js';
 import { foldersOf } from './folders.js';
-import { isLive } from './rowStates.js';
+import { foundOf } from './rowStates.js';
 
 /**
  * The store as the screens read it: live queries, re-run when the rows they
@@ -39,5 +39,5 @@ export const useDrawing = (id: string): DrawingRecord | 'loading' | 'missing' =>
 		undefined
 	);
 	if (answer?.id !== id) return 'loading';
-	return answer.row !== undefined && isLive(answer.row) ? answer.row : 'missing';
+	return foundOf(answer.row);
 };

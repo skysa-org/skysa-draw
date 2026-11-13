@@ -1244,6 +1244,9 @@ describe('the editor saving', () => {
 		act(() => lastOpened().edit(edited));
 		await pastTheSave();
 		expect(await rowText(db, made.id)).toBe(made.text);
+		// The row as the store has it, which the refused save hands the editor,
+		// is the one it opened: nothing is kept beside it or in its place.
+		expect(await liveRows(db)).toHaveLength(1);
 
 		// The store takes it again, and the drawing is closed before another change.
 		db.drawings.hook('updating').unsubscribe(refuse);
@@ -1309,6 +1312,72 @@ describe('the editor saving', () => {
 		expect(copy?.text).toBe(
 			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
 		);
+	});
+
+	it('keeps a copy when the save it closes with finds the drawing changed elsewhere, though the change never reaches it', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		// The change lands as the editor closes, once its live query has gone.
+		vi.spyOn(document, 'settle').mockImplementationOnce(async () => {
+			await saveDrawing(db, made.id, theirs);
+		});
+
+		view.unmount();
+
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
+		expect(await rowText(db, made.id)).toBe(theirs);
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
+	it('keeps the edits in its place when the save it closes with finds the drawing deleted elsewhere', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		// The delete lands as the editor closes, once its live query has gone.
+		vi.spyOn(document, 'settle').mockImplementationOnce(async () => {
+			await deleteDrawing(db, made.id);
+		});
+
+		view.unmount();
+
+		await waitFor(async () =>
+			expect((await liveRows(db)).map((row) => row.id)).not.toContain(made.id)
+		);
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(1));
+		const [kept] = await liveRows(db);
+		expect(kept?.text).toBe(withDrawingId(mine, kept?.id ?? ''));
+	});
+
+	it('keeps one copy, not two, when the change reaches the editor as its save finds it', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine));
+		// The change lands as the save is sent: the save finds it, and so does
+		// the live query.
+		vi.spyOn(document, 'settle')
+			.mockImplementationOnce(() => Promise.resolve())
+			.mockImplementationOnce(async () => {
+				await saveDrawing(db, made.id, theirs);
+			});
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		await pastTheSave();
+
+		const copies = (await liveRows(db)).filter((row) => row.id !== made.id);
+		expect(copies).toHaveLength(1);
+		expect(copies[0]?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copies[0]?.title ?? ''), copies[0]?.id ?? '')
+		);
+		expect(await rowText(db, made.id)).toBe(theirs);
 	});
 
 	it('waits for a copy a change from elsewhere sets off while a refused save is tried again', async () => {

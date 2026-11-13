@@ -5,9 +5,10 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
 import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.js';
-import { createDrawing, deleteDrawing, saveDrawing } from '../store/drawings.js';
+import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../store/drawings.js';
 import { beforeClosing, inTime } from '../store/heldEdits.js';
 import { useDrawing } from '../store/hooks.js';
+import { foundOf } from '../store/rowStates.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
 
@@ -156,29 +157,32 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			saved.current = [...saved.current, text].slice(-REMEMBERED_SAVES);
 			sending.current = text;
 			const outcome = await saveDrawing(db, id, text, { expected })
-				.catch((error: unknown) => {
-					// Not in the store, so not saved: a delete that beat it still
-					// finds these edits unsaved (`keepDeleted`).
+				.catch((): 'refused' => {
+					// Not in the store, so not saved, and out of `saved` before
+					// `sending` lets go of it, so that it never counts as saved
+					// between the two: a delete that beat it still finds these
+					// edits unsaved (`keepDeleted`).
 					saved.current = saved.current.filter((each) => each !== text);
-					throw error;
+					return 'refused';
 				})
 				.finally(() => {
 					if (sending.current === text) sending.current = undefined;
 				});
-			if (outcome === 'changed') {
-				// Nothing was written. The change, as it arrives or already has,
-				// finds these edits unsaved and keeps them as a copy beside it
-				// (`keepCopy`), by the conflict rule.
+			if (outcome === 'changed' || outcome === 'refused') {
+				// Nothing was written. The row as the store has it is handed to
+				// `offer`, as the live query would hand it (`offerStored`):
+				// changed from elsewhere, or deleted under the save, whose edits
+				// `keepDeleted` keeps, or the user's own delete takes. A store
+				// that refuses for another reason is a notice still to be built
+				// (§10).
 				saved.current = saved.current.filter((each) => each !== text);
 				if (state.current.document === document) set({ saving: 'idle' });
+				await offerStored();
 				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
 		})().catch(() => {
-			// The one failure this increment knows is the drawing deleted under a
-			// pending save, whose edits `keepDeleted` keeps, or the user's own
-			// delete takes; a store that refuses for another reason is a notice
-			// still to be built (§10).
+			// The document would not settle, or the row could not be read.
 			if (state.current.document === document) set({ saving: 'idle' });
 		});
 		inFlight.current = work;
@@ -404,6 +408,17 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		open(row.text);
 	};
 
+	/**
+	 * A save wrote nothing, the row changed or deleted from elsewhere under it:
+	 * the row as the store has it is offered as the live query offers it, so
+	 * that the edits are kept by the conflict rule, or in the row's place,
+	 * though the change has not reached the editor yet, and as it closes never
+	 * will. Offered twice, they are kept once.
+	 */
+	const offerStored = async (): Promise<void> => {
+		offer(foundOf(await getDrawing(db, id)));
+	};
+
 	const flush = (): Promise<void> => {
 		const document = state.current.document;
 		if (timer.current !== undefined && document !== undefined) {
@@ -431,8 +446,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * a stroke is an edit only once its encoding lands, as `keepDeleted` waits
 	 * for it too; then the pending save; then a copy being kept, since the
 	 * edits are its: one under way already, which has stopped the save's
-	 * timer, or one the save set off by finding the row changed, once the
-	 * change has reached the editor. Edits a save before it left behind — the
+	 * timer, or one a save that wrote nothing set off (`offerStored`): a copy
+	 * beside a change, or the edits in the place of a row deleted under it.
+	 * Edits a save before it left behind — the
 	 * store refused it — are tried once more, since nothing else would try
 	 * them until the next change, and a copy that sets off meanwhile is waited
 	 * for in turn. Kept in a drawing of their own, or going with the user's
