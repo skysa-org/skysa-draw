@@ -317,6 +317,14 @@ const rootTagOf = (text: string): StartTag | undefined => startTagAt(text, prolo
  */
 const openedTag = (text: string, tag: StartTag): string => text.slice(tag.start, tag.attributesEnd);
 
+/**
+ * `head`, a start tag up to its attributes, closed with `close`: after a space
+ * where its last value is bare and ends in a slash, so the slash stays the
+ * value's, and the tag is not one that might close itself (`endsInBareSlash`).
+ */
+const closedTag = (head: string, close: '>' | '/>'): string =>
+	`${head}${head.endsWith('/') ? ' ' : ''}${close}`;
+
 /** The root is an `svg` element in the SVG namespace, however it is declared. */
 const isSvgRoot = (root: StartTag): boolean =>
 	root.attributes.get(root.prefix === undefined ? 'xmlns' : `xmlns:${root.prefix}`) ===
@@ -359,14 +367,9 @@ const drawingPrefixes = (root: StartTag): readonly string[] =>
 		.filter(([, namespace]) => namespace === DRAWING_NAMESPACE)
 		.map(([prefix]) => prefix);
 
-/**
- * The last of the root's attributes named one of `names`: the one read where
- * a name is there twice.
- */
-const lastAmong = (root: StartTag, names: readonly string[]): Attribute | undefined => {
-	const named = new Set(names);
-	return root.attributeList.filter(({ name }) => named.has(name)).at(-1);
-};
+/** The last of the root's attributes named `name`: the one read where it is there twice. */
+const lastNamed = (root: StartTag, name: string): Attribute | undefined =>
+	root.attributeList.filter((attribute) => attribute.name === name).at(-1);
 
 /**
  * A drawing's id, or `undefined` for a file with none, or one this app cannot
@@ -377,7 +380,7 @@ export const readDrawingId = (text: string): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) return undefined;
 	const [prefix] = drawingPrefixes(root);
-	const id = prefix === undefined ? undefined : lastAmong(root, [`${prefix}:id`])?.value;
+	const id = prefix === undefined ? undefined : lastNamed(root, `${prefix}:id`)?.value;
 	return id !== undefined && ID.test(id) ? id : undefined;
 };
 
@@ -393,7 +396,7 @@ export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string => {
 	const numbered = (n: number): string =>
 		n === 1 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${n}`;
 	const candidates = Array.from({ length: bound.size + 1 }, (_, index) => numbered(index + 1));
-	return candidates.find((candidate) => !bound.has(candidate)) ?? PREFERRED_PREFIX;
+	return candidates.find((candidate) => !bound.has(candidate)) ?? numbered(bound.size + 1);
 };
 
 const freePrefix = (root: StartTag): string =>
@@ -415,16 +418,11 @@ export const withDrawingId = (text: string, id: string): string => {
 	const declaration = prefixes.length === 0 ? `xmlns:${prefix}="${DRAWING_NAMESPACE}" ` : '';
 	// In place of the one read (`readDrawingId`), or one under the prefix about
 	// to be declared, so a file given its id once is the same bytes given it
-	// again; or, where there is none, of the last under another prefix bound to
-	// the namespace, written under the first, instead of a new one beside it.
-	// Found among the attributes, so the same characters in another
-	// attribute's value are not taken for it. At the end of the tag otherwise.
-	const existing =
-		lastAmong(root, [`${prefix}:id`]) ??
-		lastAmong(
-			root,
-			prefixes.slice(1).map((other) => `${other}:id`)
-		);
+	// again. One under another prefix bound to the namespace is left as it is,
+	// as it always was: nothing in the file is taken away. Found among the
+	// attributes, so the same characters in another attribute's value are not
+	// taken for it. At the end of the tag otherwise.
+	const existing = lastNamed(root, `${prefix}:id`);
 	return existing === undefined
 		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
 		: `${text.slice(0, existing.start)}${declaration}${prefix}:id="${id}"${text.slice(existing.end)}`;
@@ -672,7 +670,7 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const tag = text.slice(root.start, root.end);
 	if (root.selfClosing) {
 		if (trimmed === '') return text;
-		return `${before}${openedTag(text, root)}>${element}</${root.name}>${text.slice(root.end)}`;
+		return `${before}${closedTag(openedTag(text, root), '>')}${element}</${root.name}>${text.slice(root.end)}`;
 	}
 	const found = firstTitle(text, root);
 	if (found === undefined) {
@@ -691,10 +689,10 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	if (!found.svg || (found.tag.prefix !== undefined && svgDefault)) {
 		const declared = svgDefault ? '' : ` xmlns="${SVG_NAMESPACE}"`;
 		const kept = attributesText(text, found.tag, DEFAULT_NAMESPACE);
-		return `${before}${tag}${lead}<title${declared}${kept}>${escapeText(trimmed)}</title>${after}`;
+		return `${before}${tag}${lead}${closedTag(`<title${declared}${kept}`, '>')}${escapeText(trimmed)}</title>${after}`;
 	}
 	const open = found.tag.selfClosing
-		? `${openedTag(text, found.tag)}>`
+		? closedTag(openedTag(text, found.tag), '>')
 		: text.slice(found.tag.start, found.tag.end);
 	return `${before}${tag}${lead}${open}${escapeText(trimmed)}</${found.tag.name}>${after}`;
 };

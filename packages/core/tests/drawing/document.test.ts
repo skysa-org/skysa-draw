@@ -277,16 +277,14 @@ describe('withDrawingId', () => {
 		const two = `${both} a:id="first" b:id="second"/>`;
 		expect(readDrawingId(two)).toBe('first');
 		expect(withDrawingId(two, ID)).toBe(two.replace('a:id="first"', `a:id="${ID}"`));
-		// One under another prefix alone is not read, and is replaced by the
-		// first's, so the root does not have two.
+		// One under another prefix alone is not read, and is left as it is: the
+		// id is written under the first, and nothing is taken away.
 		const other = `${both} b:id="other"/>`;
 		expect(readDrawingId(other)).toBeUndefined();
 		const given = withDrawingId(other, ID);
-		expect(given).toBe(other.replace('b:id="other"', `a:id="${ID}"`));
+		expect(given).toBe(`${both} b:id="other" a:id="${ID}"/>`);
 		expect(readDrawingId(given)).toBe(ID);
-		// The last of them, where others have one.
-		const three = `${both} xmlns:c="${DRAWING_NAMESPACE}" b:id="b" c:id="c"/>`;
-		expect(withDrawingId(three, ID)).toBe(three.replace('c:id="c"', `a:id="${ID}"`));
+		expect(withDrawingId(given, ID)).toBe(given);
 	});
 
 	it('gives the id at once however many prefixes bind the namespace', () => {
@@ -297,7 +295,7 @@ describe('withDrawingId', () => {
 		).join('');
 		const text = `<svg xmlns="${SVG_NAMESPACE}"${bound} p1:id="old"/>`;
 		const started = performance.now();
-		expect(withDrawingId(text, ID)).toBe(text.replace('p1:id="old"', `p0:id="${ID}"`));
+		expect(withDrawingId(text, ID)).toBe(text.replace('/>', ` p0:id="${ID}"/>`));
 		expect(performance.now() - started).toBeLessThan(500);
 	});
 
@@ -676,6 +674,31 @@ describe('withDrawingTitle', () => {
 				`${root}\n  <title>New</title>${rest}`
 			);
 			expect(withDrawingTitle(`${root}${rest}`, '')).toBe(`${root}${rest}`);
+		}
+	});
+
+	it('keeps a bare value’s slash its own where a rename opens or rebuilds a tag', () => {
+		// Written straight before the `>`, the slash would make a tag that might
+		// close itself, and the title would not be read back.
+		const svg = `<svg xmlns="${SVG_NAMESPACE}">`;
+		const prefixed = `<svg:svg xmlns:svg="${SVG_NAMESPACE}">`;
+		for (const [text, renamed] of [
+			[
+				`${svg}<title a=b/ /><g id="layer-1"/></svg>`,
+				`${svg}<title a=b/ >New</title><g id="layer-1"/></svg>`,
+			],
+			[
+				`${prefixed}<title xmlns="" a=b/ >Old</title><svg:g/></svg:svg>`,
+				`${prefixed}<title xmlns="${SVG_NAMESPACE}" a=b/ >New</title><svg:g/></svg:svg>`,
+			],
+			[
+				`<svg xmlns="${SVG_NAMESPACE}" a=b/ />`,
+				`<svg xmlns="${SVG_NAMESPACE}" a=b/ ><title>New</title></svg>`,
+			],
+		] as const) {
+			expect(withDrawingTitle(text, 'New')).toBe(renamed);
+			expect(readDrawingTitle(renamed)).toBe('New');
+			expect(withDrawingTitle(renamed, 'New')).toBe(renamed);
 		}
 	});
 

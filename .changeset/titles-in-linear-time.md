@@ -9,12 +9,11 @@ That something is a comment, a CDATA section, a processing instruction, a tag wh
 On 0.1.0, renaming such a title could take away the layers after it, or leave an end tag with nothing to close, so that no XML parser read the file.
 Giving a drawing its id no longer writes into another attribute's value that holds the same characters, which could leave a file that is no longer a drawing.
 Where a root has the id attribute twice, the one read is the one replaced.
-Where a root binds the app's namespace under two prefixes, the id is read under the first alone, as it always was, and giving the drawing its id writes it in place of the last under another prefix, under the first, instead of beside it.
 Where a root has the id in an undeclared namespace, the namespace is declared with it.
 A free prefix for the app's namespace is found however many are taken, in core and in the editor.
 Where a value without quotes in the root tag ends in a slash before its `>`, as `xml:base=http://a/b/>`, the id is written after it, as the root is read, instead of taking the slash for the tag's close and changing the value.
 A start tag is read by a scanner instead of a pattern, so one with millions of attributes no longer runs out of stack, in core or in an export, which now sets the root's size through core's `withDrawingViewport`.
-A rename keeps the title's own start tag and its attributes, so an `id` that the root's `aria-labelledby` names still names it.
+A rename keeps the title's own start tag and its attributes, so an `id` that the root's `aria-labelledby` names still names it; where its last value is bare and ends in a slash, a space stays before its `>`, so the title is read back.
 A title's start tag is read as the root's is, so a `>` in a quoted value no longer ends it.
 SVG's title is read under whatever prefix binds it, and after a processing instruction, as XML allows one there; where SVG is the root's default namespace, a rename names it `title`, as the editor keeps it.
 Under a root such as `svg:svg`, where SVG is not the default namespace, a new title is written under the root's prefix, so that it is SVG's; a `<title>` in no namespace, as 0.1.0 wrote there, is still read, and a rename makes SVG's namespace its default, keeping its attributes.
