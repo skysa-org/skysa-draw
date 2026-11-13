@@ -163,15 +163,17 @@ const prologEnd = (text: string): number => skipped(text, 0, prologItemEnd);
 
 /**
  * The run of things from `from` that `item` reads one after another, as
- * `skipped` reads it, and each of them.
+ * `skipped` reads it, and each of them: no more than `most`, where it stops.
  */
 const readRun = <T extends Readonly<{ end: number }>>(
 	text: string,
 	from: number,
-	item: (text: string, at: number) => T | undefined
+	item: (text: string, at: number) => T | undefined,
+	most: number
 ): Readonly<{ items: readonly T[]; end: number }> => {
 	const items: T[] = [];
 	const end = skipped(text, from, (_, at) => {
+		if (items.length >= most) return undefined;
 		const next = item(text, at);
 		// eslint-disable-next-line functional/immutable-data -- built here, and only read once returned
 		if (next !== undefined && next.end > at) items.push(next);
@@ -179,6 +181,13 @@ const readRun = <T extends Readonly<{ end: number }>>(
 	});
 	return { items, end };
 };
+
+/**
+ * The most attributes a start tag this reads may have: a root or a title with
+ * more is not read. One has tens; a file with a great many more was written to
+ * do this, and each one read is kept, so the bound is on the memory as well.
+ */
+const MOST_ATTRIBUTES = 100_000;
 
 /** What a name cannot hold, and what a value without quotes cannot. */
 const NOT_NAME = /[\s"'<>/=]/;
@@ -253,7 +262,12 @@ const startTagAt = (text: string, start: number, localName: string): StartTag | 
 	const name = text.slice(start + 1, nameEnd);
 	const colon = name.indexOf(':');
 	if (colon === 0 || name.slice(colon + 1) !== localName) return undefined;
-	const { items, end: attributesEnd } = readRun(text, nameEnd, spacedAttributeAt);
+	const { items, end: attributesEnd } = readRun(
+		text,
+		nameEnd,
+		spacedAttributeAt,
+		MOST_ATTRIBUTES
+	);
 	const close = spaceEnd(text, attributesEnd);
 	const selfClosing = text.startsWith('/>', close);
 	if (!selfClosing && text.charAt(close) !== '>') return undefined;
@@ -321,31 +335,35 @@ export const readDrawingProlog = (text: string): string | undefined => {
 	return root === undefined || !isSvgRoot(root) ? undefined : text.slice(0, root.start);
 };
 
+/** Each prefix the root binds, and the namespace it binds it to, in order. */
+const prefixBindings = (root: StartTag): readonly (readonly [string, string])[] =>
+	[...root.attributes]
+		.filter(([name]) => name.startsWith('xmlns:'))
+		.map(([name, value]) => [name.slice('xmlns:'.length), value] as const);
+
 /** The prefixes the root binds to `DRAWING_NAMESPACE`, in order. */
 const drawingPrefixes = (root: StartTag): readonly string[] =>
-	[...root.attributes]
-		.filter(([name, value]) => name.startsWith('xmlns:') && value === DRAWING_NAMESPACE)
-		.map(([name]) => name.slice('xmlns:'.length));
+	prefixBindings(root)
+		.filter(([, namespace]) => namespace === DRAWING_NAMESPACE)
+		.map(([prefix]) => prefix);
 
 /**
- * The attribute that holds the drawing's id, under `prefixes`, those the root
- * binds to `DRAWING_NAMESPACE` or the one about to be: the last `id` under the
- * first of them, as this file has always read it, so the id a file is known
- * by does not change; or, where there is none, the last under another. The
- * last of a name is the one read where there are two.
+ * The last of the root's attributes named one of `names`: the one read where
+ * a name is there twice.
  */
-const idAttribute = (root: StartTag, prefixes: readonly string[]): Attribute | undefined => {
-	const lastAmong = (names: readonly string[]): Attribute | undefined =>
-		root.attributeList.filter(({ name }) => names.includes(name)).at(-1);
-	const names = prefixes.map((prefix) => `${prefix}:id`);
-	return lastAmong(names.slice(0, 1)) ?? lastAmong(names);
-};
+const lastAmong = (root: StartTag, names: readonly string[]): Attribute | undefined =>
+	root.attributeList.filter(({ name }) => names.includes(name)).at(-1);
 
-/** A drawing's id, or `undefined` for a file with none, or one this app cannot use. */
+/**
+ * A drawing's id, or `undefined` for a file with none, or one this app cannot
+ * use: the `id` under the first prefix the root binds to `DRAWING_NAMESPACE`,
+ * as this file has always read it, so the id a file is known by never changes.
+ */
 export const readDrawingId = (text: string): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) return undefined;
-	const id = idAttribute(root, drawingPrefixes(root))?.value;
+	const [prefix] = drawingPrefixes(root);
+	const id = prefix === undefined ? undefined : lastAmong(root, [`${prefix}:id`])?.value;
 	return id !== undefined && ID.test(id) ? id : undefined;
 };
 
@@ -363,13 +381,7 @@ export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string => {
 };
 
 const freePrefix = (root: StartTag): string =>
-	freeDrawingPrefixAmong(
-		new Set(
-			[...root.attributes.keys()]
-				.filter((name) => name.startsWith('xmlns:'))
-				.map((name) => name.slice('xmlns:'.length))
-		)
-	);
+	freeDrawingPrefixAmong(new Set(prefixBindings(root).map(([prefix]) => prefix)));
 
 /**
  * The same text with `id` as the drawing's id: set on a file that has none,
@@ -385,15 +397,21 @@ export const withDrawingId = (text: string, id: string): string => {
 	const prefixes = drawingPrefixes(root);
 	const prefix = prefixes[0] ?? freePrefix(root);
 	const declaration = prefixes.length === 0 ? `xmlns:${prefix}="${DRAWING_NAMESPACE}" ` : '';
-	// In place where the file has the attribute, under its own prefix, so a
-	// file given its id once is the same bytes given it again: the one read
-	// (`idAttribute`), or one under the prefix about to be declared. Found
-	// among the attributes, so the same characters in another attribute's
-	// value are not taken for it. At the end of the tag otherwise.
-	const existing = idAttribute(root, prefixes.length === 0 ? [prefix] : prefixes);
+	// In place of the one read (`readDrawingId`), or one under the prefix about
+	// to be declared, so a file given its id once is the same bytes given it
+	// again; or, where there is none, of one under another prefix bound to the
+	// namespace, written under the first, so the root holds one id in it, not
+	// two. Found among the attributes, so the same characters in another
+	// attribute's value are not taken for it. At the end of the tag otherwise.
+	const existing =
+		lastAmong(root, [`${prefix}:id`]) ??
+		lastAmong(
+			root,
+			prefixes.slice(1).map((other) => `${other}:id`)
+		);
 	return existing === undefined
 		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
-		: `${text.slice(0, existing.start)}${declaration}${existing.name}="${id}"${text.slice(existing.end)}`;
+		: `${text.slice(0, existing.start)}${declaration}${prefix}:id="${id}"${text.slice(existing.end)}`;
 };
 
 export interface DrawingSize {
@@ -450,7 +468,7 @@ const VIEWPORT: ReadonlySet<string> = new Set(['viewBox', 'width', 'height']);
  * The same text with its root's `viewBox` set to `box`, and its `width` and
  * `height` to `size`, in place of any it has, its other attributes and every
  * byte outside the root tag as they were: how a render asks for the size it
- * wants (the web app's export). `undefined` where there is no root to read.
+ * wants (the web app's export). `undefined` for text that is not an SVG document.
  */
 export const withDrawingViewport = (
 	text: string,
@@ -458,7 +476,7 @@ export const withDrawingViewport = (
 	size: DrawingSize
 ): string | undefined => {
 	const root = rootTagOf(text);
-	if (root === undefined) return undefined;
+	if (root === undefined || !isSvgRoot(root)) return undefined;
 	const kept = root.attributeList
 		.filter(({ name }) => !VIEWPORT.has(name))
 		.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
@@ -493,14 +511,18 @@ const namespaceOf = (tag: StartTag, root: StartTag): string => {
 };
 
 /**
+ * Whether SVG is the root's default namespace, so that a `title` with no
+ * prefix is SVG's.
+ */
+const svgIsDefault = (root: StartTag): boolean => root.attributes.get('xmlns') === SVG_NAMESPACE;
+
+/**
  * The name this app writes a title under: `title` where SVG is the root's
  * default namespace, and under the root's own prefix where it is not, so the
  * title is SVG's in a file whose root is `svg:svg`.
  */
 const titleName = (root: StartTag): string =>
-	root.prefix === undefined || root.attributes.get('xmlns') === SVG_NAMESPACE
-		? 'title'
-		: `${root.prefix}:title`;
+	root.prefix === undefined || svgIsDefault(root) ? 'title' : `${root.prefix}:title`;
 
 interface TitleElement {
 	/** Its start tag, which begins where what leads to it ends, and its text begins where it ends. */
@@ -521,24 +543,28 @@ interface TitleElement {
  * passed over. Walked from `<` to `<`, and no further than `until`.
  */
 const endsAt = (text: string, name: string, from: number, until: number): boolean => {
-	const local = name.slice(name.indexOf(':') + 1);
+	// Just past an element of the title's name at `at` that closes itself, its
+	// attributes passed over rather than kept, as `startTagAt` would keep them.
 	const selfClosedEnd = (at: number): number | undefined => {
-		const inner = startTagAt(text, at, local);
-		return inner?.name === name && inner.selfClosing ? inner.end : undefined;
+		const attributesEnd = skipped(
+			text,
+			at + name.length + 1,
+			(_, from) => spacedAttributeAt(text, from)?.end
+		);
+		const close = spaceEnd(text, attributesEnd);
+		return text.startsWith('/>', close) ? close + 2 : undefined;
 	};
 	// Past what starts at a `<`: one character, a section, or an element of the
 	// title's name that closes itself; `undefined` where none of them ends.
 	const past = (at: number): number | undefined =>
-		text.startsWith('<!--', at)
-			? closedBy(text, '-->', at + 4)
-			: text.startsWith('<![CDATA[', at)
-				? closedBy(text, ']]>', at + 9)
-				: text.startsWith('<?', at)
-					? closedBy(text, '?>', at + 2)
-					: text.startsWith(`<${name}`, at) &&
-						  NOT_NAME.test(text.charAt(at + name.length + 1))
-						? selfClosedEnd(at)
-						: at + 1;
+		text.startsWith('<![CDATA[', at)
+			? closedBy(text, ']]>', at + 9)
+			: text.startsWith('<!--', at) || text.startsWith('<?', at)
+				? commentOrInstructionEnd(text, at)
+				: text.startsWith(`<${name}`, at) &&
+					  NOT_NAME.test(text.charAt(at + name.length + 1))
+					? selfClosedEnd(at)
+					: at + 1;
 	const reached = skipped(text, text.indexOf('<', from), (_, at) => {
 		if (at === -1 || at >= until) return undefined;
 		const after = past(at);
@@ -644,7 +670,7 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	// its own `xmlns` where it has one: no prefix of an attribute changes, so
 	// neither does what it means. So does one under a prefix where SVG is the
 	// root's default, so that it is named `title`, as the editor keeps it.
-	const svgDefault = root.attributes.get('xmlns') === SVG_NAMESPACE;
+	const svgDefault = svgIsDefault(root);
 	if (!found.svg || (found.tag.prefix !== undefined && svgDefault)) {
 		const declared = svgDefault ? '' : ` xmlns="${SVG_NAMESPACE}"`;
 		const kept = found.tag.attributeList

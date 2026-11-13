@@ -271,16 +271,19 @@ describe('withDrawingId', () => {
 		expect(() => withDrawingId(slashed, ID)).toThrow(RangeError);
 	});
 
-	it('finds the id under any prefix bound to the namespace, and keeps that prefix', () => {
+	it('reads the id under the first prefix bound to the namespace, and writes it there', () => {
+		// As it was always read, so the id a file is known by does not change.
 		const both = `<svg xmlns="${SVG_NAMESPACE}" xmlns:a="${DRAWING_NAMESPACE}" xmlns:b="${DRAWING_NAMESPACE}"`;
-		const text = `${both} b:id="keep"/>`;
-		expect(readDrawingId(text)).toBe('keep');
-		expect(withDrawingId(text, ID)).toBe(text.replace('b:id="keep"', `b:id="${ID}"`));
-		// Under the first prefix where it has one there, as it was always read,
-		// so the id a file is known by does not change.
 		const two = `${both} a:id="first" b:id="second"/>`;
 		expect(readDrawingId(two)).toBe('first');
 		expect(withDrawingId(two, ID)).toBe(two.replace('a:id="first"', `a:id="${ID}"`));
+		// One under another prefix alone is not read, and is replaced by the
+		// first's, so the root does not have two.
+		const other = `${both} b:id="other"/>`;
+		expect(readDrawingId(other)).toBeUndefined();
+		const given = withDrawingId(other, ID);
+		expect(given).toBe(other.replace('b:id="other"', `a:id="${ID}"`));
+		expect(readDrawingId(given)).toBe(ID);
 	});
 
 	it('declares the namespace for an id the file has without it', () => {
@@ -487,13 +490,18 @@ describe('readDrawingTitle', () => {
 		expect(withDrawingTitle(text, '')).toBe(text);
 	});
 
-	it('reads a title whose start tag has a great many attributes', () => {
-		// A pattern for the tag ran out of stack over millions; the scanner has none.
-		expect(
-			readDrawingTitle(
-				`<svg xmlns="${SVG_NAMESPACE}"><title${' a'.repeat(200_000)}>Name</title></svg>`
-			)
-		).toBe('Name');
+	it('reads a title whose start tag has a great many attributes, but not past a bound', () => {
+		// A pattern for the tag ran out of stack over millions; the scanner has none,
+		// and keeps no more than it may hold.
+		const titled = (count: number) =>
+			`<svg xmlns="${SVG_NAMESPACE}"><title${' a'.repeat(count)}>Name</title></svg>`;
+		expect(readDrawingTitle(titled(100_000))).toBe('Name');
+		expect(readDrawingTitle(titled(100_001))).toBeUndefined();
+		const many = `<svg xmlns="${SVG_NAMESPACE}"${' a'.repeat(4_000_000)}><title>Name</title></svg>`;
+		const started = performance.now();
+		expect(isDrawingText(many)).toBe(false);
+		expect(readDrawingTitle(many)).toBeUndefined();
+		expect(performance.now() - started).toBeLessThan(500);
 	});
 
 	it('answers at once of what leads to no title, however long', () => {
@@ -538,9 +546,10 @@ describe('withDrawingViewport', () => {
 		);
 	});
 
-	it('is nothing for text with no root to read, and reads a root of many attributes', () => {
+	it('is nothing for text with no SVG root to read, and reads a root of many attributes', () => {
 		expect(withDrawingViewport('<html/>', BOX, SIZE)).toBeUndefined();
-		const many = `<svg xmlns="${SVG_NAMESPACE}"${' a="b"'.repeat(200_000)}><g/></svg>`;
+		expect(withDrawingViewport('<svg width="5"><rect/></svg>', BOX, SIZE)).toBeUndefined();
+		const many = `<svg xmlns="${SVG_NAMESPACE}"${' a="b"'.repeat(50_000)}><g/></svg>`;
 		expect(
 			withDrawingViewport(many, BOX, SIZE)?.endsWith(' width="600" height="400"><g/></svg>')
 		).toBe(true);
@@ -715,7 +724,13 @@ describe('withDrawingTitle', () => {
 		}
 		// One that closes before the end tag is read as part of the text, as it
 		// always was, and so is an element of the title's name that closes itself.
-		for (const inner of ['A<!-- c -->B', 'A<title/>B', 'A<title id="x" />B']) {
+		for (const inner of [
+			'A<!-- c -->B',
+			'A<?pi x?>B',
+			'A<title/>B',
+			'A<title id="x" />B',
+			'A<title a=">" b/>B',
+		]) {
 			const text = `${root}<title>${inner}</title><g/></svg>`;
 			expect(readDrawingTitle(text)).toBe(inner);
 			expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
