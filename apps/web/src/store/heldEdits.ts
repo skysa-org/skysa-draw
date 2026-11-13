@@ -1,15 +1,14 @@
 /**
  * The edits the editors are holding, which the store cannot see.
  *
- * An editor keeps what was drawn for a moment before it saves it (here
- * `drawing/useOpenDrawing.ts`, which does not register yet:
- * docs/ARCHITECTURE.md §10), and skysa-notes' keeps an edit whose save failed
- * until one goes through (its `useAutosave.ts`). None of that is in a row. So
- * anything about to act on "what this device holds" has to have the editors
- * write first — a tab closing its database for a newer build
- * (`store/staleTab.ts`), and a source being let go, where a count of what is
- * unsynced taken from the store alone would leave out the stroke the user has
- * just drawn (`store/unsynced.ts`).
+ * An editor keeps what was drawn for a moment before it saves it, and an edit
+ * whose save the store refused until one goes in (`drawing/useOpenDrawing.ts`,
+ * registered while a drawing is open). None of that is in a row. So anything
+ * about to act on "what this device holds" has to have the editors write first
+ * — a tab closing its database for a newer build (`store/staleTab.ts`), and a
+ * source being let go, where a count of what is unsynced taken from the store
+ * alone would leave out the stroke the user has just drawn
+ * (`store/unsynced.ts`).
  *
  * A registry rather than a call into the editor, because `store/` knows nothing
  * of React and an editor comes and goes: each registers its own flush while it

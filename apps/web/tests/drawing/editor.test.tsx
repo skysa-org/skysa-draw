@@ -18,8 +18,9 @@ import { rectPath } from '../../src/drawing/tools/raster/area.js';
 import * as areaOps from '../../src/drawing/tools/raster/areaOps.js';
 import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
 import { DatabaseProvider } from '../../src/store/database.js';
-import type { DrawDatabase } from '../../src/store/db.js';
+import { type DrawDatabase, drawingRef } from '../../src/store/db.js';
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../../src/store/drawings.js';
+import { settleEditors } from '../../src/store/heldEdits.js';
 import { isLive } from '../../src/store/rowStates.js';
 import { freshDatabase } from '../support/db.js';
 import { stubWindowWidth, type Width } from './support.js';
@@ -1043,6 +1044,45 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited), {
 			timeout: AUTOSAVE_DEBOUNCE_MS - 100,
 		});
+	});
+
+	it('writes what is pending when asked to settle, without waiting for the pause, and names nothing once it is in', async () => {
+		// A newer build closing the database, a source let go, an export: each
+		// asks first (`store/heldEdits.ts`).
+		const { db, made } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(edited);
+	});
+
+	it('names the drawing when settling, while the store will not take what it holds', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+
+		expect(await settleEditors()).toEqual({ failing: [drawingRef(made)], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(made.text);
+
+		db.drawings.hook('updating').unsubscribe(refuse);
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		expect(await rowText(db, made.id)).toBe(edited);
+	});
+
+	it('is no longer asked to settle once it has closed', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(edited));
+		view.unmount();
+
+		// The close wrote it; nothing is left to ask.
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
 	});
 
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {

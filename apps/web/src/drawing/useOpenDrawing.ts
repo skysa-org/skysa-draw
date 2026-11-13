@@ -4,8 +4,9 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { t } from '../i18n/t.js';
 import { useDb } from '../store/database.js';
-import type { DrawDatabase, DrawingRecord } from '../store/db.js';
+import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.js';
 import { createDrawing, deleteDrawing, saveDrawing } from '../store/drawings.js';
+import { beforeClosing } from '../store/heldEdits.js';
 import { useDrawing } from '../store/hooks.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
@@ -382,6 +383,24 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
+	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
+	 * it holds written now, and this drawing named, by `drawingRef`, if the
+	 * store still has not taken it. The pending save goes first; edits a save
+	 * before it left behind — the store refused it — are tried once more, since
+	 * nothing else would try them until the next change. Not while a copy is
+	 * being kept or the drawing deleted: those have the edits already.
+	 */
+	const settle = async (): Promise<readonly string[]> => {
+		await flush();
+		const document = state.current.document;
+		if (document !== undefined && !keeping.current && !deleting.current && hasUnsavedEdits()) {
+			await save(document);
+		}
+		const row = latest.current;
+		return row !== undefined && hasUnsavedEdits() ? [drawingRef(row)] : [];
+	};
+
+	/**
 	 * Said before the row goes, so that its going is not taken for a delete
 	 * from elsewhere, whose edits would be kept as a drawing of their own.
 	 */
@@ -400,6 +419,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	const start = () => {
+		// A newer build closing the database, a source let go, an export: each
+		// has the editor write what it holds first, and hears what it could not.
+		const withdraw = beforeClosing(settle);
 		// The save is asynchronous, but IndexedDB finishes a transaction that
 		// was started before the page went, so starting it is enough.
 		const onPageHide = () => {
@@ -411,6 +433,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		window.addEventListener('pagehide', onPageHide);
 		window.document.addEventListener('visibilitychange', onVisibility);
 		return () => {
+			withdraw();
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
 			void flush();

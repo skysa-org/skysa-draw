@@ -19,6 +19,15 @@ export const shell = {
 		drawings: 'Drawings',
 		drawing: 'Drawing',
 	},
+	/** A newer build in another window has the database, or is waiting for it (`StaleTabGate`). */
+	staleTab: {
+		text: 'A newer version of the app is open in another window, and this one can no longer save. Reload to carry on here.',
+		notYet: 'Not yet',
+		cannotSave:
+			'This window is out of date and cannot save. Export what you need, then reload.',
+		waiting:
+			'Waiting for an older window of this app to finish. If this does not go away, close the other windows.',
+	},
 	sync: {
 		/** A provider request given up on: the words reach the storage panel. */
 		timedOut: 'The storage provider did not answer in time.',

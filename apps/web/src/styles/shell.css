@@ -202,7 +202,13 @@ button:not(.primary):hover {
 	width: 1px;
 }
 
-/* The bar that says a new build is waiting (`UpdatePrompt`). */
+/* What `StaleTabGate` makes inert, without a box of its own in the layout. */
+.tab-gate {
+	display: contents;
+}
+
+/* The bar that says a new build is waiting (`UpdatePrompt`), and the stale
+   tab's (`StaleTabGate`). */
 .update-prompt {
 	align-items: center;
 	background: var(--surface);

@@ -1,12 +1,14 @@
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { routeTree } from '../src/routeTree.gen';
+import { bindConnection, finishImport } from '../src/store/connection.js';
 import { DatabaseProvider } from '../src/store/database.js';
 import { type DrawDatabase, drawingKey } from '../src/store/db.js';
 import { createDrawing } from '../src/store/drawings.js';
+import { KEEP_ASKED_KEY } from '../src/store/keeping.js';
 import { isTombstone } from '../src/store/rowStates.js';
 import { freshDatabase } from './support/db.js';
 
@@ -207,5 +209,84 @@ describe('the app', () => {
 		// Kept as a tombstone, for the delete to reach the source's storage.
 		expect(await liveDrawings(db)).toBe(0);
 		expect(router.state.location.search).toEqual({});
+	});
+});
+
+describe('asking the browser to keep the drawings', () => {
+	/** `navigator.storage` as a browser that has not agreed, and says no when asked. */
+	const standIn = () => {
+		const keeper = {
+			persisted: vi.fn(() => Promise.resolve(false)),
+			persist: vi.fn(() => Promise.resolve(false)),
+		};
+		Object.defineProperty(navigator, 'storage', { configurable: true, value: keeper });
+		return keeper;
+	};
+
+	afterEach(() => {
+		Reflect.deleteProperty(navigator, 'storage');
+	});
+
+	/** Long enough for a request made after a write to have been made. */
+	const settled = () =>
+		act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		});
+
+	it('asks once, when the first drawing is made on a device with nothing connected', async () => {
+		const user = userEvent.setup();
+		const keeper = standIn();
+		const { db } = renderApp();
+		// Not on load: in Firefox the request is a prompt, and nothing is stored yet.
+		await screen.findByText('No drawings here yet.');
+		await settled();
+		expect(keeper.persist).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: 'New drawing' }));
+		await waitFor(() => {
+			expect(keeper.persist).toHaveBeenCalledTimes(1);
+		});
+		expect(await db.prefs.get(KEEP_ASKED_KEY)).toBeDefined();
+
+		await opened('Untitled');
+		await user.click(screen.getByRole('button', { name: 'Drawings' }));
+		const library = await screen.findByRole('dialog', { name: 'Drawings' });
+		await user.click(within(library).getByRole('button', { name: 'New drawing' }));
+		await waitFor(async () => {
+			expect(await liveDrawings(db)).toBe(2);
+		});
+		await settled();
+		expect(keeper.persist).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not ask for a drawing made in a source that syncs', async () => {
+		const user = userEvent.setup();
+		const keeper = standIn();
+		const db = freshDatabase();
+		await bindConnection(db, { connectionId: 'c1', provider: 'dropbox', accountId: 'dbid:1' });
+		await finishImport(db, 'c1');
+		renderApp('/', db);
+
+		await user.click(await screen.findByRole('button', { name: 'New drawing' }));
+		await waitFor(async () => {
+			expect(await liveDrawings(db)).toBe(1);
+		});
+		await settled();
+
+		expect(keeper.persist).not.toHaveBeenCalled();
+	});
+
+	it('asks again when the app is installed, without spending the first drawing’s request', async () => {
+		const keeper = standIn();
+		const { db } = renderApp();
+		await screen.findByText('No drawings here yet.');
+
+		act(() => {
+			window.dispatchEvent(new Event('appinstalled'));
+		});
+		await waitFor(() => {
+			expect(keeper.persist).toHaveBeenCalledTimes(1);
+		});
+		expect(await db.prefs.get(KEEP_ASKED_KEY)).toBeUndefined();
 	});
 });

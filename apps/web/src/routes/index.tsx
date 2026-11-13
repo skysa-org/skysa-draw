@@ -18,6 +18,7 @@ import {
 	useConnectNotice,
 	useEnterCode,
 } from './-home/connectNotice.js';
+import { useKeepOnInstall } from './-home/keepOnInstall.js';
 
 /**
  * The one route: the library — the sources, the folders and the drawings in
@@ -54,6 +55,7 @@ const Home = () => {
 	const { connectNotice, dismissConnect } = useConnectNotice(connect, code);
 	useCodeAskedAgain(connect);
 	const enterCode = useEnterCode(enter);
+	useKeepOnInstall();
 
 	const library = (
 		<>

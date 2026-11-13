@@ -2,6 +2,7 @@ import { makeWay, updateChannel } from '@skysa/client';
 import { createRootRoute, Outlet } from '@tanstack/react-router';
 
 import { ErrorScreen } from '../components/shell/ErrorScreen.js';
+import { StaleTabGate } from '../components/shell/StaleTabGate.js';
 import { UpdatePrompt } from '../components/shell/UpdatePrompt.js';
 import { syncScheduler } from '../sync/runtime.js';
 
@@ -14,7 +15,9 @@ const beforeUpdate = (): Promise<void> => makeWay(syncScheduler, updateChannel()
 
 const RootLayout = () => (
 	<div className="app">
-		<Outlet />
+		<StaleTabGate>
+			<Outlet />
+		</StaleTabGate>
 		<UpdatePrompt beforeUpdate={beforeUpdate} />
 	</div>
 );
