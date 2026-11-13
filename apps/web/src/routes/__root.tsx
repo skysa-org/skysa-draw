@@ -15,10 +15,9 @@ const beforeUpdate = (): Promise<void> => makeWay(syncScheduler, updateChannel()
 
 const RootLayout = () => (
 	<div className="app">
-		<StaleTabGate>
-			<Outlet />
-		</StaleTabGate>
+		<Outlet />
 		<UpdatePrompt beforeUpdate={beforeUpdate} />
+		<StaleTabGate />
 	</div>
 );
 

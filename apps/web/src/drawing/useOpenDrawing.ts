@@ -109,6 +109,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * saved into the row, and no row is opened.
 	 */
 	const keeping = cell(false);
+	/** The last copy kept, or drawing kept in place of the row: settled once it is in, or refused. */
+	const kept = cell<Promise<void> | undefined>(undefined);
 	/** The user is deleting the drawing: what is unsaved goes with it. */
 	const deleting = cell(false);
 	const saved = cell<readonly string[]>([]);
@@ -345,7 +347,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			set({ gone: true });
 			return;
 		}
-		void keepDeleted(document, row);
+		kept.current = keepDeleted(document, row);
 	};
 
 	const offer = (row: Found) => {
@@ -367,7 +369,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		if (row.text === openedText.current || saved.current.includes(row.text)) return;
 		const document = state.current.document;
 		if (document !== undefined && hasUnsavedEdits()) {
-			void keepCopy(document, row);
+			kept.current = keepCopy(document, row);
 			return;
 		}
 		open(row.text);
@@ -385,19 +387,30 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	/**
 	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
 	 * it holds written now, and this drawing named, by `drawingRef`, if the
-	 * store still has not taken it. The pending save goes first; edits a save
-	 * before it left behind — the store refused it — are tried once more, since
-	 * nothing else would try them until the next change. Not while a copy is
-	 * being kept or the drawing deleted: those have the edits already.
+	 * store still has not taken it. A copy being kept goes first, since the
+	 * edits are its; then the pending save. Edits a save before it left behind
+	 * — the store refused it — are tried once more, since nothing else would
+	 * try them until the next change. Kept in a drawing of their own, or going
+	 * with the user's delete, the edits are not this drawing's to name.
+	 *
+	 * Edits held with no row to name, as a new drawing the store refused in
+	 * place of a deleted one leaves them (`keepDeleted`), are a rejection: the
+	 * one answer that says something is held that no drawing's rows have.
 	 */
 	const settle = async (): Promise<readonly string[]> => {
+		await kept.current;
 		await flush();
 		const document = state.current.document;
-		if (document !== undefined && !keeping.current && !deleting.current && hasUnsavedEdits()) {
-			await save(document);
+		if (document === undefined || keeping.current || deleting.current || !hasUnsavedEdits()) {
+			return [];
 		}
+		// A save of an edit made since is this one.
+		stopTimer();
+		await save(document);
+		if (!hasUnsavedEdits()) return [];
 		const row = latest.current;
-		return row !== undefined && hasUnsavedEdits() ? [drawingRef(row)] : [];
+		if (row === undefined) throw new Error('Edits are held for a drawing that is gone.');
+		return [drawingRef(row)];
 	};
 
 	/**
@@ -433,10 +446,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		window.addEventListener('pagehide', onPageHide);
 		window.document.addEventListener('visibilitychange', onVisibility);
 		return () => {
-			withdraw();
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
-			void flush();
+			// Withdrawn once the last save is in, so that settling meanwhile
+			// waits for it.
+			void flush().finally(withdraw);
 		};
 	};
 

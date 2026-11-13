@@ -1,71 +1,115 @@
-import { type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 
 import { t } from '../../i18n/t.js';
 import { subscribeTabState, tabState } from '../../store/staleTab.js';
+import { HAS_POPOVER, raise } from '../ui/MenuList.js';
 
 /**
- * The app, and in front of it the two things `store/staleTab.ts` can have to
- * say. Apart from `UpdatePrompt`, which offers a new build the user may put
- * off: neither of these can be, since in both the store under the app is not
- * there to read or write.
+ * The two things `store/staleTab.ts` can have to say, over the app. Apart
+ * from `UpdatePrompt`, which offers a new build the user may put off: neither
+ * of these can be, since in both the store under the app is not there to read
+ * or write.
  *
  * Out of date blocks. The database is closed for good, so every save from
  * here on is refused, and a canvas that still took strokes would be taking
- * strokes it cannot keep. The app underneath is made inert rather than
- * unmounted, so the drawing can still be seen behind the notice; what the
- * editor held was written before the database closed (`beforeClosing`).
+ * strokes it cannot keep. The notice covers the window as work under way does
+ * (`Applying`), in the top layer where there is one, and everything else in
+ * the page is made inert while it shows, the sheets and drawers in their
+ * portals with it: the drawing can still be seen behind the notice, and
+ * nothing behind it can be pressed, focused or typed into. The page's own key
+ * listeners, the editor's shortcuts among them, hear no key either; the
+ * notice's buttons answer by the browser's own handling of a key, which that
+ * leaves alone. What the editor held was written before the database closed
+ * (`beforeClosing`).
  *
  * It can be put aside, as skysa-notes' can. A save the store refused earlier
  * says nothing yet (docs/ARCHITECTURE.md §10), so the open drawing may hold
  * what the store does not, and export reads the drawing as it is open: put
- * aside, the app comes back under a bar that goes on saying it cannot save.
+ * aside, the app comes back, the focus where it was, under a bar that goes on
+ * saying it cannot save.
  *
  * Reload is the answer, last in its row, and has the focus.
  */
-export const StaleTabGate = ({
-	children,
-	reload = () => {
-		window.location.reload();
-	},
-}: {
-	children: ReactNode;
-	/** Injected because jsdom has no navigation. */
-	reload?: () => void;
-}) => {
-	const state = useSyncExternalStore(subscribeTabState, tabState);
-	const [putAside, setPutAside] = useState(false);
-	const blocked = state === 'stale' && !putAside;
-	const said = useId();
+
+/** Every key, while the notice shows, kept from every listener in the page put there after this. */
+const keepKey = (event: KeyboardEvent): void => {
+	event.stopImmediatePropagation();
+};
+
+const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => void }) => {
+	const cover = useRef<HTMLDivElement>(null);
 	const answer = useRef<HTMLButtonElement>(null);
+	const said = useId();
 
+	useLayoutEffect(() => {
+		if (cover.current !== null) raise(cover.current);
+	}, []);
+
+	// The window's capture phase comes before every other listener but those
+	// put there earlier. Inert takes the focus away from what had it, which
+	// gets it back once the notice is put aside.
 	useEffect(() => {
-		if (blocked) answer.current?.focus();
-	}, [blocked]);
+		const had = document.activeElement;
+		const others = Array.from(document.body.children).filter(
+			(child) => child !== cover.current && !child.hasAttribute('inert')
+		);
+		others.forEach((child) => child.setAttribute('inert', ''));
+		window.addEventListener('keydown', keepKey, true);
+		answer.current?.focus();
+		return () => {
+			window.removeEventListener('keydown', keepKey, true);
+			others.forEach((child) => child.removeAttribute('inert'));
+			if (had instanceof HTMLElement && had.isConnected) had.focus();
+		};
+	}, []);
 
-	return (
-		<>
-			<div className="tab-gate" inert={blocked}>
-				{children}
-			</div>
-			{blocked && (
-				<div className="update-prompt" role="alertdialog" aria-labelledby={said}>
-					<span id={said}>{t('shell.staleTab.text')}</span>
-					<button
-						type="button"
-						className="ghost"
-						onClick={() => {
-							setPutAside(true);
-						}}
-					>
+	return createPortal(
+		<div ref={cover} className="tab-gate" popover={HAS_POPOVER ? 'manual' : undefined}>
+			<div
+				className="tab-gate-card"
+				role="alertdialog"
+				aria-modal="true"
+				aria-labelledby={said}
+			>
+				<p id={said}>{t('shell.staleTab.text')}</p>
+				<div className="tab-gate-actions">
+					<button type="button" onClick={putAside}>
 						{t('shell.staleTab.notYet')}
 					</button>
 					<button ref={answer} type="button" className="primary" onClick={reload}>
 						{t('common.reload')}
 					</button>
 				</div>
+			</div>
+		</div>,
+		document.body
+	);
+};
+
+export const StaleTabGate = ({
+	reload = () => {
+		window.location.reload();
+	},
+}: {
+	/** Injected because jsdom has no navigation. */
+	reload?: () => void;
+}) => {
+	const state = useSyncExternalStore(subscribeTabState, tabState);
+	const [putAside, setPutAside] = useState(false);
+
+	return (
+		<>
+			{state === 'stale' && !putAside && (
+				<Blocked
+					reload={reload}
+					putAside={() => {
+						setPutAside(true);
+					}}
+				/>
 			)}
 			{state === 'stale' && putAside && (
-				<div className="update-prompt" role="alert">
+				<div className="update-prompt tab-state-bar" role="alert">
 					<span>{t('shell.staleTab.cannotSave')}</span>
 					<button type="button" onClick={reload}>
 						{t('common.reload')}
@@ -73,7 +117,7 @@ export const StaleTabGate = ({
 				</div>
 			)}
 			{state === 'waiting' && (
-				<div className="update-prompt" role="status">
+				<div className="update-prompt tab-state-bar" role="status">
 					<span>{t('shell.staleTab.waiting')}</span>
 				</div>
 			)}

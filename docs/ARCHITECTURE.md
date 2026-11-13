@@ -553,9 +553,17 @@ What follows is this app's own.
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
-- What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`): the session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, writes its pending save when asked, tries once more an edit a save before left behind, and answers with the drawing's `drawingRef` while the store has still not taken it, so a source let go keeps that drawing's rows and an export says it is incomplete.
-- A newer build in another window asks for the database: this one writes what the editor holds, closes for good (`store/staleTab.ts`), and says so over the page (`components/shell/StaleTabGate.tsx`), the app inert behind a notice whose answer is Reload; it can be put aside to export the drawing, under a bar that goes on saying it cannot save. A window whose own upgrade an older one holds up says it is waiting.
-- The browser is asked to keep the store (`navigator.storage.persist()`, `store/keeping.ts`) when the first drawing is made in the device's own library, once per device, since Firefox answers with a prompt; and again when the app is installed, which Chromium weighs. The storage panel says, while the device's own library holds anything and the browser has not agreed, that the drawings may be cleared.
+- What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
+  The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and once it closes until its last save is in.
+  Asked to settle, it waits for a copy it is keeping, writes its pending save, and tries once more an edit a save before left behind.
+  It answers with the drawing's `drawingRef` while the store has still not taken the edits, so a source let go keeps that drawing's rows and an export says it is incomplete.
+  Edits held for a drawing deleted elsewhere, with no new drawing taken in its place, are a rejection, since no drawing's rows have them.
+- A newer build in another window asks for the database: this one writes what the editor holds, closes for good (`store/staleTab.ts`), and says so over the page (`components/shell/StaleTabGate.tsx`).
+  The notice covers the window in the top layer, as work under way does, and everything else in the page is inert behind it, the sheets and drawers in their portals with it, and hears no key; its answer is Reload.
+  It can be put aside to export the drawing, under a bar that goes on saying the window cannot save.
+  A window whose own upgrade an older one holds up says it is waiting.
+- The browser is asked to keep the store (`navigator.storage.persist()`, `store/keeping.ts`) when the first drawing is made in the device's own library, once per device, since Firefox answers with a prompt, and again when the app is installed, which Chromium weighs.
+  The storage panel says, while the device's own library holds anything and the browser has not agreed, that the drawings may be cleared.
 
 **Brand.**
 What the app is called and how it looks come from a `brand.json` at build time: the default brand in `apps/web/brand/` ("Draw", in gray, the pen-stroke icons drawn by `brand/icons.mjs`), or a deployment's own, pointed at with `DRAW_BRAND`.
@@ -608,6 +616,7 @@ Known gaps in what is built, each for an issue:
 - A save that arrives after its source was let go is refused, where skysa-notes makes the drawing again under a detached source (`bringBack`, `ensureDetached`); `settleEditors` covers a release, not an undo that outlives it.
 - Per-source preferences (skysa-notes' `sourcePrefs`) are not kept.
 - A save, or a new drawing, the store refuses for any reason but a delete says nothing on screen (`drawing/useOpenDrawing.ts`); a refused save is tried again at the next change, or when the editor is asked to settle, and is counted as held until it goes in.
+- An undo back to the text the drawing opened with, or to one this session saved before, counts as saved though the row may hold a later save, so a refused save of it is neither named when the editor settles nor kept under a change or a delete from elsewhere (#13).
 - Web Locks, BroadcastChannel, the wake lock, the relay WebSocket and IndexedDB are tested only through fakes and fake-indexeddb, and no provider has been connected for real.
 - A conflict copy the sync engine makes keeps the drawing's title, so the list shows two drawings by one name until one is renamed; the store contract pins the copy's text to `conflictContent`, so retitling it means giving the contract the store's words for the title.
 

@@ -20,7 +20,7 @@ import { AUTOSAVE_DEBOUNCE_MS } from '../../src/drawing/useOpenDrawing.js';
 import { DatabaseProvider } from '../../src/store/database.js';
 import { type DrawDatabase, drawingRef } from '../../src/store/db.js';
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../../src/store/drawings.js';
-import { settleEditors } from '../../src/store/heldEdits.js';
+import { flushEditors, settleEditors } from '../../src/store/heldEdits.js';
 import { isLive } from '../../src/store/rowStates.js';
 import { freshDatabase } from '../support/db.js';
 import { stubWindowWidth, type Width } from './support.js';
@@ -1074,15 +1074,59 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(edited);
 	});
 
-	it('is no longer asked to settle once it has closed', async () => {
+	it('is asked to settle until the save it closed with is in, and not after', async () => {
 		const { db, made, view } = await renderEditor('expanded');
 		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
 		act(() => lastOpened().edit(edited));
 		view.unmount();
 
-		// The close wrote it; nothing is left to ask.
+		// Settling while the close's save is under way waits for it.
+		expect(flushEditors()).toHaveLength(1);
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
-		expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+	});
+
+	it('waits for a copy being kept for a change from elsewhere, which the edits are in', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(mine, true));
+		// The copy is held at its first step until the editor is asked to settle.
+		const held: { release: () => void } = { release: () => undefined };
+		const settle = vi.spyOn(document, 'settle').mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					held.release = resolve;
+				})
+		);
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		const settling = settleEditors();
+		held.release();
+
+		expect(await settling).toEqual({ failing: [], rejected: 0 });
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
+	it('says it holds what no drawing has, deleted elsewhere with nothing taken in its place', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		act(() => lastOpened().edit(mine, true));
+		const refuse = vi.fn(() => {
+			throw new Error('the store refused');
+		});
+		db.drawings.hook('creating', refuse);
+		await deleteDrawing(db, made.id);
+		// The drawing that would have kept the edits, refused.
+		await waitFor(() => expect(refuse).toHaveBeenCalled());
+
+		expect(await settleEditors()).toEqual({ failing: [], rejected: 1 });
+		db.drawings.hook('creating').unsubscribe(refuse);
 	});
 
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {

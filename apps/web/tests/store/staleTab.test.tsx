@@ -12,8 +12,10 @@ import { deleteAfterTest, watchedDatabase } from '../support/db.js';
 /**
  * A newer build opening the database in another window, and the gate that says
  * so. One test file, in one order: out of date is for good, in the module as in
- * the tab, so everything that needs the state before it comes first. Carried
- * over from skysa-notes' `staleTab.test.tsx`, with the waiting notice added.
+ * the tab, so everything that needs the state before it comes first; the
+ * gate's own tests make it so themselves (`outOfDate`). Carried over from
+ * skysa-notes' `staleTab.test.tsx`, with the waiting notice, the sheets in
+ * their portals and the editor's keys added.
  */
 
 /** Later than any version this build declares. */
@@ -33,13 +35,29 @@ const newerBuild = (name: string): Dexie => {
 	return db;
 };
 
+/** The app, with the gate beside it as the root route has it, from when `gated`. */
+const App = ({ reload, gated = true }: { reload: () => void; gated?: boolean }) => (
+	<>
+		<p>the app</p>
+		<button type="button">Draw</button>
+		{gated && <StaleTabGate reload={reload} />}
+	</>
+);
+
 const gate = (reload = vi.fn()) => {
-	render(
-		<StaleTabGate reload={reload}>
-			<p>the app</p>
-		</StaleTabGate>
-	);
+	render(<App reload={reload} />);
 	return reload;
+};
+
+/**
+ * Out of date, whatever the tests before have done: a newer build opens the
+ * database under one this window has open. Once is for good, so after the
+ * first this only proves it.
+ */
+const outOfDate = async () => {
+	const db = await thisTab();
+	await newerBuild(db.name).open();
+	expect(tabState()).toBe('stale');
 };
 
 // In the order written, even when the run is shuffled: see above.
@@ -187,8 +205,7 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 
 	it('blocks the app behind a notice that offers the one thing left to do', async () => {
 		const user = userEvent.setup();
-		// Out of date since the tests above, and for good.
-		expect(tabState()).toBe('stale');
+		await outOfDate();
 		const reload = gate();
 
 		const notice = screen.getByRole('alertdialog', { name: /can no longer save/ });
@@ -201,16 +218,68 @@ describe('a window whose database a newer build has asked for', { shuffle: false
 		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
+	it('blocks what the app has put in the page outside itself, a sheet or a drawer, and only while it shows', async () => {
+		const user = userEvent.setup();
+		await outOfDate();
+		// As a sheet's portal is; and something the page had made inert itself.
+		const sheet = document.body.appendChild(document.createElement('div'));
+		const inertAlready = document.body.appendChild(document.createElement('div'));
+		inertAlready.setAttribute('inert', '');
+		onTestFinished(() => {
+			sheet.remove();
+			inertAlready.remove();
+		});
+		gate();
+
+		expect(sheet.hasAttribute('inert')).toBe(true);
+		expect(screen.getByRole('alertdialog').closest('[inert]')).toBeNull();
+
+		await user.click(screen.getByRole('button', { name: 'Not yet' }));
+		expect(sheet.hasAttribute('inert')).toBe(false);
+		expect(inertAlready.hasAttribute('inert')).toBe(true);
+	});
+
+	it("keeps every key from the page while it shows: the editor's shortcuts hear none", async () => {
+		const user = userEvent.setup();
+		await outOfDate();
+		// As the editor's shortcuts listen: on the window, as the key comes back up.
+		const shortcut = vi.fn();
+		window.addEventListener('keydown', shortcut);
+		onTestFinished(() => {
+			window.removeEventListener('keydown', shortcut);
+		});
+		const reload = gate();
+
+		await user.keyboard('z');
+		expect(shortcut).not.toHaveBeenCalled();
+		// The notice's own buttons answer the keyboard all the same.
+		await user.keyboard('{Shift>}{Tab}{/Shift}{Enter}');
+		expect(reload).not.toHaveBeenCalled();
+		expect(screen.queryByRole('alertdialog')).toBeNull();
+
+		await user.keyboard('z');
+		expect(shortcut).toHaveBeenCalled();
+	});
+
 	it('can be put aside to export what the drawing holds, and goes on saying it cannot save', async () => {
 		// Inert stops everything, export with it. A save the store refused earlier
 		// says nothing yet, so the open drawing may hold what the store does not.
 		const user = userEvent.setup();
-		const reload = gate();
+		await outOfDate();
+		const reload = vi.fn();
+		// The notice comes over an app in use: the focus was on its tools.
+		const { rerender } = render(<App reload={reload} gated={false} />);
+		const draw = screen.getByRole('button', { name: 'Draw' });
+		draw.focus();
+		rerender(<App reload={reload} />);
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reload' }));
 
 		await user.click(screen.getByRole('button', { name: 'Not yet' }));
 
 		expect(screen.queryByRole('alertdialog')).toBeNull();
 		expect(screen.getByText('the app').closest('[inert]')).toBeNull();
+		// Back where it was, and not on the bar's Reload, where a key meant for the drawing would reload.
+		expect(document.activeElement).toBe(draw);
 		expect(screen.getByRole('alert').textContent).toMatch(/cannot save/);
 		await user.click(screen.getByRole('button', { name: 'Reload' }));
 		expect(reload).toHaveBeenCalledTimes(1);
