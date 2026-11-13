@@ -19,7 +19,7 @@ A free prefix for the app's namespace is found however many are taken, in core a
 Where a value without quotes in the root tag ends in a slash before its `>`, as `xml:base=http://a/b/>`, the id is written after it, as the root is read, instead of taking the slash for the tag's close and changing the value.
 A start tag is read by a scanner instead of a pattern, so one with hundreds of thousands of attributes no longer runs out of stack, in core or in an export, which now sets the root's size through core's `withDrawingViewport`.
 A root with more than a million, which the pattern could not read either, is not a drawing, so the memory a file can take to read is bounded; the app's namespace and id are not counted, so a root given its id is read as it was.
-A title with more than a million is not read, its `xmlns` not counted, so one a rename makes SVG's is read again.
+A title with more than a million is not read, though 0.1.0 read one, and a rename puts a new title ahead of it; its `xmlns` are not counted, so one a rename makes SVG's is read again.
 A rename keeps the title's own start tag and its attributes, so an `id` that the root's `aria-labelledby` names still names it; where its last value is bare and ends in a slash, a space stays before its `>`, so the title is read back.
 A title's start tag is read as the root's is, so a `>` in a quoted value no longer ends it.
 SVG's title is read under whatever prefix binds it, and after a processing instruction, as XML allows one there; where SVG is the root's default namespace, a rename names it `title`, as the editor keeps it.

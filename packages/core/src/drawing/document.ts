@@ -198,10 +198,11 @@ const readRun = <T extends Readonly<{ end: number }>>(
  * Those are not counted, so that what this app writes to one it reads, an id
  * or SVG's namespace on a title, is read again. Each one read is kept, as a
  * few numbers, so memory grows with them, and without a bound a root of
- * millions ran a tab out of memory. The pattern this replaced ran out of stack
- * before a million that had values, so no file it read that XML reads is
- * refused: only one of more than a million without values, which no XML
- * parser reads.
+ * millions ran a tab out of memory. The root's pattern this replaced ran out
+ * of stack before a million that had values, so no root it read that XML
+ * reads is refused: only one of more than a million without values, which no
+ * XML parser reads. Its title's pattern had no such limit, so a title of more
+ * than a million that it read is not read now, as any title this cannot read.
  */
 const MOST_ATTRIBUTES = 1_000_000;
 
