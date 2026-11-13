@@ -157,32 +157,31 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			saved.current = [...saved.current, text].slice(-REMEMBERED_SAVES);
 			sending.current = text;
 			const outcome = await saveDrawing(db, id, text, { expected })
-				.catch((error: unknown) => {
+				.catch((): 'refused' => {
 					// Not in the store, so not saved: a delete that beat it still
 					// finds these edits unsaved (`keepDeleted`).
 					saved.current = saved.current.filter((each) => each !== text);
-					throw error;
+					return 'refused';
 				})
 				.finally(() => {
 					if (sending.current === text) sending.current = undefined;
 				});
-			if (outcome === 'changed') {
+			if (outcome === 'changed' || outcome === 'refused') {
 				// Nothing was written. The row as the store has it is handed to
-				// `offer`, as the live query would hand it (`offerStored`).
+				// `offer`, as the live query would hand it (`offerStored`):
+				// changed from elsewhere, or deleted under the save, whose edits
+				// `keepDeleted` keeps, or the user's own delete takes. A store
+				// that refuses for another reason is a notice still to be built
+				// (§10).
 				saved.current = saved.current.filter((each) => each !== text);
 				if (state.current.document === document) set({ saving: 'idle' });
 				await offerStored();
 				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
-		})().catch(async () => {
-			// The one failure this increment knows is the drawing deleted under a
-			// pending save, whose edits `keepDeleted` keeps, or the user's own
-			// delete takes, as the row as the store has it says (`offerStored`);
-			// a store that refuses for another reason is a notice still to be
-			// built (§10).
+		})().catch(() => {
+			// The document would not settle, or the row could not be read.
 			if (state.current.document === document) set({ saving: 'idle' });
-			await offerStored().catch(() => undefined);
 		});
 		inFlight.current = work;
 		return work;
