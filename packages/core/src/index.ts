@@ -16,6 +16,7 @@ export {
 	DRAWING_NAMESPACE,
 	type DrawingSize,
 	emptyDrawing,
+	freeDrawingPrefixAmong,
 	isDrawingText,
 	readDrawingId,
 	readDrawingProlog,

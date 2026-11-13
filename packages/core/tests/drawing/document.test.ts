@@ -654,7 +654,7 @@ describe('withDrawingTitle', () => {
 		);
 	});
 
-	it('reads no title whose first end tag a comment, CDATA or instruction in it holds', () => {
+	it('reads no title whose first end tag something in it holds: a comment, CDATA, an instruction, a title', () => {
 		// XML ends it at a later one, and a tool that knows none of them at that
 		// one: it is not read, and a rename puts a new title ahead of it.
 		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
@@ -666,6 +666,7 @@ describe('withDrawingTitle', () => {
 			`<title>x <!-- y</title>${layer}</svg>`,
 			`<title>x <![CDATA[ y</title>${layer}<style><![CDATA[a{}]]></style></svg>`,
 			`<title>A<!-- </title> x</svg>`,
+			`<title>Doc <title xmlns="http://www.w3.org/1999/xhtml">x</title> end</title>${layer}</svg>`,
 		]) {
 			expect(readDrawingTitle(`${root}${rest}`)).toBeUndefined();
 			expect(withDrawingTitle(`${root}${rest}`, 'New')).toBe(
@@ -673,7 +674,7 @@ describe('withDrawingTitle', () => {
 			);
 			expect(withDrawingTitle(`${root}${rest}`, '')).toBe(`${root}${rest}`);
 		}
-		// One that closes before it is read as part of the text, as it always was.
+		// One that closes before the end tag is read as part of the text, as it always was.
 		const text = `${root}<title>A<!-- c -->B</title><g/></svg>`;
 		expect(readDrawingTitle(text)).toBe('A<!-- c -->B');
 		expect(withDrawingTitle(text, 'New')).toBe(`${root}<title>New</title><g/></svg>`);
@@ -696,6 +697,29 @@ describe('withDrawingTitle', () => {
 		expect(emptyDrawing({ id: ID, title: '\u0000' })).toBe(text);
 		// A tab, a line break, and a character beyond the BMP are XML's.
 		expect(readDrawingTitle(withDrawingTitle(text, 'a\tb\nc 🎉'))).toBe('a\tb\nc 🎉');
+		// Nor is one read where a reference spells it, so a title read is one written.
+		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
+		expect(readDrawingTitle(`${root}<title>Plan&#1;&#xD800;</title></svg>`)).toBe('Plan');
+		expect(readDrawingTitle(`${root}<title>&#x7;</title></svg>`)).toBeUndefined();
+	});
+
+	it('names SVG’s title under a prefix `title` where SVG is the root’s default, as the editor keeps it', () => {
+		// The editor's sanitizer takes elements under a prefix away, so a title
+		// kept as `s:title` would go with the first edit.
+		const root = `<svg xmlns="${SVG_NAMESPACE}" xmlns:s="${SVG_NAMESPACE}">`;
+		for (const [open, renamed] of [
+			['<s:title id="t">', '<title id="t">'],
+			[
+				`<s:title xmlns:s="${SVG_NAMESPACE}" xmlns="urn:x">`,
+				`<title xmlns:s="${SVG_NAMESPACE}">`,
+			],
+		] as const) {
+			const text = `${root}${open}B</s:title><g/></svg>`;
+			expect(readDrawingTitle(text)).toBe('B');
+			const titled = withDrawingTitle(text, 'New');
+			expect(titled).toBe(`${root}${renamed}New</title><g/></svg>`);
+			expect(readDrawingTitle(titled)).toBe('New');
+		}
 	});
 
 	it('writes SVG’s title under the root’s prefix where SVG is not the default namespace', () => {

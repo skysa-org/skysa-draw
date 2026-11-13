@@ -205,6 +205,15 @@ describe('renameDrawing', () => {
 
 		const renamed = await renameDrawing(db, made.id, 'New\u0001');
 		expect([renamed?.title, readDrawingTitle(renamed?.text ?? '')]).toEqual(['New', 'New']);
+
+		// Made with nothing XML holds, it is as though no title were given.
+		const untitled = await createDrawing(db, { title: '\u0007' });
+		expect([untitled.title, readDrawingTitle(untitled.text)]).toEqual(['Untitled', undefined]);
+		const own = await createDrawing(db, {
+			title: '\u0007',
+			text: emptyDrawing({ id: crypto.randomUUID(), title: 'Mine' }),
+		});
+		expect(own.title).toBe('Mine');
 	});
 });
 

@@ -43,6 +43,7 @@ const SURFACE = [
 	'conflictPath',
 	'drawingFilename',
 	'emptyDrawing',
+	'freeDrawingPrefixAmong',
 	'imageInfo',
 	'isBlendMode',
 	'isDrawingName',

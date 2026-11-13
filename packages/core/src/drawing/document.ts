@@ -90,13 +90,13 @@ const markClosedAt = (text: string, mark: string, at: number): number | undefine
  * `>`, among the places `next` steps to from `first`: where it starts, and
  * just past the `>`. The whitespace after one `mark` ends before the next, so
  * each is read once. `next` answers -1, as `indexOf` does, where there is
- * nowhere more to look, or `undefined` where the search is to stop unanswered.
+ * nowhere more to look.
  */
 const closingMark = (
 	text: string,
 	mark: string,
 	first: number,
-	next: (at: number) => number | undefined
+	next: (at: number) => number
 ): Readonly<{ at: number; end: number }> | undefined => {
 	const at = skipped(text, first, (_, at) =>
 		at === -1 || markClosedAt(text, mark, at) !== undefined ? undefined : next(at)
@@ -357,18 +357,26 @@ export const readDrawingId = (text: string): string | undefined => {
 	return id !== undefined && ID.test(id) ? id : undefined;
 };
 
-/** A prefix not bound on the root: `draw`, or `draw2`, `draw3`, … where it is taken. */
-const freePrefix = (root: StartTag): string => {
-	const taken = [...root.attributes.keys()].filter((name) =>
-		name.startsWith(`xmlns:${PREFERRED_PREFIX}`)
+/**
+ * The prefix to bind the app's namespace to on a root that binds it to none:
+ * `draw`, or `draw2`, `draw3`, …, the first that `bound`, the prefixes the
+ * root binds already, does not hold. A search among one more than it holds,
+ * not a recursion, so however many are bound it does not run out of stack;
+ * the editor's too (`drawingPrefixOf`), so both choose the same one.
+ */
+export const freeDrawingPrefixAmong = (bound: ReadonlySet<string>): string =>
+	Array.from({ length: bound.size + 1 }, (_, i) =>
+		i === 0 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${i + 1}`
+	).find((candidate) => !bound.has(candidate)) ?? PREFERRED_PREFIX;
+
+const freePrefix = (root: StartTag): string =>
+	freeDrawingPrefixAmong(
+		new Set(
+			[...root.attributes.keys()]
+				.filter((name) => name.startsWith('xmlns:'))
+				.map((name) => name.slice('xmlns:'.length))
+		)
 	);
-	// One of as many as are taken, and one more, is free.
-	return (
-		Array.from({ length: taken.length + 1 }, (_, i) =>
-			i === 0 ? PREFERRED_PREFIX : `${PREFERRED_PREFIX}${i + 1}`
-		).find((candidate) => !root.attributes.has(`xmlns:${candidate}`)) ?? PREFERRED_PREFIX
-	);
-};
 
 /**
  * The same text with `id` as the drawing's id: set on a file that has none,
@@ -491,14 +499,16 @@ interface TitleElement {
  * Where a title's text ends, from `from`, and just past its end tag: the first
  * `</name` that nothing but whitespace separates from a `>`, past whatever
  * comments, CDATA sections and processing instructions the text holds, which
- * may hold one. `undefined` where none closes it.
+ * may hold one. `undefined` where none closes it, or an element of the same
+ * name opens in it first, whose end tag would be taken for the title's.
  */
 const titleEnd = (
 	text: string,
 	name: string,
 	from: number
 ): Readonly<{ at: number; end: number }> | undefined => {
-	// Past what starts at a `<`: one character, or a section that never ends.
+	// Past what starts at a `<`: one character, or a section; `undefined` for
+	// a section that never ends, or an element named as the title is.
 	const sectionEnd = (at: number): number | undefined =>
 		text.startsWith('<!--', at)
 			? closedBy(text, '-->', at + 4)
@@ -506,10 +516,13 @@ const titleEnd = (
 				? closedBy(text, ']]>', at + 9)
 				: text.startsWith('<?', at)
 					? closedBy(text, '?>', at + 2)
-					: at + 1;
+					: text.startsWith(`<${name}`, at) &&
+						  NOT_NAME.test(text.charAt(at + name.length + 1))
+						? undefined
+						: at + 1;
 	return closingMark(text, `</${name}`, text.indexOf('<', from), (at) => {
 		const after = sectionEnd(at);
-		return after === undefined ? undefined : text.indexOf('<', after);
+		return after === undefined ? -1 : text.indexOf('<', after);
 	});
 };
 
@@ -525,7 +538,8 @@ const titleEnd = (
  * runs into `/>` (`endsInBareSlash`) may close itself or not; and where a
  * comment, CDATA section or processing instruction in it holds its first
  * `</title>`, or starts before it and never closes, XML ends it elsewhere
- * (`titleEnd`), and a tool that knows none of them there.
+ * (`titleEnd`), and a tool that knows none of them there. So does one that
+ * holds an element of its own name, whose end tag comes first.
  *
  * SVG's title, under whatever prefix binds SVG; or a `title` with no prefix
  * in no namespace, as this app's 0.1.0 wrote one under an `svg:svg` root, and
@@ -556,7 +570,9 @@ export const readDrawingTitle = (text: string): string | undefined => {
 	if (root === undefined || !isSvgRoot(root) || root.selfClosing) return undefined;
 	const found = firstTitle(text, root);
 	const title =
-		found === undefined ? '' : decodeReferences(text.slice(found.tag.end, found.end)).trim();
+		found === undefined
+			? ''
+			: cleanDrawingTitle(decodeReferences(text.slice(found.tag.end, found.end)));
 	return title === '' ? undefined : title;
 };
 
@@ -606,11 +622,12 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	// The title keeps its attributes, so an `id` the root's `aria-labelledby`
 	// names still names it. SVG's keeps its start tag as it is, opened where it
 	// closed itself. One in no namespace has SVG's made its default, in place of
-	// its own `xmlns` where it has one: no prefix changes, so neither does what
-	// any of its attributes means.
-	if (!found.svg) {
-		const declared =
-			root.attributes.get('xmlns') === SVG_NAMESPACE ? '' : ` xmlns="${SVG_NAMESPACE}"`;
+	// its own `xmlns` where it has one: no prefix of an attribute changes, so
+	// neither does what it means. So does one under a prefix where SVG is the
+	// root's default, so that it is named `title`, as the editor keeps it.
+	const svgDefault = root.attributes.get('xmlns') === SVG_NAMESPACE;
+	if (!found.svg || (found.tag.prefix !== undefined && svgDefault)) {
+		const declared = svgDefault ? '' : ` xmlns="${SVG_NAMESPACE}"`;
 		const kept = found.tag.attributeList
 			.filter((attribute) => attribute.name !== 'xmlns')
 			.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
@@ -648,10 +665,8 @@ export const emptyDrawing = ({
 	if (!positive(size.width) || !positive(size.height)) {
 		throw new RangeError('a drawing is wider and taller than nothing');
 	}
-	const titled =
-		title === undefined || cleanDrawingTitle(title) === ''
-			? ''
-			: `\n  <title>${escapeText(cleanDrawingTitle(title))}</title>`;
+	const cleaned = title === undefined ? '' : cleanDrawingTitle(title);
+	const titled = cleaned === '' ? '' : `\n  <title>${escapeText(cleaned)}</title>`;
 	// After the title, as §3 shows it: the title is the root's first child, and
 	// the layer the first thing that draws. Its kind is written, not left to be
 	// inferred, so the file says what the app meant.

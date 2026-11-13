@@ -1,6 +1,7 @@
 import {
 	type BlendMode,
 	DRAWING_NAMESPACE,
+	freeDrawingPrefixAmong,
 	isBlendMode,
 	isGraphicsElement,
 	LAYER_ATTRIBUTES,
@@ -228,18 +229,20 @@ export const idsIn = (root: Element): ReadonlySet<string> =>
 	new Set([root, ...root.querySelectorAll('[id]')].map(idOf).filter((id) => id !== ''));
 
 /**
- * The smallest `n` from 1 that is not `taken`, where at most `count` are.
- * Among the first `count + 1` numbers one is always free, so the search ends
- * there: a layer's id, and a prefix for the app's namespace.
+ * The smallest number of `layer-n` that none of `taken` is. Among the first
+ * `taken.size + 1` numbers one is always free, so the search ends there.
  */
-const firstFreeNumber = (count: number, taken: (n: number) => boolean): number =>
-	Array.from({ length: count + 1 }, (_, index) => index + 1).find((n) => !taken(n)) ?? count + 1;
+const firstFreeNumber = (taken: ReadonlySet<string>): number => {
+	const used = new Set([...taken].map(layerNumber).filter((n): n is number => n !== undefined));
+	return (
+		Array.from({ length: used.size + 1 }, (_, index) => index + 1).find((n) => !used.has(n)) ??
+		used.size + 1
+	);
+};
 
 /** `layer-n` for the smallest `n` no id in `taken` has. */
-export const freeLayerIdAmong = (taken: ReadonlySet<string>): string => {
-	const used = new Set([...taken].map(layerNumber).filter((n): n is number => n !== undefined));
-	return layerId(firstFreeNumber(used.size, (n) => used.has(n)));
-};
+export const freeLayerIdAmong = (taken: ReadonlySet<string>): string =>
+	layerId(firstFreeNumber(taken));
 
 /** `layer-n` for the smallest `n` free in the document (§3). */
 export const freeLayerId = (root: Element): string => freeLayerIdAmong(idsIn(root));
@@ -275,30 +278,28 @@ export const boundDrawingPrefix = (root: Element): string | undefined =>
 			attribute.value === DRAWING_NAMESPACE
 	)?.localName;
 
-/**
- * `draw`, or `draw2`, `draw3`, … where the root binds `draw` to something else:
- * a search, not a recursion, as `freePrefix` is in core.
- */
-const freeDrawingPrefix = (root: Element): string => {
-	const bound = new Set(
+/** The prefixes the root binds, `draw` and the rest, but not the default namespace. */
+const boundPrefixes = (root: Element): ReadonlySet<string> =>
+	new Set(
 		[...root.attributes]
-			.filter((attribute) => attribute.namespaceURI === XMLNS_NAMESPACE)
+			.filter(
+				(attribute) =>
+					attribute.namespaceURI === XMLNS_NAMESPACE && attribute.prefix === 'xmlns'
+			)
 			.map((attribute) => attribute.localName)
 	);
-	const candidate = (n: number): string => (n === 1 ? 'draw' : `draw${n}`);
-	return candidate(firstFreeNumber(bound.size, (n) => bound.has(candidate(n))));
-};
 
 /**
  * The prefix the app's attributes are written with: the one the root binds to
- * its namespace, or `draw` declared on the root now where it binds none, as
- * `withDrawingId` declares it in core (§3: "the attribute's prefix is whatever
- * the file binds the namespace to").
+ * its namespace, or one declared on the root now where it binds none, as
+ * `withDrawingId` declares it in core: `draw`, or the first free after it
+ * (`freeDrawingPrefixAmong`; §3: "the attribute's prefix is whatever the file
+ * binds the namespace to").
  */
 export const drawingPrefixOf = (root: Element): string => {
 	const bound = boundDrawingPrefix(root);
 	if (bound !== undefined) return bound;
-	const prefix = freeDrawingPrefix(root);
+	const prefix = freeDrawingPrefixAmong(boundPrefixes(root));
 	root.setAttributeNS(XMLNS_NAMESPACE, `xmlns:${prefix}`, DRAWING_NAMESPACE);
 	return prefix;
 };

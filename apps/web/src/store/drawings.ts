@@ -142,10 +142,13 @@ export const createDrawing = async (
 	}
 	const given = text === undefined ? undefined : readDrawingId(text);
 	const ownId = given ?? id;
-	// As the file has it: what XML has no place for left out, and trimmed.
-	const cleaned = title === undefined ? undefined : cleanDrawingTitle(title);
+	// As the file has it: what XML has no place for left out, and trimmed; and
+	// where that leaves nothing, as though none were given.
+	const cleaned = title === undefined ? '' : cleanDrawingTitle(title);
 	const named =
-		cleaned ?? (text === undefined ? undefined : readDrawingTitle(text)) ?? 'Untitled';
+		(cleaned === '' ? undefined : cleaned) ??
+		(text === undefined ? undefined : readDrawingTitle(text)) ??
+		'Untitled';
 	const { hash, text: content } =
 		text === undefined
 			? await digestText(emptyDrawing({ id: ownId, title }))
