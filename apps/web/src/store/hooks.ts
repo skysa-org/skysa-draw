@@ -4,7 +4,7 @@ import { useDb } from './database.js';
 import type { DrawingRecord, FolderRecord } from './db.js';
 import { drawingsIn, getDrawing } from './drawings.js';
 import { foldersOf } from './folders.js';
-import { isLive } from './rowStates.js';
+import { foundOf } from './rowStates.js';
 
 /**
  * The store as the screens read it: live queries, re-run when the rows they
@@ -41,10 +41,3 @@ export const useDrawing = (id: string): DrawingRecord | 'loading' | 'missing' =>
 	if (answer?.id !== id) return 'loading';
 	return foundOf(answer.row);
 };
-
-/**
- * A row as `useDrawing` answers it once the store has: `missing` where there
- * is none, or it is deleted here and only waiting for its delete to be sent.
- */
-export const foundOf = (row: DrawingRecord | undefined): DrawingRecord | 'missing' =>
-	row !== undefined && isLive(row) ? row : 'missing';

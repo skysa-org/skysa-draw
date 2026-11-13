@@ -7,7 +7,8 @@ import { useDb } from '../store/database.js';
 import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.js';
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../store/drawings.js';
 import { beforeClosing, inTime } from '../store/heldEdits.js';
-import { foundOf, useDrawing } from '../store/hooks.js';
+import { useDrawing } from '../store/hooks.js';
+import { foundOf } from '../store/rowStates.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
 
@@ -166,8 +167,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 					if (sending.current === text) sending.current = undefined;
 				});
 			if (outcome === 'changed') {
-				// Nothing was written. The edits are kept as a copy beside the
-				// change, by the conflict rule (`changedElsewhere`).
+				// Nothing was written. The row as the store has it is handed to
+				// `offer`, as the live query would hand it (`changedElsewhere`).
 				saved.current = saved.current.filter((each) => each !== text);
 				if (state.current.document === document) set({ saving: 'idle' });
 				await changedElsewhere();
