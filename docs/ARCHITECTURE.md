@@ -550,13 +550,14 @@ The service worker and the manifest are built by the kit's `@skysa/pwa` from wha
 How they are built is [kit §8](https://github.com/skysa-org/skysa-kit/blob/main/docs/ARCHITECTURE.md#pwa-specifics): `generateSW`, the app shell precached, `NetworkOnly` for `/api/*` and the provider origins so drawing content never sits in the HTTP cache, nothing inline written into the page (§9), a waiting worker that takes over only when the user says (`registerType: 'prompt'`, so a new build never swaps itself in under a half-drawn stroke), and the checklist a browser applies before it offers to install, which is a test there.
 What follows is this app's own.
 
-- `UpdatePrompt` offers the reload. It has the open drawing write what it holds first (`settleEditors`, below), and then its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab (the kit's `makeWay`), so the new build can take over at once.
+- `UpdatePrompt` offers the reload; its `beforeUpdate`, which `main.tsx` hands it, pauses syncing in every tab first (the kit's `makeWay`), so the new build can take over at once.
+  Once it has, every window that offered it has its open drawing write what it holds (`settleEditors`, below), and then reloads.
 - The app has one route, `/`, and what it opens is in the query (`/?f=…&d=…`): the shell answers it, and any other path on the origin is left to the network, so an operator's page beside the app opens as itself.
   `DRAW_PWA` in `pwaApp.ts` hands that route to the build, and `tests/pwa.app.test.ts` checks every route the router has against it.
 - It is no share target.
 - What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
   The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
-  It settles too when the page is hidden, which a phone may freeze or end without a `pagehide`.
+  It settles too when the page is hidden, which a phone may freeze or end without a `pagehide`, and when it goes.
   Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
   An open editor that has not answered is taken to hold its drawing all the same, as it said when it registered, so a source let go keeps its rows.
   Asked to settle, it waits for raster work still pending, writes its pending save, and waits for it and for any save an edit sets off meanwhile; a settle asked for while one is going joins it, so the same text is never sent twice at once.

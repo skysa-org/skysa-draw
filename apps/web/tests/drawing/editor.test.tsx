@@ -1255,40 +1255,65 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
 	});
 
-	it('settles as the page is hidden, so a stroke still being encoded is saved with it', async () => {
-		const { db, made } = await renderEditor('expanded');
-		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
-		const document = lastOpened();
-		// A stroke whose encoding has not landed, and which is an edit only
-		// once it does: here, once the document is asked to settle, as a phone
-		// may freeze the page with nothing else running.
-		const encoding: { land: () => void } = { land: () => undefined };
-		vi.spyOn(document, 'settle').mockImplementationOnce(
-			() =>
-				new Promise<void>((resolve) => {
-					encoding.land = () => {
-						document.edit(stroke);
-						resolve();
-					};
-				})
-		);
-		Object.defineProperty(window.document, 'visibilityState', {
-			value: 'hidden',
-			configurable: true,
-		});
-		onTestFinished(() => {
-			Reflect.deleteProperty(window.document, 'visibilityState');
-		});
+	it.each([
+		[
+			'hidden',
+			() => {
+				Object.defineProperty(window.document, 'visibilityState', {
+					value: 'hidden',
+					configurable: true,
+				});
+				onTestFinished(() => {
+					Reflect.deleteProperty(window.document, 'visibilityState');
+				});
+				window.document.dispatchEvent(new Event('visibilitychange'));
+			},
+		],
+		[
+			'going',
+			() => {
+				window.dispatchEvent(new Event('pagehide'));
+			},
+		],
+	])(
+		'settles as the page is %s, so a stroke still being encoded is saved with it',
+		async (_, leave) => {
+			const { db, made } = await renderEditor('expanded');
+			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+			const document = lastOpened();
+			// A stroke whose encoding has not landed, and which is an edit only
+			// once it does: here, once the document is asked to settle, as a phone
+			// may freeze the page with nothing else running.
+			const encoding: { land: () => void } = { land: () => undefined };
+			vi.spyOn(document, 'settle').mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						encoding.land = () => {
+							document.edit(stroke);
+							resolve();
+						};
+					})
+			);
+			// A page a phone has frozen: the autosave's pause never comes, and
+			// only what settling does is done.
+			const realSetTimeout = globalThis.setTimeout;
+			const timers = vi
+				.spyOn(globalThis, 'setTimeout')
+				.mockImplementation((handler, wait) =>
+					realSetTimeout(wait === AUTOSAVE_DEBOUNCE_MS ? () => undefined : handler, wait)
+				);
+			onTestFinished(() => {
+				timers.mockRestore();
+			});
 
-		act(() => {
-			window.document.dispatchEvent(new Event('visibilitychange'));
-		});
-		act(() => {
-			encoding.land();
-		});
+			act(leave);
+			act(() => {
+				encoding.land();
+			});
 
-		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
-	});
+			await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		}
+	);
 
 	it('waits for a copy being kept for a change from elsewhere, which the edits are in', async () => {
 		const { db, made } = await renderEditor('expanded');
