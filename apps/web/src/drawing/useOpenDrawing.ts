@@ -156,22 +156,27 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
-	 * Whether a page going now would lose anything: the pause, a save under
-	 * way, a copy being kept, raster work pending, or an edit the store has not
-	 * taken, a refused save's among them. Not while the user is deleting the
-	 * drawing, which takes the edits with it; and once the editor has closed,
-	 * only a save or a copy still to come or under way, which a stroke landing
-	 * then sets off: what the store refused went with the editor, and raster
-	 * work that lands yet sets off a save of its own. The cheap answers first,
+	 * Whether a page going now would lose anything: work still going that
+	 * saves or keeps the edits — the pause, a save, a copy being kept, raster
+	 * work pending — or an edit the store has not taken, a refused save's
+	 * among them. Not while the user is deleting the drawing, which takes the
+	 * edits with it; and once the editor has closed, only the work, which a
+	 * stroke landing then, or a settle that ran out of time, leaves going: what
+	 * the store refused went with the editor (§10). Work that never settles
+	 * goes on asking, as what it holds would be lost. The cheap answers first,
 	 * since telling unsaved edits reads the text.
 	 */
 	const losing = (): boolean => {
 		if (deleting.current) return false;
-		if (timer.current !== undefined || saves.current > 0 || kept.current !== undefined) {
+		if (
+			timer.current !== undefined ||
+			saves.current > 0 ||
+			kept.current !== undefined ||
+			encoding.current > 0
+		) {
 			return true;
 		}
 		if (starts.current === 0) return false;
-		if (encoding.current > 0) return true;
 		try {
 			return hasUnsavedEdits();
 		} catch {
@@ -210,6 +215,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		timer.current = undefined;
 		firstChangeAt.current = undefined;
 		saves.current += 1;
+		// Held here too: a settle's retry of a refused save can come once the
+		// editor has closed, and has let go of what the store refused.
+		hold();
 		set({ saving: 'saving' });
 		const work = (async () => {
 			await document.settle();

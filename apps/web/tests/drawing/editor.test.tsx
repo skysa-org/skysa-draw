@@ -1713,7 +1713,7 @@ describe('the editor saving', () => {
 		}
 	});
 
-	it('asks again for a stroke that lands after the editor closed, until its save is in', async () => {
+	it('asks after the editor closed for a stroke still being encoded, until its save is in', async () => {
 		const { db, made, view } = await renderEditor('expanded');
 		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
 		const document = lastOpened();
@@ -1721,8 +1721,10 @@ describe('the editor saving', () => {
 		act(() => document.pending(encoding.promise));
 
 		view.unmount();
-		// Closed with the stroke still being encoded: nothing to save yet.
-		await waitFor(() => expect(leavingHeld()).toBe(false));
+		// Closed with the stroke still being encoded, as an editor whose settle
+		// ran out of time is: the fake document's settle does not wait for it.
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		expect(asksBeforeLeaving()).toBe(true);
 		act(() => {
 			document.edit(stroke);
 			encoding.resolve();
@@ -1730,6 +1732,41 @@ describe('the editor saving', () => {
 
 		expect(asksBeforeLeaving()).toBe(true);
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it("asks while a closed editor's settle, its time run out, tries a refused save once more", async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		const document = lastOpened();
+		// The save the editor closes with, held past its time, then the try
+		// once more, held too.
+		const sending = Promise.withResolvers<void>();
+		const retrying = Promise.withResolvers<void>();
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			act(() => document.edit(made.text.replace('</svg>', '<g id="layer-2"/></svg>')));
+			const settle = vi
+				.spyOn(document, 'settle')
+				.mockReturnValueOnce(Promise.resolve())
+				.mockReturnValueOnce(sending.promise)
+				.mockReturnValueOnce(retrying.promise);
+			view.unmount();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+			expect(flushEditors()).toHaveLength(0);
+
+			sending.resolve();
+			await vi.waitFor(() => expect(settle).toHaveBeenCalledTimes(3));
+
+			expect(asksBeforeLeaving()).toBe(true);
+			retrying.resolve();
+		} finally {
+			vi.useRealTimers();
+			db.drawings.hook('updating').unsubscribe(refuse);
+		}
 		await waitFor(() => expect(leavingHeld()).toBe(false));
 	});
 

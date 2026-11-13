@@ -124,13 +124,14 @@ export const openDocument = (
 
 	const pending = (job: Promise<unknown>): void => {
 		work.add(job);
-		onPending?.(job);
 		const forget = (): void => {
 			work.delete(job);
 		};
 		// Both ways, so a job that fails is forgotten too, and its failure is
 		// left to whoever started it.
 		void job.then(forget, forget);
+		// Told once the job is sure to be forgotten, whatever the telling does.
+		onPending?.(job);
 	};
 
 	// Work started while a save waits is waited for too: a stroke's encoding
