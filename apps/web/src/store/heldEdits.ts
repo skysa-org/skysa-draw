@@ -126,6 +126,19 @@ const REJECTED: SettledEditors = { failing: [], rejected: 1 };
 /** How many editors are registered, without starting their flushes as `flushEditors` does. */
 export const editorsRegistered = (): number => unfinished.size;
 
+/**
+ * What an editor that has not answered in time is taken to hold: what it says,
+ * or, where it cannot say, what it cannot name.
+ */
+const lateOf = (unanswered: HeldEditsUnanswered | undefined): SettledEditors => {
+	if (unanswered === undefined) return REJECTED;
+	try {
+		return { failing: unanswered(), rejected: 0 };
+	} catch {
+		return REJECTED;
+	}
+};
+
 /** One registered flush started, and what it is taken to hold if it does not answer in time. */
 const begin = ([finish, unanswered]: readonly [
 	HeldEditsFlush,
@@ -138,7 +151,7 @@ const begin = ([finish, unanswered]: readonly [
 		(left): SettledEditors => (isRefs(left) ? { failing: left, rejected: 0 } : NOTHING_CLAIMED),
 		() => REJECTED
 	),
-	late: unanswered === undefined ? REJECTED : { failing: unanswered(), rejected: 0 },
+	late: lateOf(unanswered),
 });
 
 /**

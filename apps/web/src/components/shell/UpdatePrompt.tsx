@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { t } from '../../i18n/t.js';
-import { settleEditors } from '../../store/heldEdits.js';
+import { FLUSH_WAIT_MS, settleEditors } from '../../store/heldEdits.js';
 
-/** How long Reload may go unanswered before the prompt says what else to do. */
-const SLOW_MS = 10_000;
+/**
+ * How long Reload may go unanswered before the prompt says what else to do:
+ * past the wait on the open drawing that follows the take-over, so that it is
+ * not told to close its windows while the drawing is still being written.
+ */
+const SLOW_MS = FLUSH_WAIT_MS + 5_000;
 
 const reloadPage = () => {
 	window.location.reload();
@@ -44,11 +48,9 @@ export const UpdatePrompt = ({
 		// Read once, as the worker is registered.
 	} = useRegisterSW({
 		onNeedReload: () => {
-			void settleEditors()
-				.catch(() => undefined)
-				.then(() => {
-					reload();
-				});
+			void settleEditors().then(() => {
+				reload();
+			});
 		},
 	});
 	const [updating, setUpdating] = useState<'no' | 'asked' | 'slow'>('no');

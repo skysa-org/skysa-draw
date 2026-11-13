@@ -9,7 +9,7 @@ import { ROOT } from '@skysa/storage';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode, useState } from 'react';
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DocumentSnapshot, EditorDocument } from '../../src/drawing/document/model.js';
 import { Editor } from '../../src/drawing/Editor.js';
@@ -1255,16 +1255,14 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
 	});
 
-	it.each([
+	/** The ways a page leaves: hidden, as a phone hides it switching apps, and going. */
+	const LEAVING: readonly (readonly [string, () => void])[] = [
 		[
 			'hidden',
 			() => {
 				Object.defineProperty(window.document, 'visibilityState', {
 					value: 'hidden',
 					configurable: true,
-				});
-				onTestFinished(() => {
-					Reflect.deleteProperty(window.document, 'visibilityState');
 				});
 				window.document.dispatchEvent(new Event('visibilitychange'));
 			},
@@ -1275,15 +1273,36 @@ describe('the editor saving', () => {
 				window.dispatchEvent(new Event('pagehide'));
 			},
 		],
-	])(
+	];
+
+	/**
+	 * A page a phone has frozen: the autosave's pause, however long, never
+	 * comes, and only what settling does is done. Answers how to bring the
+	 * page back, its timers and its visibility, before the test's cleanup.
+	 */
+	const frozen = (): (() => void) => {
+		const realSetTimeout = globalThis.setTimeout;
+		const paused = (wait: number | undefined) =>
+			wait !== undefined && wait > 0 && wait <= AUTOSAVE_DEBOUNCE_MS;
+		const timers = vi
+			.spyOn(globalThis, 'setTimeout')
+			.mockImplementation((handler, wait) =>
+				realSetTimeout(paused(wait) ? () => undefined : handler, wait)
+			);
+		return () => {
+			timers.mockRestore();
+			Reflect.deleteProperty(window.document, 'visibilityState');
+		};
+	};
+
+	it.each(LEAVING)(
 		'settles as the page is %s, so a stroke still being encoded is saved with it',
 		async (_, leave) => {
 			const { db, made } = await renderEditor('expanded');
 			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
 			const document = lastOpened();
 			// A stroke whose encoding has not landed, and which is an edit only
-			// once it does: here, once the document is asked to settle, as a phone
-			// may freeze the page with nothing else running.
+			// once it does: here, once the document is asked to settle.
 			const encoding: { land: () => void } = { land: () => undefined };
 			vi.spyOn(document, 'settle').mockImplementationOnce(
 				() =>
@@ -1294,26 +1313,48 @@ describe('the editor saving', () => {
 						};
 					})
 			);
-			// A page a phone has frozen: the autosave's pause, however long,
-			// never comes, and only what settling does is done.
-			const realSetTimeout = globalThis.setTimeout;
-			const paused = (wait: number | undefined) =>
-				wait !== undefined && wait > 0 && wait <= AUTOSAVE_DEBOUNCE_MS;
-			const timers = vi
-				.spyOn(globalThis, 'setTimeout')
-				.mockImplementation((handler, wait) =>
-					realSetTimeout(paused(wait) ? () => undefined : handler, wait)
-				);
-			onTestFinished(() => {
-				timers.mockRestore();
-			});
+			const thaw = frozen();
 
-			act(leave);
-			act(() => {
-				encoding.land();
-			});
+			try {
+				act(leave);
+				act(() => {
+					encoding.land();
+				});
 
-			await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+				await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+			} finally {
+				thaw();
+			}
+		}
+	);
+
+	it.each(LEAVING)(
+		'starts the pending save as the page is %s, though a settle under way is held',
+		async (_, leave) => {
+			const { db, made } = await renderEditor('expanded');
+			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+			const document = lastOpened();
+			// A settle under way, held at raster work that has not landed.
+			const held: { release: () => void } = { release: () => undefined };
+			vi.spyOn(document, 'settle').mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						held.release = resolve;
+					})
+			);
+			const settling = settleEditors();
+			const thaw = frozen();
+
+			try {
+				act(() => document.edit(stroke));
+				act(leave);
+
+				await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+			} finally {
+				held.release();
+				thaw();
+			}
+			expect(await settling).toEqual({ failing: [], rejected: 0 });
 		}
 	);
 

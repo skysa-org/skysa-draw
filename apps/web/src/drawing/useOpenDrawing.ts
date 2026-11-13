@@ -519,11 +519,13 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// is not over, and the edits may yet need them.
 		const withdraw = beforeClosing(settle.bind(undefined), named);
 		// A page going, or hidden, which a phone may freeze or end with no
-		// `pagehide`, settles: raster work still pending is waited for and
-		// saved with the rest, rather than left to the pause. A hidden page
-		// runs on for a moment; one going is gone before the save has opened
-		// its transaction (#16).
+		// `pagehide`, starts the pending save, which a settle already under way
+		// would not, and settles: raster work still pending is waited for and
+		// saved with the rest, rather than left to the pause. A hidden page runs
+		// on for a moment; one going is gone before the save has opened its
+		// transaction (#16).
 		const onPageHide = () => {
+			void flush();
 			void settle().catch(() => undefined);
 		};
 		const onVisibility = () => {
