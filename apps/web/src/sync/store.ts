@@ -160,6 +160,21 @@ const opSchema = z.discriminatedUnion('op', [
 const portShaped = ({ drawingId, ...record }: OpQueueRecord) =>
 	drawingId === undefined ? record : { ...record, noteId: drawingId };
 
+/**
+ * What is wrong with a row, said under the names the row has: the port's
+ * `noteId` is the `drawingId` someone looking at the table would look for.
+ */
+const rowProblem = (error: z.ZodError): string =>
+	z.prettifyError(
+		new z.ZodError(
+			error.issues.map((issue) =>
+				issue.path[0] === 'noteId'
+					? { ...issue, path: ['drawingId', ...issue.path.slice(1)] }
+					: issue
+			)
+		)
+	);
+
 export const toSyncOp = (record: OpQueueRecord): SyncOp => {
 	if (record.seq === undefined) throw new Error('A queued op was read back without its seq');
 	const read = opSchema.safeParse(portShaped(record));
@@ -172,7 +187,7 @@ export const toSyncOp = (record: OpQueueRecord): SyncOp => {
 				// A row that lost its count too starts again from none, so
 				// that failing it counts up to the limit rather than to NaN.
 				attempts: Number.isFinite(record.attempts) ? record.attempts : 0,
-				problem: `${String(record.op)} ${z.prettifyError(read.error)}`,
+				problem: `${String(record.op)} ${rowProblem(read.error)}`,
 			};
 };
 

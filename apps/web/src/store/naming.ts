@@ -45,8 +45,8 @@ export const foldPath = (path: string): string => foldName(normalizePath(path));
 const stemOf = (filename: string): string =>
 	// Case-insensitively: `.SVG` is ordinary from Windows tools, and matching it
 	// exactly would leave the extension in the stem to be slugified into the
-	// name — `Report.SVG` becoming `report-md.svg`. `deriveTitle` in core asks the
-	// same question the same way.
+	// name — `Report.SVG` becoming `report-svg.svg`. `titleFromFilename` in core
+	// asks the same question the same way, through `isDrawingName`.
 	foldName(filename).endsWith(DRAWING_EXTENSION)
 		? filename.slice(0, -DRAWING_EXTENSION.length)
 		: filename;

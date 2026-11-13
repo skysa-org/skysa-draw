@@ -291,7 +291,7 @@ const placeFiles = async (
  * fresh one, and what is queued for it follows it; it is otherwise the row it
  * was, file and all. Its file still says the old id until the drawing is next
  * written, which is how any drawing stands whose file names an id its source
- * already had (`idForNewDrawing` in `packages/core`).
+ * already had (the kit's `idForNewNote`, in `@skysa/sync`).
  *
  * Two rows can also meet over one *file*: a detached source's rows resuming
  * into a connection that is already live for the same account, and has pulled

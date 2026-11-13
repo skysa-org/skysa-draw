@@ -233,7 +233,7 @@ export interface FileBytesRecord {
 export interface OpQueueRecord {
 	seq?: number;
 	connectionId: string;
-	/** The kinds of op the queue holds: core's, so a new one is a row the app can store. */
+	/** The kinds of op the queue holds: the kit's (`@skysa/sync`), so a new one is a row the app can store. */
 	op: SyncOperation;
 	drawingId?: string;
 	/** For a file's ops, the file. */

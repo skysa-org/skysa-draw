@@ -61,14 +61,19 @@ export const lazily = (db: DrawDatabase, id: string, text: string): Promise<Draw
 		return row;
 	});
 
+/** Text as character data: what would end it or start markup in it, escaped. */
+const escaped = (text: string): string =>
+	text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /**
  * A drawing's text for a test that only needs one drawing to differ from
- * another: an SVG whose description is `words`, with the id written in where
- * one is given. A file the engine can read as a drawing, as a note's test
- * would have used a line of text.
+ * another: an SVG whose description is `words`, escaped, with the id written
+ * in where one is given. A file the engine can read as a drawing, as a note's
+ * test would have used a line of text, whatever the words are: the kit's
+ * suites hand it theirs (`written`), as core's tests do their `svg()`.
  */
 export const svgOf = (words: string, id?: string): string => {
-	const text = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${words}</desc></svg>\n`;
+	const text = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${escaped(words)}</desc></svg>\n`;
 	return id === undefined ? text : withDrawingId(text, id);
 };
 

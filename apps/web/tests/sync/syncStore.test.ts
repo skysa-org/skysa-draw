@@ -1267,4 +1267,18 @@ describe('a queued op read back (skysa-notes #447)', () => {
 		// Kept, for the engine to fail and the user to be told of.
 		expect(await db.opQueue.count()).toBe(3);
 	});
+
+	it('names a drawing a row lacks as the row would, not as the kit does', async () => {
+		const db = freshDatabase();
+		const store = await boundStore(db, { connectionId: CONNECTION });
+		await queued(db, { op: 'write', path: 'a.svg' });
+
+		const [op] = await store.pendingOps();
+
+		expect(op).toMatchObject({
+			op: 'malformed',
+			problem: expect.stringContaining('drawingId') as unknown,
+		});
+		expect(op).not.toMatchObject({ problem: expect.stringContaining('noteId') as unknown });
+	});
 });

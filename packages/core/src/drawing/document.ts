@@ -31,18 +31,89 @@ const PREFERRED_PREFIX = 'draw';
  */
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
+/** Whitespace, as `\s` reads it: the byte-order mark is among it. */
+const SPACE = /\s/;
+
 /**
- * Everything XML allows before the root element: a BOM, whitespace, the XML
- * declaration and processing instructions, comments and a document type
- * declaration with or without an internal subset. Nothing follows the group
- * in the pattern, so a run of whitespace is matched once and never tried again.
- * A doctype's own whitespace is read by one part of it alone: `[^>[]*` where
- * there is no subset, `\s*` after one. Were both to reach the same run, as
- * `[^>[]*` and a `\s*` ahead of every `>` did, a doctype never closed would be
- * tried at every way of splitting its run between them, which is seconds for
- * a file of spaces another tool left half written.
+ * Where a run of whitespace from `from` ends: `from` itself where there is
+ * none. A loop, as `prologEnd` is.
  */
-const PROLOG = /^(?: |\s+|<\?[\s\S]*?\?>|<!--[\s\S]*?-->|<!DOCTYPE[^>[]*(?:\[[\s\S]*?\]\s*)?>)*/;
+const spaceEnd = (text: string, from: number): number => {
+	// eslint-disable-next-line functional/no-let -- see `prologEnd`
+	let at = from;
+	// eslint-disable-next-line functional/no-loop-statements -- see `prologEnd`
+	while (at < text.length && SPACE.test(text.charAt(at))) at += 1;
+	return at;
+};
+
+/** Just past the first `close` from `from`, or `undefined` where there is none. */
+const closedBy = (text: string, close: string, from: number): number | undefined => {
+	const at = text.indexOf(close, from);
+	return at === -1 ? undefined : at + close.length;
+};
+
+/**
+ * Just past a doctype's internal subset and its `>`, from inside its `[`: the
+ * first `]` that nothing but whitespace separates from a `>`, so that a `]` in
+ * a quoted value inside it does not end it.
+ */
+const subsetEnd = (text: string, from: number): number | undefined => {
+	// eslint-disable-next-line functional/no-let -- see `prologEnd`
+	let close = text.indexOf(']', from);
+	// eslint-disable-next-line functional/no-loop-statements -- see `prologEnd`
+	while (close !== -1) {
+		const after = spaceEnd(text, close + 1);
+		if (text.charAt(after) === '>') return after + 1;
+		close = text.indexOf(']', close + 1);
+	}
+	return undefined;
+};
+
+/** Just past a doctype, from after its `<!DOCTYPE`: its `>`, or its subset's. */
+const doctypeEnd = (text: string, from: number): number | undefined => {
+	const close = text.indexOf('>', from);
+	const open = text.indexOf('[', from);
+	if (open === -1 || (close !== -1 && close < open)) {
+		return close === -1 ? undefined : close + 1;
+	}
+	return subsetEnd(text, open + 1);
+};
+
+/**
+ * Just past what the prolog may hold that starts at `at`: whitespace, a
+ * processing instruction or the XML declaration, a comment, or a doctype.
+ * `undefined` where none starts there, or one starts and never ends.
+ */
+const itemEnd = (text: string, at: number): number | undefined => {
+	if (SPACE.test(text.charAt(at))) return spaceEnd(text, at);
+	if (text.startsWith('<?', at)) return closedBy(text, '?>', at + 2);
+	if (text.startsWith('<!--', at)) return closedBy(text, '-->', at + 4);
+	if (text.startsWith('<!DOCTYPE', at)) return doctypeEnd(text, at + 9);
+	return undefined;
+};
+
+/**
+ * Where the prolog ends: everything XML allows before the root element, a BOM,
+ * whitespace, the XML declaration and processing instructions, comments and a
+ * document type declaration with or without an internal subset. Each ends at
+ * the first close that fits, as XML's own do.
+ *
+ * Read with `indexOf` rather than a pattern, and in a loop rather than by
+ * recursion, so it is linear in the text however it is written: a pattern for
+ * this had a doctype never closed, before a long run of spaces, take seconds,
+ * and a file another tool left half written is enough to make one. A prolog
+ * of thousands of comments would run recursion out of stack.
+ */
+const prologEnd = (text: string): number => {
+	// eslint-disable-next-line functional/no-let -- see above: linear, and no stack to run out of
+	let at = 0;
+	// eslint-disable-next-line functional/no-loop-statements -- see above
+	for (;;) {
+		const next = itemEnd(text, at);
+		if (next === undefined || next <= at) return at;
+		at = next;
+	}
+};
 
 /** An attribute: a name, and a value in double quotes, single quotes or bare. */
 const ATTRIBUTE = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
@@ -70,7 +141,7 @@ const attributesOf = (body: string): ReadonlyMap<string, string> =>
 	);
 
 const rootTagOf = (text: string): RootTag | undefined => {
-	const start = PROLOG.exec(text)?.[0].length ?? 0;
+	const start = prologEnd(text);
 	const match = ROOT_TAG.exec(text.slice(start));
 	if (match === null) return undefined;
 	const [tag, name = '', body = '', slash = ''] = match;

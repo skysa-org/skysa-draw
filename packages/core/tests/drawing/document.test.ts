@@ -87,6 +87,12 @@ describe('isDrawingText', () => {
 		expect(performance.now() - started).toBeLessThan(200);
 	});
 
+	it('reads a prolog of a great many comments without running out of stack', () => {
+		const text = `${'<!-- -->'.repeat(100_000)}<svg xmlns="http://www.w3.org/2000/svg"/>`;
+		expect(isDrawingText(text)).toBe(true);
+		expect(readDrawingProlog(text)).toBe('<!-- -->'.repeat(100_000));
+	});
+
 	it('still reads a doctype with an internal subset and space before its close', () => {
 		expect(
 			readDrawingProlog(
