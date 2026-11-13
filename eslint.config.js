@@ -377,10 +377,10 @@ export default skysa({
 			// and a canvas's size are set, not derived. Allowed under those names,
 			// `ctx` and `canvas`, in the editor alone; the drawing's own DOM is
 			// changed through `setAttribute`, a call, which needs no carve-out.
-			// Not in a test, which the kit's relaxations, coming before this,
-			// leave free to mutate.
+			// Not in a test, a test's helpers or a config, which the kit's
+			// relaxations, coming before this, leave free to mutate.
 			files: ['apps/web/src/drawing/**/*.ts'],
-			ignores: ['**/*.test.ts'],
+			ignores: ['**/*.test.ts', '**/tests/**', '**/*.config.ts'],
 			rules: {
 				'functional/immutable-data': [
 					'error',

@@ -655,7 +655,7 @@ eslint.config.js  the kit's lint, skysa() from @skysa/eslint-config, with this a
 
 Layers, enforced by ESLint's `no-restricted-imports`: in core, `names/` sits below `providers/`, `sync/` and `drawing/`, `drawing/` sits below `providers/` and `sync/`, a provider never imports the engine, and the engine reaches `drawing/` only through `sync/document.ts`; in the web app, `lib/` imports nothing of the app, `store/` imports neither the UI nor the sync layer nor the editor nor the API client, `api/`, `errors/` and `hooks/` import neither the store nor the sync layer nor the UI, `sync/` never imports the UI, and `drawing/` (the editor) never imports routes or the sync layer.
 Core's test doubles are `@skysa/draw-core/testing` and nothing the app ships may import them.
-The rest of the lint, the compiler's settings and Prettier's are the kit's, `@skysa/eslint-config`: `eslint.config.js` hands its `skysa()` the layers above, the app's words (§7) and the canvas's carve-out, and `tsconfig.base.json` and `.prettierrc.json` name the kit's.
+The rest of the lint, the compiler's settings and Prettier's are the kit's, `@skysa/eslint-config`: `eslint.config.js` hands its `skysa()` this app's own blocks: the layers above, core's ban on Node and on the browser's globals, the Worker entry's rules (no Node, no `cloudflare:*`, `process` and `console` in `worker.ts` alone; §6), the app's words (§7), the canvas's carve-out, and the cell rule's word for where a cell comes from; `tsconfig.base.json` and `.prettierrc.json` name the kit's.
 
 ## 12. Carried over from skysa-notes
 
