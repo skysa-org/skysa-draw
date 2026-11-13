@@ -131,12 +131,15 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
 	/**
-	 * The page's leave prompt (`store/leaving.ts`), held from an edit, or raster
-	 * work, until nothing would be lost (`letGo`).
+	 * The page's leave prompt (`store/leaving.ts`), held from an edit, raster
+	 * work, or a keep, until nothing would be lost (`letGo`); whether the page
+	 * asks is `losing`'s, as it goes.
 	 */
 	const leaving = Symbol(id);
 	/** Raster work started and not landed yet: strokes that are edits only once they do. */
 	const encoding = cell(0);
+	/** Settled as the editor closed: what the store still refuses went with it (§10). */
+	const closed = cell(false);
 
 	const set = (patch: Partial<Opened>) => {
 		state.current = { ...state.current, ...patch };
@@ -144,28 +147,40 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
-	 * Lets go of the leave prompt once nothing would be lost: no raster work
-	 * pending, no pause, no save on its way, and no edit the store has not
-	 * taken, a refused save's among them. Asked once things go quiet, after a
-	 * save, a keep or raster work, and the cheap answers first, since telling
-	 * unsaved edits reads the text.
+	 * Whether a page going now would lose anything: raster work pending, the
+	 * pause, a save on its way, or an edit the store has not taken, a refused
+	 * save's among them, unless the user is deleting the drawing or the editor
+	 * has closed. The cheap answers first, since telling unsaved edits reads
+	 * the text.
 	 */
-	const letGo = (): void => {
+	const losing = (): boolean => {
 		if (encoding.current > 0 || timer.current !== undefined || sending.current !== undefined) {
-			return;
+			return true;
 		}
+		if (deleting.current || closed.current) return false;
 		try {
-			if (!hasUnsavedEdits()) releaseLeaving(leaving);
+			return hasUnsavedEdits();
 		} catch {
 			// Text that will not take the drawing's id, which no save could
 			// write either: held, as a refused save's edits are.
+			return true;
 		}
+	};
+
+	/** Taken early, from anything that may leave edits out of the store: `losing` decides. */
+	const hold = (): void => {
+		holdLeaving(leaving, losing);
+	};
+
+	/** Let go once things go quiet, after a save, a keep, raster work, opening or closing. */
+	const letGo = (): void => {
+		if (!losing()) releaseLeaving(leaving);
 	};
 
 	/** Raster work started: a stroke whose edit, once it lands, sets off the pause. */
 	const onPending = (work: Promise<unknown>): void => {
 		encoding.current += 1;
-		holdLeaving(leaving);
+		hold();
 		const landed = () => {
 			encoding.current -= 1;
 			letGo();
@@ -235,10 +250,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	const schedule = (document: EditorDocument) => {
-		// An edit made while a copy is kept goes into the copy (`keepCopy`), and
-		// one made while the user deletes the drawing goes with it.
+		// An edit made while a copy is kept goes into the copy (`keepCopy`),
+		// which holds the leave prompt itself (`keep`), and one made while the
+		// user deletes the drawing goes with it.
 		if (keeping.current || deleting.current) return;
-		holdLeaving(leaving);
+		hold();
 		const now = Date.now();
 		const since = firstChangeAt.current ?? now;
 		firstChangeAt.current = since;
@@ -264,6 +280,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// reach the row too.
 		if (document !== undefined) document.subscribe(() => schedule(document));
 		set({ document, unreadable: document === undefined, saving: 'idle' });
+		letGo();
 	};
 
 	const hasUnsavedEdits = (): boolean => {
@@ -388,6 +405,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 
 	/** Work that keeps the edits as a drawing of their own, until it is done. */
 	const keep = (work: Promise<void>) => {
+		hold();
 		kept.current = work;
 		void work.then(() => {
 			if (kept.current === work) kept.current = undefined;
@@ -548,9 +566,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const remove = async (): Promise<void> => {
 		deleting.current = true;
 		stopTimer();
-		releaseLeaving(leaving);
 		try {
 			await deleteDrawing(db, id);
+			letGo();
 		} catch (error) {
 			// The drawing is still here, and so are the edits: saved as before.
 			deleting.current = false;
@@ -594,7 +612,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			// it. What the store still refuses goes with the editor: nothing
 			// could open what it held again (§10).
 			void inTime(settle(), []).then(() => {
-				releaseLeaving(leaving);
+				closed.current = true;
+				letGo();
 				withdraw();
 			});
 		};

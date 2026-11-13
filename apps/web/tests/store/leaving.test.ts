@@ -1,20 +1,20 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { holdLeaving, letLeave, releaseLeaving } from '../../src/store/leaving.js';
-
-/** Whether the browser would ask before the page goes: a listener of its leave prompt cancels the event. */
-const asks = () => !window.dispatchEvent(new Event('beforeunload', { cancelable: true }));
+import { asksBeforeLeaving as asks } from '../support/leaving.js';
 
 afterEach(letLeave);
 
+const LOSING = () => true;
+
 describe('the leave prompt', () => {
-	it('asks while anything holds it, and only then', () => {
+	it('asks while anything holds it that would lose something, and only then', () => {
 		const drawing = Symbol('a drawing');
 		const other = Symbol('another');
 		expect(asks()).toBe(false);
 
-		holdLeaving(drawing);
-		holdLeaving(other);
+		holdLeaving(drawing, LOSING);
+		holdLeaving(other, LOSING);
 		expect(asks()).toBe(true);
 		releaseLeaving(drawing);
 		expect(asks()).toBe(true);
@@ -23,10 +23,21 @@ describe('the leave prompt', () => {
 		expect(asks()).toBe(false);
 	});
 
+	it('asks each holder as the page goes, not as it held on', () => {
+		const lost = { now: false };
+		holdLeaving(Symbol('a drawing'), () => lost.now);
+		holdLeaving(Symbol('another'), () => false);
+		expect(asks()).toBe(false);
+
+		lost.now = true;
+
+		expect(asks()).toBe(true);
+	});
+
 	it('is held once by a holder that holds it twice', () => {
 		const drawing = Symbol('a drawing');
-		holdLeaving(drawing);
-		holdLeaving(drawing);
+		holdLeaving(drawing, LOSING);
+		holdLeaving(drawing, LOSING);
 
 		releaseLeaving(drawing);
 
@@ -36,9 +47,13 @@ describe('the leave prompt', () => {
 	it('is listened for only while held, and asks as browsers before Chrome 119 hear it too', () => {
 		const adding = vi.spyOn(window, 'addEventListener');
 		const removing = vi.spyOn(window, 'removeEventListener');
+		onTestFinished(() => {
+			adding.mockRestore();
+			removing.mockRestore();
+		});
 		const drawing = Symbol('a drawing');
 
-		holdLeaving(drawing);
+		holdLeaving(drawing, LOSING);
 		const listener = adding.mock.calls.find(([type]) => type === 'beforeunload')?.[1];
 		const event = { preventDefault: vi.fn(), returnValue: undefined as unknown };
 		(listener as (event: unknown) => void)(event);
@@ -50,15 +65,20 @@ describe('the leave prompt', () => {
 	});
 
 	it('lets go of every hold at once, for a reload that must not ask', () => {
-		holdLeaving(Symbol('a drawing'));
-		holdLeaving(Symbol('another'));
+		const removing = vi.spyOn(window, 'removeEventListener');
+		onTestFinished(() => {
+			removing.mockRestore();
+		});
+		holdLeaving(Symbol('a drawing'), LOSING);
+		holdLeaving(Symbol('another'), LOSING);
 
 		letLeave();
 		expect(asks()).toBe(false);
+		expect(removing).toHaveBeenCalledWith('beforeunload', expect.any(Function));
 
 		// Forgotten, not only unheard: a hold after it is the only one.
 		const next = Symbol('a drawing opened since');
-		holdLeaving(next);
+		holdLeaving(next, LOSING);
 		releaseLeaving(next);
 		expect(asks()).toBe(false);
 	});

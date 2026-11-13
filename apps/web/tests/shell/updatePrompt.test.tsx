@@ -6,6 +6,7 @@ import { UpdatePrompt } from '../../src/components/shell/UpdatePrompt.js';
 import type * as HeldEdits from '../../src/store/heldEdits.js';
 import { beforeClosing } from '../../src/store/heldEdits.js';
 import { holdLeaving, letLeave } from '../../src/store/leaving.js';
+import { asksBeforeLeaving } from '../support/leaving.js';
 
 const worker = vi.hoisted(() => ({ update: vi.fn(() => Promise.resolve()) }));
 const registration = vi.hoisted(
@@ -144,10 +145,10 @@ describe("the new build's bar", () => {
 	it('reloads without asking first, whatever the open drawing still holds', async () => {
 		const asked: boolean[] = [];
 		const reload = vi.fn(() => {
-			asked.push(!window.dispatchEvent(new Event('beforeunload', { cancelable: true })));
+			asked.push(asksBeforeLeaving());
 		});
 		// Edits the store would not take, which the page asks before it loses.
-		holdLeaving(Symbol('a drawing'));
+		holdLeaving(Symbol('a drawing'), () => true);
 		try {
 			render(<UpdatePrompt reload={reload} />);
 
