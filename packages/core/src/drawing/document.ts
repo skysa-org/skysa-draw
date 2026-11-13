@@ -343,10 +343,10 @@ const valueNamed = (tag: StartTag, name: string): string | undefined => {
 };
 
 /** A tag's attributes as the text has them, each after one space, but those `dropped` names. */
-const attributesText = (text: string, tag: StartTag, dropped: ReadonlySet<string>): string =>
+const attributesText = (tag: StartTag, dropped: ReadonlySet<string>): string =>
 	tag.attributeList
 		.filter((attribute) => !dropped.has(nameOf(tag, attribute)))
-		.map((attribute) => ` ${text.slice(attribute.start, attribute.end)}`)
+		.map((attribute) => ` ${tag.text.slice(attribute.start, attribute.end)}`)
 		.join('');
 
 /**
@@ -354,8 +354,8 @@ const attributesText = (text: string, tag: StartTag, dropped: ReadonlySet<string
  * its `>`, as `height=10/>` does: one its author may have meant to close
  * itself, or one whose value ends in a slash.
  */
-const endsInBareSlash = (text: string, tag: StartTag): boolean =>
-	!tag.selfClosing && text.charAt(tag.end - 2) === '/';
+const endsInBareSlash = (tag: StartTag): boolean =>
+	!tag.selfClosing && tag.text.charAt(tag.end - 2) === '/';
 
 /**
  * Each prefix the root binds, and the namespace it binds it to, in order: one
@@ -408,7 +408,7 @@ const rootTagOf = (text: string): StartTag | undefined => {
  * `>` or `/>` after it: where an attribute is added, or a tag that closes
  * itself is opened.
  */
-const openedTag = (text: string, tag: StartTag): string => text.slice(tag.start, tag.attributesEnd);
+const openedTag = (tag: StartTag): string => tag.text.slice(tag.start, tag.attributesEnd);
 
 /**
  * `head`, a start tag up to its attributes, closed with `>`: after a space
@@ -519,7 +519,7 @@ export const withDrawingId = (text: string, id: string): string => {
 		return text;
 	}
 	return existing === undefined
-		? `${text.slice(0, root.start)}${openedTag(text, root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
+		? `${text.slice(0, root.start)}${openedTag(root)} ${declaration}${prefix}:id="${id}"${root.selfClosing ? '/>' : '>'}${text.slice(root.end)}`
 		: `${text.slice(0, existing.start)}${declaration}${prefix}:id="${id}"${text.slice(existing.end)}`;
 };
 
@@ -586,12 +586,16 @@ export const withDrawingViewport = (
 ): string | undefined => {
 	const root = rootTagOf(text);
 	if (root === undefined || !isSvgRoot(root)) return undefined;
-	const kept = attributesText(text, root, VIEWPORT);
+	const kept = attributesText(root, VIEWPORT);
 	const viewport = `viewBox="${box.x} ${box.y} ${box.width} ${box.height}" width="${size.width}" height="${size.height}"`;
 	return `${text.slice(0, root.start)}<${root.name}${kept} ${viewport}${root.selfClosing ? '/' : ''}>${text.slice(root.end)}`;
 };
 
-/** The five references XML predefines, and numeric ones, as the characters they name. */
+/**
+ * The five references XML predefines, and numeric ones, as the characters
+ * they name. One to half of a surrogate pair names none, and is left out:
+ * decoded, two would make one character of what XML reads as neither.
+ */
 const decodeReferences = (text: string): string =>
 	text.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi, (whole, name: string) => {
 		const lower = name.toLowerCase();
@@ -603,6 +607,7 @@ const decodeReferences = (text: string): string =>
 		const code = lower.startsWith('#x')
 			? Number.parseInt(lower.slice(2), 16)
 			: Number(lower.slice(1));
+		if (code >= 0xd800 && code <= 0xdfff) return '';
 		return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
 	});
 
@@ -741,7 +746,7 @@ const endsAt = (text: string, name: string, from: number, until: number): boolea
  */
 const firstTitle = (text: string, root: StartTag): TitleElement | undefined => {
 	const tag = startTagAt(text, skipped(text, root.end, miscEnd), 'title', MOST_ATTRIBUTES + 1);
-	if (tag === undefined || endsInBareSlash(text, tag)) return undefined;
+	if (tag === undefined || endsInBareSlash(tag)) return undefined;
 	const declarations = tag.attributeList.filter((attribute) => isNamed(tag, attribute, 'xmlns'));
 	if (tag.attributeList.length - declarations.length > MOST_ATTRIBUTES) return undefined;
 	const namespace = namespaceOf(tag, root);
@@ -809,7 +814,7 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const tag = text.slice(root.start, root.end);
 	if (root.selfClosing) {
 		if (trimmed === '') return text;
-		return `${before}${closedTag(openedTag(text, root))}${element}</${root.name}>${text.slice(root.end)}`;
+		return `${before}${closedTag(openedTag(root))}${element}</${root.name}>${text.slice(root.end)}`;
 	}
 	const found = firstTitle(text, root);
 	if (found === undefined) {
@@ -827,11 +832,11 @@ export const withDrawingTitle = (text: string, title: string): string => {
 	const svgDefault = svgIsDefault(root);
 	if (!found.svg || (found.tag.prefix !== undefined && svgDefault)) {
 		const declared = svgDefault ? '' : ` xmlns="${SVG_NAMESPACE}"`;
-		const kept = attributesText(text, found.tag, DEFAULT_NAMESPACE);
+		const kept = attributesText(found.tag, DEFAULT_NAMESPACE);
 		return `${before}${tag}${lead}${closedTag(`<title${declared}${kept}`)}${escapeText(trimmed)}</title>${after}`;
 	}
 	const open = found.tag.selfClosing
-		? closedTag(openedTag(text, found.tag))
+		? closedTag(openedTag(found.tag))
 		: text.slice(found.tag.start, found.tag.end);
 	return `${before}${tag}${lead}${open}${escapeText(trimmed)}</${found.tag.name}>${after}`;
 };

@@ -555,8 +555,9 @@ describe('readDrawingTitle', () => {
 
 	it('reads a root and a title with a great many attributes, as it always did', () => {
 		// A pattern for the tag ran out of stack over millions; the scanner has
-		// none. No count is too many, so a file read before is read still, and
-		// keeps the id it is known by.
+		// none. A file the pattern read is read still, and keeps the id it is
+		// known by, but for one of more than a million without values, which is
+		// not XML (above).
 		const many = ' a'.repeat(200_000);
 		const text = `<svg xmlns="${SVG_NAMESPACE}" xmlns:draw="${DRAWING_NAMESPACE}"${many} draw:id="${ID}"><title${many}>Name</title></svg>`;
 		expect(readDrawingId(text)).toBe(ID);
@@ -858,6 +859,9 @@ describe('withDrawingTitle', () => {
 		const root = `<svg xmlns="${SVG_NAMESPACE}">`;
 		expect(readDrawingTitle(`${root}<title>Plan&#1;&#xD800;</title></svg>`)).toBe('Plan');
 		expect(readDrawingTitle(`${root}<title>&#x7;</title></svg>`)).toBeUndefined();
+		// Nor does a reference to each half of a surrogate pair make one character.
+		expect(readDrawingTitle(`${root}<title>a&#xD83D;&#xDE00;b</title></svg>`)).toBe('ab');
+		expect(readDrawingTitle(`${root}<title>a&#55357;&#56832;b</title></svg>`)).toBe('ab');
 	});
 
 	it('names SVG’s title under a prefix `title` where SVG is the root’s default, as the editor keeps it', () => {

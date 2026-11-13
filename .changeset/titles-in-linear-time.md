@@ -24,6 +24,7 @@ A title's start tag is read as the root's is, so a `>` in a quoted value no long
 SVG's title is read under whatever prefix binds it, and after a processing instruction, as XML allows one there; where SVG is the root's default namespace, a rename names it `title`, as the editor keeps it.
 Under a root such as `svg:svg`, where SVG is not the default namespace, a new title is written under the root's prefix, so that it is SVG's; a `<title>` in no namespace, as 0.1.0 wrote there, is still read, and a rename makes SVG's namespace its default, keeping its attributes.
 Characters that XML does not allow, such as most control characters, are left out of a title, written or read, in the file and in the drawing's row alike, so a pasted name no longer leaves a file that no parser reads, and one made of nothing else changes nothing.
+A reference to half of a surrogate pair is left out of a title read, so two of them no longer make one character that no XML tool shows.
 A drawing's title and size are read, and its id and title written, in time to the file's length.
 A long run of whitespace or comments before no title, a `width` of many digits or spaces, or a long run of whitespace inside the root tag held the tab for seconds or more each time the file was read or written.
 A comment before a title ends at its first `-->`, as XML's do: a malformed one with text after that close is no longer read past to find a title, so such a file is named by its filename.
