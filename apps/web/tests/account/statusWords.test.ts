@@ -251,7 +251,7 @@ describe('the sentence above the line', () => {
 			`Dropbox would not take the rename of Work/Plan.svg after 5 tries (insufficient permissions). ${queued}`,
 		],
 		[
-			'says a stuck change this version cannot read is one (#447)',
+			'says a stuck change this version cannot read is one (skysa-notes #447)',
 			stuck('malformed', { path: 'Away.svg', error: 'teleport' }),
 			'A change to Away.svg could not be sent to Dropbox after 5 tries: this version of the app cannot read it (teleport). Everything queued behind it is waiting. Updating the app may let it through.',
 		],

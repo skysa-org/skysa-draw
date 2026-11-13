@@ -2,7 +2,7 @@
 
 The product is built in numbered phases, and this is the record of them: what each one delivered and what was learned doing it.
 The move onto the shared kit was not a phase of the product, and has a section of its own, in its place in time.
-Everything here is shipped unless a line says otherwise.
+Everything here is merged unless a line says otherwise; from Phase 1 on, none of it is in a release yet.
 
 This is history, so it is not kept current.
 Each phase says what was true when it shipped, and a later phase may have replaced it.

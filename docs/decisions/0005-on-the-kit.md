@@ -26,7 +26,7 @@ What went where, at kit 1.1.0:
 | The shared lint rules, the compiler's settings and Prettier's | `@skysa/eslint-config` (#7) |
 
 The table names the layers; the pull requests list every file.
-Some files were made on the way, to hand the kit what is this app's: among them `apps/web/pwaApp.ts` (#6), `drawing/format.ts`, `names/drawings.ts` and the `sync/` files named below (#8); and `apps/api/src/index.ts` and `relay.ts`, which pass on the server's names (#5).
+Some files were made on the way, to hand the kit what is this app's: among them `apps/web/pwaApp.ts` (#6), and `drawing/format.ts`, `names/drawings.ts`, `sync/dexiePorts.ts`, `sync/drawingsSync.ts` and `sync/lock.ts` (#8); and `apps/api/src/index.ts` and `relay.ts`, which pass on the server's names (#5).
 What stays this app's: the drawing file and its layers (`drawing/`), the names it gives its files (`names/`, the slug's 215-byte cap among them), the pictures, the Dexie schema and the store over it, the editor, the screens and the catalog.
 What it hands the kit:
 
@@ -36,7 +36,7 @@ What it hands the kit:
 - Its own lint blocks, which `eslint.config.js` passes to the kit's `skysa()`.
 
 Nothing a user holds changed: the folder, the marker and the tag, `.svg` and its media type, a conflict copy's name, the lock `skysa-draw:sync:<id>`, and the database's name and version.
-`packages/core/tests/folderSpec.test.ts` reads and writes the marker 0.1.0 wrote, byte for byte.
+`packages/core/tests/folderSpec.test.ts` reads and writes the marker this app wrote before the move, byte for byte; "0.1.0" in these records means those builds, since `main` carried that version from the first commit's tag until the move.
 The server's database is the one thing that does not carry over as it is.
 The kit's migrations make the same two tables this app's one migration did, but that migration had the name of the kit's first, so wrangler takes the kit's first as applied, and a database migrated as it is fails at the kit's second.
 A 0.1.0 database is reset onto the kit's migrations rather than marked as having applied them (decided 2026-11-12): it holds connections and nothing else, no drawing is touched, and each device connects again.
