@@ -440,6 +440,16 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
+	 * Raster work still pending landed, since a stroke is an edit only once
+	 * its encoding does, and then the pending save made and in (`flushed`).
+	 * Neither rejects.
+	 */
+	const written = async (): Promise<void> => {
+		await state.current.document?.settle();
+		await flushed();
+	};
+
+	/**
 	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
 	 * it holds written now, and this drawing named, by `drawingRef`, if the
 	 * store still has not taken it. Raster work still pending goes first, since
@@ -462,8 +472,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const settleOnce = async (): Promise<readonly string[]> => {
 		/** Edits the store has not taken, which no copy and no delete of the user's has. */
 		const held = (): boolean => !keeping.current && !deleting.current && hasUnsavedEdits();
-		await state.current.document?.settle();
-		await flushed();
+		await written();
 		await keepsDone();
 		const document = state.current.document;
 		if (document === undefined || !held()) return [];
@@ -518,13 +527,19 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// (`named`), so that a source let go meanwhile keeps its rows: settling
 		// is not over, and the edits may yet need them.
 		const withdraw = beforeClosing(settle.bind(undefined), named);
-		// The save is asynchronous, but IndexedDB finishes a transaction that
-		// was started before the page went, so starting it is enough.
+		// A page going, or hidden, which a phone may freeze or end with no
+		// `pagehide`, starts the pending save once raster work still pending has
+		// landed, as every save waits for it, the stroke it makes among the
+		// edits, rather than leaving it to the pause. Not a settle, which every
+		// settle asked later would join, taking its answer: one that comes after
+		// the user is back, and drawing, is a settle of its own. A hidden page
+		// runs on for a moment; one going is gone before the save has opened its
+		// transaction (#16).
 		const onPageHide = () => {
-			void flush();
+			void written();
 		};
 		const onVisibility = () => {
-			if (window.document.visibilityState === 'hidden') void flush();
+			if (window.document.visibilityState === 'hidden') onPageHide();
 		};
 		window.addEventListener('pagehide', onPageHide);
 		window.document.addEventListener('visibilitychange', onVisibility);

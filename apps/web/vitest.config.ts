@@ -21,5 +21,9 @@ export default defineConfig({
 		environment: 'jsdom',
 		include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
 		setupFiles: ['./tests/setup.ts'],
+		// The plugin's registration, run as Vite builds it, which takes
+		// workbox-window's module build: Node's own import of it would take the
+		// UMD one, which names no exports. See `tests/shell/pwaRegister.test.ts`.
+		server: { deps: { inline: ['vite-plugin-pwa'] } },
 	},
 });

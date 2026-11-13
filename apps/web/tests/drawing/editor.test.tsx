@@ -1255,6 +1255,138 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
 	});
 
+	/** The ways a page leaves: hidden, as a phone hides it switching apps, and going. */
+	const LEAVING: readonly (readonly [string, () => void])[] = [
+		[
+			'hidden',
+			() => {
+				Object.defineProperty(window.document, 'visibilityState', {
+					value: 'hidden',
+					configurable: true,
+				});
+				window.document.dispatchEvent(new Event('visibilitychange'));
+			},
+		],
+		[
+			'going',
+			() => {
+				window.dispatchEvent(new Event('pagehide'));
+			},
+		],
+	];
+
+	/**
+	 * A page a phone has frozen: the autosave's pause, however long, never
+	 * comes, and only what settling does is done. Answers how to bring the
+	 * page back, its timers and its visibility, before the test's cleanup.
+	 */
+	const frozen = (): (() => void) => {
+		const realSetTimeout = globalThis.setTimeout;
+		const paused = (wait: number | undefined) =>
+			wait !== undefined && wait > 0 && wait <= AUTOSAVE_DEBOUNCE_MS;
+		const timers = vi
+			.spyOn(globalThis, 'setTimeout')
+			.mockImplementation((handler, wait) =>
+				realSetTimeout(paused(wait) ? () => undefined : handler, wait)
+			);
+		return () => {
+			timers.mockRestore();
+			Reflect.deleteProperty(window.document, 'visibilityState');
+		};
+	};
+
+	it.each(LEAVING)(
+		'saves a stroke still being encoded as the page is %s, once it lands',
+		async (_, leave) => {
+			const { db, made } = await renderEditor('expanded');
+			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+			const document = lastOpened();
+			// A stroke whose encoding has not landed, and which is an edit only
+			// once it does: here, once the document is asked to settle.
+			const encoding: { land: () => void } = { land: () => undefined };
+			vi.spyOn(document, 'settle').mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						encoding.land = () => {
+							document.edit(stroke);
+							resolve();
+						};
+					})
+			);
+			const thaw = frozen();
+
+			try {
+				act(leave);
+				act(() => {
+					encoding.land();
+				});
+
+				await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+			} finally {
+				thaw();
+			}
+		}
+	);
+
+	it.each(LEAVING)(
+		'starts the pending save as the page is %s, though a settle under way is held',
+		async (_, leave) => {
+			const { db, made } = await renderEditor('expanded');
+			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+			const document = lastOpened();
+			// A settle under way, held at raster work that has not landed.
+			const held: { release: () => void } = { release: () => undefined };
+			vi.spyOn(document, 'settle').mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						held.release = resolve;
+					})
+			);
+			const settling = settleEditors();
+			const thaw = frozen();
+
+			try {
+				act(() => document.edit(stroke));
+				act(leave);
+
+				await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+			} finally {
+				held.release();
+				thaw();
+			}
+			expect(await settling).toEqual({ failing: [], rejected: 0 });
+		}
+	);
+
+	it.each(LEAVING)(
+		'settles afresh after the page is %s, rather than taking the answer of what leaving began',
+		async (_, leave) => {
+			const { db, made } = await renderEditor('expanded');
+			const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+			const document = lastOpened();
+			// Raster work that leaving waits for, which has not landed.
+			const held: { release: () => void } = { release: () => undefined };
+			vi.spyOn(document, 'settle').mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						held.release = resolve;
+					})
+			);
+
+			try {
+				act(leave);
+				// Back, and drawing, and then asked to settle: by a take-over, say.
+				act(() => document.edit(stroke));
+
+				expect(await settleEditors()).toEqual({ failing: [], rejected: 0 });
+				expect(await rowText(db, made.id)).toBe(stroke);
+			} finally {
+				held.release();
+				Reflect.deleteProperty(window.document, 'visibilityState');
+			}
+		}
+	);
+
 	it('waits for a copy being kept for a change from elsewhere, which the edits are in', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
