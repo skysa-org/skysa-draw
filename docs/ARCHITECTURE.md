@@ -556,7 +556,9 @@ What follows is this app's own.
 - What the open drawing holds is written before anything acts on what the device holds (`store/heldEdits.ts`).
   The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
   Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
-  Asked to settle, it waits for raster work still pending, writes its pending save, waits for a copy it is keeping, or one that save set off, and tries once more an edit a save before left behind.
+  An open editor that has not answered names its drawing all the same, so a source let go keeps its rows.
+  Asked to settle, it waits for raster work still pending, writes its pending save, and waits for it, and for any save an edit sets off meanwhile, so the same text is never sent twice at once.
+  It waits for a copy it is keeping, or one that save set off, and tries once more an edit a save before left behind.
   It answers with the drawing's `drawingRef` while the store has still not taken the edits, so a source let go keeps that drawing's rows and an export says it is incomplete.
   Edits held for a drawing deleted elsewhere, with no new drawing taken in its place, are named by the drawing as it was, so that its own source counts them and no other does.
 - A newer build in another window asks for the database: this one writes what the editor holds, closes for good (`store/staleTab.ts`), and says so over the page (`components/shell/StaleTabGate.tsx`, in `AppFoot` beside the router, so that the error screen has it too).

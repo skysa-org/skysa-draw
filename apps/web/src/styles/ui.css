@@ -839,6 +839,17 @@ legend.field-legend {
 }
 
 /*
+ * A window out of date's card holds the only controls the page has: one
+ * taller than the window, on a phone on its side or at a large zoom, scrolls
+ * from its start rather than losing its ends.
+ */
+.tab-gate {
+	overflow: auto;
+	place-items: safe center;
+	touch-action: auto;
+}
+
+/*
  * Work under way's card has the work's words over a bar that does not say
  * how far. Unseen at first, the cover fades in after the delay the component
  * gives it, by opacity alone, and the bar moves by `transform` alone: the two

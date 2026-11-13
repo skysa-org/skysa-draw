@@ -51,12 +51,12 @@ export const UNDERWAY_WAIT_MS = 10_000;
  */
 export const FLUSH_WAIT_MS = 10_000;
 
-/** `work`, or `late` where it fails or `FLUSH_WAIT_MS` goes by first. */
-export const inTime = <T>(work: Promise<T>, late: T): Promise<T> =>
+/** `work`, or `late` where it fails or `wait` goes by first. */
+export const inTime = <T>(work: Promise<T>, late: T, wait = FLUSH_WAIT_MS): Promise<T> =>
 	new Promise((resolve) => {
 		const timer = setTimeout(() => {
 			resolve(late);
-		}, FLUSH_WAIT_MS);
+		}, wait);
 		const done = (value: T) => {
 			clearTimeout(timer);
 			resolve(value);
@@ -124,13 +124,11 @@ export const flushEditors = (): Promise<SettledEditors>[] =>
 	);
 
 const waitForUnderway = (): Promise<void> =>
-	new Promise((resolve) => {
-		const timer = setTimeout(resolve, UNDERWAY_WAIT_MS);
-		void Promise.allSettled([...underway]).then(() => {
-			clearTimeout(timer);
-			resolve();
-		});
-	});
+	inTime(
+		Promise.allSettled([...underway]).then(() => undefined),
+		undefined,
+		UNDERWAY_WAIT_MS
+	);
 
 /**
  * Have every editor write what it holds, and wait for all of them. One that

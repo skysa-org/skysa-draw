@@ -335,6 +335,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 	};
 
+	/** The drawing, by `drawingRef`, as it was last seen: nothing before its row came. */
+	const named = (): readonly string[] =>
+		known.current === undefined ? [] : [drawingRef(known.current)];
+
 	/** Work that keeps the edits as a drawing of their own, until it is done. */
 	const keep = (work: Promise<void>) => {
 		kept.current = work;
@@ -407,6 +411,17 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
+	 * The pending save made and in, and any save an edit's pause set off while
+	 * it was on its way: settling, finding that one's text not in yet, would
+	 * otherwise send the same text again beside it.
+	 */
+	const flushed = async (): Promise<void> => {
+		const work = flush();
+		await work;
+		if ((inFlight.current ?? work) !== work) await flushed();
+	};
+
+	/**
 	 * What `settleEditors` asks of an open editor (`store/heldEdits.ts`): what
 	 * it holds written now, and this drawing named, by `drawingRef`, if the
 	 * store still has not taken it. Raster work still pending goes first, since
@@ -429,7 +444,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		/** Edits the store has not taken, which no copy and no delete of the user's has. */
 		const held = (): boolean => !keeping.current && !deleting.current && hasUnsavedEdits();
 		await state.current.document?.settle();
-		await flush();
+		await flushed();
 		await keepsDone();
 		const document = state.current.document;
 		if (document === undefined || !held()) return [];
@@ -437,8 +452,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		stopTimer();
 		await save(document);
 		await keepsDone();
-		const row = known.current;
-		return row !== undefined && held() ? [drawingRef(row)] : [];
+		return held() ? named() : [];
 	};
 
 	/**
@@ -463,8 +477,12 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// A newer build closing the database, a source let go, an export: each
 		// has the editor write what it holds first, and hears what it could not.
 		// A function of its own each start, since the registry is a set and
-		// React starts a session twice in development.
-		const withdraw = beforeClosing(settle.bind(undefined));
+		// React starts a session twice in development. Not answered by
+		// `FLUSH_WAIT_MS`, it names the drawing all the same, so that a source
+		// let go meanwhile keeps its rows: settling is not over, and the edits
+		// may yet need them. Its wait starts just before `settleEditors`' own,
+		// of the same length, so it ends first.
+		const withdraw = beforeClosing(() => inTime(settle(), named()));
 		// The save is asynchronous, but IndexedDB finishes a transaction that
 		// was started before the page went, so starting it is enough.
 		const onPageHide = () => {

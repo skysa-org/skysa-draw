@@ -1076,6 +1076,55 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(stroke);
 	});
 
+	it('waits for a save an edit sets off while another is on its way, and starts none of its own beside it', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const first = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const second = made.text.replace('</svg>', '<g id="layer-3"/></svg>');
+		const document = lastOpened();
+		act(() => document.edit(first));
+		const later: { save: () => void } = { save: () => undefined };
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			const settles = vi
+				.spyOn(document, 'settle')
+				// Settling's own.
+				.mockImplementationOnce(() => Promise.resolve())
+				// The pending save's. Once it has read what it writes, an edit is
+				// made and its pause runs out, which sets off a save of its own
+				// while this one is on its way.
+				.mockImplementationOnce(() => {
+					const settled = Promise.resolve();
+					queueMicrotask(() => {
+						void settled.then(() => {
+							act(() => {
+								document.edit(second);
+								vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS);
+							});
+						});
+					});
+					return settled;
+				})
+				// That save's, held until the first is in.
+				.mockImplementationOnce(
+					() =>
+						new Promise((resolve) => {
+							later.save = resolve;
+						})
+				);
+
+			const settling = settleEditors();
+			await vi.waitFor(async () => expect(await rowText(db, made.id)).toBe(first));
+			later.save();
+
+			expect(await settling).toEqual({ failing: [], rejected: 0 });
+			expect(await rowText(db, made.id)).toBe(second);
+			// Settling's own and the two saves': none of settling's own beside them.
+			expect(settles).toHaveBeenCalledTimes(3);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('names the drawing when settling, while the store will not take what it holds', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const refuse = () => {
@@ -1126,6 +1175,25 @@ describe('the editor saving', () => {
 		view.unmount();
 
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+	});
+
+	it('names the drawing when it has not settled in time, so that a source let go keeps its rows', async () => {
+		const { made, view } = await renderEditor('expanded');
+		// Raster work whose encoding never lands.
+		vi.spyOn(lastOpened(), 'settle').mockImplementation(() => new Promise(() => undefined));
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			const settling = settleEditors();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+
+			expect(await settling).toEqual({ failing: [drawingRef(made)], rejected: 0 });
+			// Closed, and gone from the registry, before the clock is real again.
+			view.unmount();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+			expect(flushEditors()).toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('withdraws once closed, if settling as it closes has not answered in time', async () => {
