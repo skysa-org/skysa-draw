@@ -319,6 +319,13 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// it still had pending has nothing to add; a stroke still under way on
 		// it goes with it (§10).
 		stopTimer();
+		// Nothing reads a closed session's document, and the drawing's whole
+		// text parsed for it would cost the main thread as the user moves on.
+		// It lets go of the page as an open does.
+		if (starts.current === 0) {
+			letGo();
+			return;
+		}
 		openedText.current = text;
 		const document = openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a

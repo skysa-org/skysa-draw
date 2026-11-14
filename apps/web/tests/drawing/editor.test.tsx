@@ -2080,6 +2080,24 @@ describe('the editor saving', () => {
 		await waitFor(() => expect(leavingHeld()).toBe(false));
 	});
 
+	it('opens nothing once the editor has closed, though a stroke landing then is kept in a copy beside a change from elsewhere', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		view.unmount();
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		await saveDrawing(db, made.id, theirs);
+		const before = fake.open.mock.calls.length;
+
+		act(() => document.edit(mine));
+
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		// The change is not parsed for a document nothing shows.
+		expect(fake.open.mock.calls.length).toBe(before);
+	});
+
 	it('keeps asking while the store refuses the copy that edits under a change from elsewhere are kept in', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
