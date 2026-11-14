@@ -614,7 +614,7 @@ What comes next, in order:
 Known gaps in what is built, each for an issue:
 
 - Tested under jsdom, which has no 2D canvas, no `getBBox`, no `DOMMatrix` and no stylesheets from an SVG `<style>`, and driven once by hand in headless Chromium under the real Content-Security-Policy (vector and raster strokes, smudge, pen, text, merge down, rasterize, undo, PNG export, the frame at three widths); not yet on a touch screen, with a stylus, or in Safari or Firefox.
-- Renaming a drawing reopens it and loses its undo history, since `renameDrawing` rewrites the row's text.
+- Renaming a drawing reopens it and loses its undo history, since `renameDrawing` rewrites the row's text; an edit made while the rename's save is on its way, or a pending save the store refuses, is met in the renamed row as an edit under a change from elsewhere, and kept in a conflict copy (#18).
 - The library drawer's own rows (`Sidebar`, `DrawingList`) are below the 44 px target.
 - The brush's outline's crosshair, and whether its circle is too small to show, are read at the zoom of the pointer's last move, so a zoom by the keys or the wheel with the pointer still shows them at the old zoom until it moves; the viewport telling the tool in hand of a new view would fix it.
 - A stroke still under way when the editor reopens on a change from elsewhere is lost; an undo pressed while a raster stroke is encoding is overtaken when the stroke lands.
