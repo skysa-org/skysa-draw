@@ -246,6 +246,40 @@ button:not(.primary):hover {
 	min-height: var(--target);
 }
 
+/*
+ * A window settling as a new build takes over (`UpdatePrompt`): a cover, as
+ * work under way's and a window out of date's are (`ui.css`), but clear, the
+ * drawing seen through it, with the bar along its foot where the app's is.
+ */
+.update-cover {
+	align-content: end;
+	background: transparent;
+	border: 0;
+	color: var(--fg);
+	cursor: progress;
+	display: grid;
+	height: auto;
+	inset: 0;
+	margin: 0;
+	max-height: none;
+	max-width: none;
+	overflow: hidden;
+	padding: 0;
+	position: fixed;
+	touch-action: none;
+	width: auto;
+	z-index: var(--z-dialog-menu);
+}
+
+/* A popover's own rule, which a `display` of the author's would otherwise outweigh. */
+.update-cover[popover]:not(:popover-open) {
+	display: none;
+}
+
+.update-cover > .update-prompt {
+	padding-block-end: calc(var(--space-s) + env(safe-area-inset-bottom));
+}
+
 /* The window out of date (`StaleTabGate`): a card in the middle of the cover (`ui.css`). */
 .tab-gate-card {
 	background: var(--bg);

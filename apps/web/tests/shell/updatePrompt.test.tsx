@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { UpdatePrompt } from '../../src/components/shell/UpdatePrompt.js';
 import type * as HeldEdits from '../../src/store/heldEdits.js';
@@ -16,9 +16,12 @@ const registration = vi.hoisted(
 	})
 );
 const settling = vi.hoisted(() => ({ rejects: false }));
+/** Whether the bar shows the new build, or was put aside (`needRefresh`). */
+const bar = vi.hoisted(() => ({ shown: true }));
 
-// A new build waiting, which the stub never has; and what the prompt asks of
-// the registration, the first render's alone, as the hook reads it once.
+// A new build waiting, which the stub never has, its bar shown or put aside
+// as a test says; and what the prompt asks of the registration, the first
+// render's alone, as the hook reads it once.
 vi.mock('virtual:pwa-register/react', () => ({
 	useRegisterSW: (options: { onNeedReload?: () => void } = {}) => {
 		if (!registration.registered) {
@@ -26,7 +29,7 @@ vi.mock('virtual:pwa-register/react', () => ({
 			registration.options = options;
 		}
 		return {
-			needRefresh: [true, () => undefined],
+			needRefresh: [bar.shown, () => undefined],
 			offlineReady: [false, () => undefined],
 			updateServiceWorker: worker.update,
 		};
@@ -51,6 +54,7 @@ beforeEach(() => {
 	registration.registered = false;
 	registration.options = {};
 	settling.rejects = false;
+	bar.shown = true;
 });
 
 /** A registered editor whose write the test lets finish. */
@@ -141,6 +145,60 @@ describe("the new build's bar", () => {
 			}
 		}
 	);
+
+	it('says it is updating while the drawing is written in a window whose bar was put aside', () => {
+		bar.shown = false;
+		const editor = heldEditor();
+		try {
+			render(<UpdatePrompt reload={vi.fn()} />);
+			expect(screen.queryByRole('status')).toBeNull();
+
+			takeOver();
+
+			expect(screen.getByRole('status').textContent).toBe('Updating…');
+		} finally {
+			editor.release();
+			editor.withdraw();
+		}
+	});
+
+	it('takes nothing while the drawing is written: the page behind is inert, and hears no key, paste or drop', async () => {
+		const user = userEvent.setup();
+		// As the editor's shortcuts listen, and a picture is placed from a paste
+		// or a drop: on the window.
+		const heard = vi.fn();
+		const kinds = ['keydown', 'paste', 'drop'] as const;
+		kinds.forEach((kind) => window.addEventListener(kind, heard));
+		onTestFinished(() => {
+			kinds.forEach((kind) => window.removeEventListener(kind, heard));
+		});
+		const editor = heldEditor();
+		try {
+			render(
+				<>
+					<p>the drawing</p>
+					<UpdatePrompt reload={vi.fn()} />
+				</>
+			);
+			expect(screen.getByText('the drawing').closest('[inert]')).toBeNull();
+
+			takeOver();
+
+			expect(screen.getByText('the drawing').closest('[inert]')).not.toBeNull();
+			expect(screen.getByRole('status').closest('[inert]')).toBeNull();
+			await user.keyboard('z');
+			const paste = new Event('paste', { bubbles: true, cancelable: true });
+			const drop = new Event('drop', { bubbles: true, cancelable: true });
+			screen.getByText('the drawing').dispatchEvent(paste);
+			screen.getByText('the drawing').dispatchEvent(drop);
+			expect(heard).not.toHaveBeenCalled();
+			// Nor is a drop left to the browser, which would open it in the window.
+			expect(drop.defaultPrevented).toBe(true);
+		} finally {
+			editor.release();
+			editor.withdraw();
+		}
+	});
 
 	it('reloads without asking first, whatever the open drawing still holds', async () => {
 		const asked: boolean[] = [];
