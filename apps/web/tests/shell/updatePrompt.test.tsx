@@ -136,9 +136,10 @@ describe("the new build's bar", () => {
 				// Before the bar would have said Reload was slow.
 				takeOver();
 
-				expect(await screen.findByText('Updating…')).toBeDefined();
+				const said = () => screen.getByRole('status').textContent;
+				await vi.waitFor(() => expect(said()).toBe('Updating…'));
 				await new Promise((resolve) => setTimeout(resolve, 300));
-				expect(screen.getByText('Updating…')).toBeDefined();
+				expect(said()).toBe('Updating…');
 			} finally {
 				editor.release();
 				editor.withdraw();
@@ -146,7 +147,7 @@ describe("the new build's bar", () => {
 		}
 	);
 
-	it('says it is updating while the drawing is written in a window whose bar was put aside', () => {
+	it('says it is updating while the drawing is written in a window whose bar was put aside', async () => {
 		bar.shown = false;
 		const editor = heldEditor();
 		try {
@@ -155,7 +156,11 @@ describe("the new build's bar", () => {
 
 			takeOver();
 
-			expect(screen.getByRole('status').textContent).toBe('Updating…');
+			// In a status that is there before its words, for a screen reader to hear them.
+			expect(screen.getByRole('status').textContent).toBe('');
+			await vi.waitFor(() =>
+				expect(screen.getByRole('status').textContent).toBe('Updating…')
+			);
 		} finally {
 			editor.release();
 			editor.withdraw();
@@ -167,7 +172,7 @@ describe("the new build's bar", () => {
 		// As the editor's shortcuts listen, and a picture is placed from a paste
 		// or a drop: on the window.
 		const heard = vi.fn();
-		const kinds = ['keydown', 'paste', 'drop'] as const;
+		const kinds = ['keydown', 'paste', 'dragover', 'drop'] as const;
 		kinds.forEach((kind) => window.addEventListener(kind, heard));
 		onTestFinished(() => {
 			kinds.forEach((kind) => window.removeEventListener(kind, heard));
@@ -191,12 +196,40 @@ describe("the new build's bar", () => {
 			const drop = new Event('drop', { bubbles: true, cancelable: true });
 			screen.getByText('the drawing').dispatchEvent(paste);
 			screen.getByText('the drawing').dispatchEvent(drop);
-			expect(heard).not.toHaveBeenCalled();
-			// Nor is a drop left to the browser, which would open it in the window.
+			// Nor is a drop left to the browser, which would open it in the window,
+			// and a drag over it shows as one that cannot drop.
 			expect(drop.defaultPrevented).toBe(true);
+			const over = Object.assign(new Event('dragover', { bubbles: true, cancelable: true }), {
+				dataTransfer: { dropEffect: 'copy' },
+			});
+			screen.getByText('the drawing').dispatchEvent(over);
+			expect(over.dataTransfer.dropEffect).toBe('none');
+			expect(heard).not.toHaveBeenCalled();
 		} finally {
 			editor.release();
 			editor.withdraw();
+		}
+	});
+
+	it('blocks the page before the drawing starts to be written', () => {
+		const blocked: boolean[] = [];
+		const withdraw = beforeClosing(() => {
+			blocked.push(screen.getByText('the drawing').closest('[inert]') !== null);
+			return Promise.resolve();
+		});
+		try {
+			render(
+				<>
+					<p>the drawing</p>
+					<UpdatePrompt reload={vi.fn()} />
+				</>
+			);
+
+			takeOver();
+
+			expect(blocked).toEqual([true]);
+		} finally {
+			withdraw();
 		}
 	});
 

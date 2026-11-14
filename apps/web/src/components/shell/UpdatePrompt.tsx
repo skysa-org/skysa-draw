@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { t } from '../../i18n/t.js';
@@ -13,6 +13,50 @@ const SLOW_MS = 10_000;
 
 const reloadPage = () => {
 	window.location.reload();
+};
+
+/**
+ * How long the status a settling window says it is updating in is there
+ * before its words come into it, so that a screen reader has it to hear them.
+ */
+const SAID_AFTER_MS = 100;
+
+/**
+ * A window settling as a new build takes over, blocked as a window out of
+ * date is (`blockPage.ts`), since a stroke drawn after its last save would go
+ * with the reload: under a clear cover, the drawing seen through it, with the
+ * bar along its foot saying it is updating, as the bar does where it was not
+ * put aside. The page behind is inert, the bar's own status with it, so the
+ * cover has a status of its own, there before its words, as `Applying`'s is.
+ */
+const Settling = () => {
+	const cover = useRef<HTMLDivElement>(null);
+	const [said, setSaid] = useState(false);
+	useBlockedPage(cover);
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			setSaid(true);
+		}, SAID_AFTER_MS);
+		return () => {
+			clearTimeout(timer);
+		};
+	}, []);
+	return createPortal(
+		<div
+			ref={cover}
+			className="update-cover"
+			popover={HAS_POPOVER ? 'manual' : undefined}
+			onPointerDown={keepFocus}
+		>
+			<div className="update-prompt" aria-hidden="true">
+				<span>{t('shell.update.updating')}</span>
+			</div>
+			<p role="status" className="visually-hidden">
+				{said ? t('shell.update.updating') : ''}
+			</p>
+		</div>,
+		document.body
+	);
 };
 
 /**
@@ -37,31 +81,6 @@ const reloadPage = () => {
  * (`store/leaving.ts`): the page is the new worker's now, which does not serve
  * the old build.
  */
-/**
- * A window settling as a new build takes over, blocked as a window out of
- * date is (`blockPage.ts`), since a stroke drawn after its last save would go
- * with the reload: under a clear cover, the drawing seen through it, with the
- * bar along its foot saying it is updating, as the bar does where it was not
- * put aside.
- */
-const Settling = () => {
-	const cover = useRef<HTMLDivElement>(null);
-	useBlockedPage(cover);
-	return createPortal(
-		<div
-			ref={cover}
-			className="update-cover"
-			popover={HAS_POPOVER ? 'manual' : undefined}
-			onPointerDown={keepFocus}
-		>
-			<div className="update-prompt" role="status">
-				<span>{t('shell.update.updating')}</span>
-			</div>
-		</div>,
-		document.body
-	);
-};
-
 export const UpdatePrompt = ({
 	beforeUpdate = () => Promise.resolve(),
 	slowAfter = SLOW_MS,
@@ -79,7 +98,11 @@ export const UpdatePrompt = ({
 		// Read once, as the worker is registered.
 	} = useRegisterSW({
 		onNeedReload: () => {
-			setUpdating('settling');
+			// Blocked before the settle starts, which takes what the editor holds
+			// as it starts: a stroke drawn after that would go with the reload.
+			flushSync(() => {
+				setUpdating('settling');
+			});
 			const leave = () => {
 				letLeave();
 				reload();

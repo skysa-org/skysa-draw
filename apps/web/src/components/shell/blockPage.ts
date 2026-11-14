@@ -1,5 +1,5 @@
 import { cell } from '@skysa/storage';
-import { type PointerEvent, type RefObject, useEffect, useLayoutEffect } from 'react';
+import { type PointerEvent, type RefObject, useLayoutEffect } from 'react';
 
 import { raise } from '../ui/MenuList.js';
 
@@ -30,6 +30,11 @@ import { raise } from '../ui/MenuList.js';
  * A press on the cover itself leaves the focus where it is (`keepFocus`), as
  * `Applying`'s cover does, and a drag over the window shows as one that
  * cannot drop.
+ *
+ * Blocks stack, since a window can go out of date while it settles at a
+ * take-over, which a newer database brings: each cover is kept out of the
+ * page that is blocked, and the page is let go, the focus given back to what
+ * had it as the first came, only once the last has gone.
  */
 
 /** A key, kept from the page's listeners and left to the browser, which presses the cover's buttons. */
@@ -66,38 +71,64 @@ export const keepFocus = (event: PointerEvent<HTMLElement>): void => {
 	if (event.target === event.currentTarget) event.preventDefault();
 };
 
-/** The page blocked behind `cover`, which is put in the top layer, while the caller is there. */
+/** The covers up, in the order they came: the page is blocked while there is one. */
+const covers = cell<readonly Element[]>([]);
+/** What blocking made inert; what the page had made inert itself stays so. */
+const made = cell<readonly Element[]>([]);
+/** What had the focus as the first cover came, which inert takes it away from. */
+const had = cell<Element | null>(null);
+
+const quieten = (nodes: readonly Node[]): void => {
+	const fresh = nodes.filter(
+		(node): node is Element =>
+			node instanceof Element && !covers.current.includes(node) && !node.hasAttribute('inert')
+	);
+	fresh.forEach((element) => element.setAttribute('inert', ''));
+	made.current = [...made.current, ...fresh];
+};
+
+/** What is put in the page while it is blocked, a sheet opened by a timer, is blocked too. */
+const later = new MutationObserver((records) => {
+	quieten(records.flatMap((record) => Array.from(record.addedNodes)));
+});
+
+// The window's capture phase comes before every other listener but those
+// put there earlier.
+const block = (cover: Element): void => {
+	covers.current = [...covers.current, cover];
+	if (covers.current.length > 1) return;
+	had.current = document.activeElement;
+	quieten(Array.from(document.body.children));
+	later.observe(document.body, { childList: true });
+	KEPT.forEach(([type, listener]) => window.addEventListener(type, listener, true));
+};
+
+const unblock = (cover: Element): void => {
+	covers.current = covers.current.filter((each) => each !== cover);
+	if (covers.current.length > 0) return;
+	later.disconnect();
+	KEPT.forEach(([type, listener]) => window.removeEventListener(type, listener, true));
+	made.current.forEach((element) => element.removeAttribute('inert'));
+	made.current = [];
+	const back = had.current;
+	had.current = null;
+	if (back instanceof HTMLElement && back.isConnected) back.focus();
+};
+
+/**
+ * The page blocked behind `cover`, which is put in the top layer, while the
+ * caller is there. In the commit that puts the cover in the page, before
+ * anything after it can reach the page, a key, a press or another block's
+ * watch on it, which would take the cover for the page.
+ */
 export const useBlockedPage = (cover: RefObject<HTMLElement | null>): void => {
 	useLayoutEffect(() => {
-		if (cover.current !== null) raise(cover.current);
-	}, [cover]);
-
-	// The window's capture phase comes before every other listener but those
-	// put there earlier. Inert takes the focus away from what had it, which
-	// gets it back once the cover goes; what the page had made inert itself
-	// stays so.
-	useEffect(() => {
-		const had = document.activeElement;
-		const made = cell<readonly Element[]>([]);
-		const quieten = (nodes: readonly Node[]) => {
-			const fresh = nodes.filter(
-				(node): node is Element =>
-					node instanceof Element && node !== cover.current && !node.hasAttribute('inert')
-			);
-			fresh.forEach((element) => element.setAttribute('inert', ''));
-			made.current = [...made.current, ...fresh];
-		};
-		quieten(Array.from(document.body.children));
-		const later = new MutationObserver((records) => {
-			quieten(records.flatMap((record) => Array.from(record.addedNodes)));
-		});
-		later.observe(document.body, { childList: true });
-		KEPT.forEach(([type, listener]) => window.addEventListener(type, listener, true));
+		const element = cover.current;
+		if (element === null) return undefined;
+		raise(element);
+		block(element);
 		return () => {
-			later.disconnect();
-			KEPT.forEach(([type, listener]) => window.removeEventListener(type, listener, true));
-			made.current.forEach((element) => element.removeAttribute('inert'));
-			if (had instanceof HTMLElement && had.isConnected) had.focus();
+			unblock(element);
 		};
 	}, [cover]);
 };
