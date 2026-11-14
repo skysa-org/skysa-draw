@@ -1886,6 +1886,33 @@ describe('the editor saving', () => {
 		expect(fake.open.mock.calls.length).toBe(before);
 	});
 
+	it('renames a drawing with a stroke still being encoded: the stroke goes in first, and no copy is kept', async () => {
+		const user = userEvent.setup();
+		const { db, made } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+		await user.clear(screen.getByLabelText('Title'));
+		await user.type(screen.getByLabelText('Title'), 'Pier{Enter}');
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		act(() => {
+			document.edit(stroke);
+			encoding.resolve();
+		});
+
+		expect(await screen.findByRole('heading', { name: 'Pier' })).toBeDefined();
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		const rows = await liveRows(db);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.text).toContain('<g id="layer-2"/>');
+		expect(screen.queryByText(/your edits were kept in a copy/)).toBeNull();
+	});
+
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const before = fake.open.mock.calls.length;
