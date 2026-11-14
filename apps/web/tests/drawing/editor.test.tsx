@@ -21,8 +21,10 @@ import { DatabaseProvider } from '../../src/store/database.js';
 import { type DrawDatabase, drawingRef } from '../../src/store/db.js';
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../../src/store/drawings.js';
 import { FLUSH_WAIT_MS, flushEditors, settleEditors } from '../../src/store/heldEdits.js';
+import { leavingHeld } from '../../src/store/leaving.js';
 import { isLive } from '../../src/store/rowStates.js';
 import { freshDatabase } from '../support/db.js';
+import { asksBeforeLeaving } from '../support/leaving.js';
 import { stubWindowWidth, type Width } from './support.js';
 
 /**
@@ -43,10 +45,12 @@ const fake = vi.hoisted(() => {
 	};
 	const undo = vi.fn();
 	const redo = vi.fn();
+	/** Told of raster work as it starts (`openDocument`'s `onPending`). */
+	type Pending = (work: Promise<unknown>) => void;
 	const opened: Fake[] = [];
 	/** The kind of the one layer the next document opened has. */
 	const settings = { kind: 'vector' as 'vector' | 'raster' };
-	const open = vi.fn((text: string): EditorDocument | undefined => {
+	const open = vi.fn((text: string, onPending?: Pending): EditorDocument | undefined => {
 		if (text.includes(`<title>Broken</title>`)) return undefined;
 		const listeners = new Set<() => void>();
 		const state = { text, dirty: false, version: 0 };
@@ -91,7 +95,10 @@ const fake = vi.hoisted(() => {
 				listeners.add(listener);
 				return () => listeners.delete(listener);
 			},
-			pending: () => undefined,
+			// Told on, as the real document tells the session; nothing waits for it here.
+			pending: (job) => {
+				onPending?.(job);
+			},
 			settle: () => Promise.resolve(),
 			edit: (next, quietly = false) => {
 				state.text = next;
@@ -1052,6 +1059,78 @@ describe('the editor saving', () => {
 		});
 	});
 
+	it('asks before the page goes while an edit waits on its save, and not once it is in', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const edited = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		expect(asksBeforeLeaving()).toBe(false);
+
+		act(() => lastOpened().edit(edited));
+		expect(asksBeforeLeaving()).toBe(true);
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(edited));
+		await waitFor(() => {
+			expect(asksBeforeLeaving()).toBe(false);
+			expect(leavingHeld()).toBe(false);
+		});
+	});
+
+	it('asks before the page goes while a stroke is still being encoded, and not once every one lands as nothing', async () => {
+		await renderEditor('expanded');
+		// Strokes whose encoding the test lands.
+		const first = Promise.withResolvers<void>();
+		const second = Promise.withResolvers<void>();
+
+		act(() => {
+			lastOpened().pending(first.promise);
+			lastOpened().pending(second.promise);
+		});
+		expect(asksBeforeLeaving()).toBe(true);
+		await pastTheSave();
+		expect(asksBeforeLeaving()).toBe(true);
+
+		// Strokes that reached no pixel, say: no edit.
+		first.resolve();
+		await pastTheSave();
+		expect(asksBeforeLeaving()).toBe(true);
+		second.resolve();
+		await waitFor(() => {
+			expect(asksBeforeLeaving()).toBe(false);
+			expect(leavingHeld()).toBe(false);
+		});
+	});
+
+	it("keeps asking about text that will not take the drawing's id, which no save could write", async () => {
+		await renderEditor('expanded');
+
+		act(() => lastOpened().edit('not a drawing'));
+		await pastTheSave();
+
+		expect(asksBeforeLeaving()).toBe(true);
+	});
+
+	it('keeps asking while the store refuses the save, and lets go as it closes', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		try {
+			act(() => lastOpened().edit(made.text.replace('</svg>', '<g id="layer-2"/></svg>')));
+			await pastTheSave();
+			expect(await rowText(db, made.id)).toBe(made.text);
+			expect(asksBeforeLeaving()).toBe(true);
+
+			// Tried once more as it closes, and refused: the edits go with it.
+			view.unmount();
+			await waitFor(() => {
+				expect(asksBeforeLeaving()).toBe(false);
+				expect(leavingHeld()).toBe(false);
+			});
+		} finally {
+			db.drawings.hook('updating').unsubscribe(refuse);
+		}
+	});
+
 	it('writes what is pending when asked to settle, without waiting for the pause, and names nothing once it is in', async () => {
 		// A newer build closing the database, a source let go, an export: each
 		// asks first (`store/heldEdits.ts`).
@@ -1576,7 +1655,7 @@ describe('the editor saving', () => {
 		await saveDrawing(db, made.id, elsewhere);
 
 		await waitFor(() => expect(fake.open.mock.calls.length).toBe(before + 1));
-		expect(fake.open).toHaveBeenLastCalledWith(elsewhere);
+		expect(fake.open).toHaveBeenLastCalledWith(elsewhere, expect.any(Function));
 		expect(screen.queryByText(/changed elsewhere/)).toBeNull();
 	});
 
@@ -1589,7 +1668,9 @@ describe('the editor saving', () => {
 		await saveDrawing(db, made.id, theirs);
 
 		const notice = await screen.findByText(/your edits were kept in a copy/);
-		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(theirs));
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
 		const rows = await liveRows(db);
 		expect(rows).toHaveLength(2);
 		const copy = rows.find((row) => row.id !== made.id);
@@ -1615,6 +1696,186 @@ describe('the editor saving', () => {
 		expect(await rowText(db, made.id)).toBe(theirs);
 	});
 
+	it('keeps asking while the store refuses the save in StrictMode, where React starts the session twice', async () => {
+		const { db, made } = await renderEditor('expanded', 'Harbor', ROOT, { strict: true });
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		try {
+			act(() => lastOpened().edit(made.text.replace('</svg>', '<g id="layer-2"/></svg>')));
+			// Past the pause, and the first start's close.
+			await pastTheSave();
+
+			expect(asksBeforeLeaving()).toBe(true);
+		} finally {
+			db.drawings.hook('updating').unsubscribe(refuse);
+		}
+	});
+
+	it('asks after the editor closed for a stroke still being encoded, until its save is in', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+
+		view.unmount();
+		// Closed with the stroke still being encoded, as an editor whose settle
+		// ran out of time is: the fake document's settle does not wait for it.
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		expect(asksBeforeLeaving()).toBe(true);
+		act(() => {
+			document.edit(stroke);
+			encoding.resolve();
+		});
+
+		expect(asksBeforeLeaving()).toBe(true);
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it("asks while a closed editor's settle, its time run out, tries a refused save once more", async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('updating', refuse);
+		const document = lastOpened();
+		// The save the editor closes with, held past its time, then the try
+		// once more, held too.
+		const sending = Promise.withResolvers<void>();
+		const retrying = Promise.withResolvers<void>();
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			act(() => document.edit(made.text.replace('</svg>', '<g id="layer-2"/></svg>')));
+			const settle = vi
+				.spyOn(document, 'settle')
+				.mockReturnValueOnce(Promise.resolve())
+				.mockReturnValueOnce(sending.promise)
+				.mockReturnValueOnce(retrying.promise);
+			view.unmount();
+			await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS);
+			expect(flushEditors()).toHaveLength(0);
+
+			sending.resolve();
+			await vi.waitFor(() => expect(settle).toHaveBeenCalledTimes(3));
+
+			expect(asksBeforeLeaving()).toBe(true);
+			retrying.resolve();
+		} finally {
+			vi.useRealTimers();
+			db.drawings.hook('updating').unsubscribe(refuse);
+		}
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it('asks after the editor closed while the save of a stroke landing then waits on raster work', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const document = lastOpened();
+		view.unmount();
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		// Another stroke, still being encoded as the save starts.
+		const encoding = Promise.withResolvers<void>();
+		const settle = vi.spyOn(document, 'settle').mockReturnValueOnce(encoding.promise);
+
+		act(() => document.edit(stroke));
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		expect(asksBeforeLeaving()).toBe(true);
+		encoding.resolve();
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(stroke));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it('asks after the editor closed while a stroke landing then is kept in a copy beside a change from elsewhere', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		view.unmount();
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		// The change, which no live query brings the closed editor.
+		await saveDrawing(db, made.id, theirs);
+		// The save's own settle, then the copy's, which the test holds.
+		const copying = Promise.withResolvers<void>();
+		const settle = vi
+			.spyOn(document, 'settle')
+			.mockReturnValueOnce(Promise.resolve())
+			.mockReturnValueOnce(copying.promise);
+
+		act(() => document.edit(mine));
+		await waitFor(() => expect(settle).toHaveBeenCalledTimes(2));
+
+		expect(asksBeforeLeaving()).toBe(true);
+		copying.resolve();
+		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
+		expect(await rowText(db, made.id)).toBe(theirs);
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+	});
+
+	it('keeps asking while the store refuses the copy that edits under a change from elsewhere are kept in', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const refuse = () => {
+			throw new Error('the store refused');
+		};
+		db.drawings.hook('creating', refuse);
+		try {
+			// Edited, and not yet saved: the save would come after the pause.
+			act(() => lastOpened().edit(mine, true));
+			await saveDrawing(db, made.id, theirs);
+			await pastTheSave();
+
+			// No copy, and the edits still open, unsaved.
+			expect(await liveRows(db)).toHaveLength(1);
+			expect(asksBeforeLeaving()).toBe(true);
+		} finally {
+			db.drawings.hook('creating').unsubscribe(refuse);
+		}
+	});
+
+	it('does not ask once it reopens on a change from elsewhere, with nothing here unsaved', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		act(() => lastOpened().edit(mine));
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
+		// An edit back to what is saved, its pause pending: nothing to lose.
+		act(() => lastOpened().edit(mine));
+
+		await saveDrawing(db, made.id, theirs);
+
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
+		expect(asksBeforeLeaving()).toBe(false);
+		expect(leavingHeld()).toBe(false);
+	});
+
+	it('lets the page go without asking once edits under a change from elsewhere are kept in a copy', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		act(() => lastOpened().edit(mine));
+		expect(asksBeforeLeaving()).toBe(true);
+
+		// Before the pause: the change keeps the drawing, and the edits a copy.
+		await saveDrawing(db, made.id, theirs);
+
+		await screen.findByText(/your edits were kept in a copy/);
+		await waitFor(() => {
+			expect(asksBeforeLeaving()).toBe(false);
+			expect(leavingHeld()).toBe(false);
+		});
+		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(mine, copy?.title ?? ''), copy?.id ?? '')
+		);
+	});
+
 	it('puts an edit made while the copy is written into the copy, not the drawing', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
@@ -1633,7 +1894,9 @@ describe('the editor saving', () => {
 			});
 		await saveDrawing(db, made.id, theirs);
 
-		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(theirs));
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
 		expect(settle).toHaveBeenCalled();
 		const copy = (await liveRows(db)).find((row) => row.id !== made.id);
 		expect(copy?.text).toBe(
@@ -1691,6 +1954,8 @@ describe('a link to a drawing that is not here', () => {
 		await pastTheSave();
 		expect((await liveRows(db)).length).toBe(0);
 		expect(onReplaced).not.toHaveBeenCalled();
+		// Nothing was kept, so nothing holds the page.
+		expect(leavingHeld()).toBe(false);
 	});
 
 	it('keeps nothing of edits already saved when the drawing is deleted elsewhere: they went with it', async () => {
@@ -1705,6 +1970,7 @@ describe('a link to a drawing that is not here', () => {
 		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
 		expect((await liveRows(db)).length).toBe(0);
 		expect(onReplaced).not.toHaveBeenCalled();
+		await waitFor(() => expect(leavingHeld()).toBe(false));
 	});
 });
 
@@ -1740,7 +2006,9 @@ describe('the drawing open deleted under unsaved edits', () => {
 		expect(notice.textContent).toContain('“Harbor”');
 
 		// The editor is on it, and nothing more is kept, however long it waits.
-		await waitFor(() => expect(fake.open).toHaveBeenLastCalledWith(kept.text));
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(kept.text, expect.any(Function))
+		);
 		expect(screen.queryByText(/This drawing is not on this device/)).toBeNull();
 		await pastTheSave();
 		expect((await liveRows(db)).length).toBe(1);
@@ -1789,8 +2057,12 @@ describe('the drawing open deleted under unsaved edits', () => {
 		const user = userEvent.setup();
 		const { db, made, onBack, onReplaced } = await renderEditor('expanded');
 		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
-		// Edited, with the save waiting on the pause.
-		act(() => lastOpened().edit(mine));
+		// Edited, with the save waiting on the pause, and a stroke still being
+		// encoded, which never lands.
+		act(() => {
+			lastOpened().edit(mine);
+			lastOpened().pending(new Promise<void>(() => undefined));
+		});
 
 		await user.click(screen.getByRole('button', { name: 'More' }));
 		await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
@@ -1802,6 +2074,11 @@ describe('the drawing open deleted under unsaved edits', () => {
 		// The editor stays here, as it might for a moment before the route
 		// moves: the row's going is the user's, and says not found.
 		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
+		// Nothing is left to lose, so the page goes without asking.
+		await waitFor(() => {
+			expect(asksBeforeLeaving()).toBe(false);
+			expect(leavingHeld()).toBe(false);
+		});
 		await pastTheSave();
 		expect((await liveRows(db)).length).toBe(0);
 		expect(await db.opQueue.toArray()).toEqual([

@@ -280,6 +280,18 @@ describe('pending work', () => {
 		expect(order).toEqual(['first', 'late', 'settled']);
 	});
 
+	it('is told of, as it starts, to whoever opened the document', () => {
+		const onPending = vi.fn();
+		const document = openDocument(emptyDrawing({ id: ID }), onPending);
+		if (document === undefined) throw new Error('the drawing did not open');
+		const work = Promise.withResolvers<void>();
+
+		document.pending(work.promise);
+
+		expect(onPending).toHaveBeenCalledExactlyOnceWith(work.promise);
+		work.resolve();
+	});
+
 	it('settles when a piece of it fails, and at once when there is none', async () => {
 		const document = opened(emptyDrawing({ id: ID }));
 		await expect(document.settle()).resolves.toBeUndefined();

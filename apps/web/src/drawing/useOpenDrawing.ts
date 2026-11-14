@@ -8,6 +8,7 @@ import { type DrawDatabase, type DrawingRecord, drawingRef } from '../store/db.j
 import { createDrawing, deleteDrawing, getDrawing, saveDrawing } from '../store/drawings.js';
 import { beforeClosing, inTime } from '../store/heldEdits.js';
 import { useDrawing } from '../store/hooks.js';
+import { holdLeaving, releaseLeaving } from '../store/leaving.js';
 import { foundOf } from '../store/rowStates.js';
 import type { EditorDocument } from './document/model.js';
 import { openDocument } from './document/openDocument.js';
@@ -126,13 +127,84 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * (`expected`): until it lands, it is not saved.
 	 */
 	const sending = cell<string | undefined>(undefined);
+	/**
+	 * Saves started and not over: from the pause's end, past raster work it
+	 * waits for and the store, to a copy it sets off (`offerStored`).
+	 */
+	const saves = cell(0);
 	const timer = cell<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
+	/**
+	 * The page's leave prompt (`store/leaving.ts`), held from an edit, a save,
+	 * raster work, or a keep, until nothing would be lost (`letGo`); whether
+	 * the page asks is `losing`'s, as it goes.
+	 */
+	const leaving = Symbol(id);
+	/** Raster work started and not landed yet: strokes that are edits only once they do. */
+	const encoding = cell(0);
+	/**
+	 * Starts whose close has not settled: none, and what the store still
+	 * refuses went with the editor (§10). A count, since React starts a session
+	 * twice in development, and the first start's close lands after the second.
+	 */
+	const starts = cell(0);
 
 	const set = (patch: Partial<Opened>) => {
 		state.current = { ...state.current, ...patch };
 		listeners.forEach((listener) => listener());
+	};
+
+	/**
+	 * Whether a page going now would lose anything: work still going that
+	 * saves or keeps the edits — the pause, a save, a copy being kept, raster
+	 * work pending — or an edit the store has not taken, a refused save's
+	 * among them. Not while the user is deleting the drawing, which takes the
+	 * edits with it; and once the editor has closed, only the work, which a
+	 * stroke landing then, or a settle that ran out of time, leaves going: what
+	 * the store refused went with the editor (§10). Work that never settles
+	 * goes on asking, as what it holds would be lost. The cheap answers first,
+	 * since telling unsaved edits reads the text.
+	 */
+	const losing = (): boolean => {
+		if (deleting.current) return false;
+		if (
+			timer.current !== undefined ||
+			saves.current > 0 ||
+			kept.current !== undefined ||
+			encoding.current > 0
+		) {
+			return true;
+		}
+		if (starts.current === 0) return false;
+		try {
+			return hasUnsavedEdits();
+		} catch {
+			// Text that will not take the drawing's id, which no save could
+			// write either: held, as a refused save's edits are.
+			return true;
+		}
+	};
+
+	/** Taken early, from anything that may leave edits out of the store: `losing` decides. */
+	const hold = (): void => {
+		holdLeaving(leaving, losing);
+	};
+
+	/** Let go once things go quiet: after a save, a keep, raster work, opening, the user's delete or closing. */
+	const letGo = (): void => {
+		if (!losing()) releaseLeaving(leaving);
+	};
+
+	/** Raster work started: a stroke whose edit, once it lands, sets off the pause. */
+	const onPending = (work: Promise<unknown>): void => {
+		encoding.current += 1;
+		hold();
+		const landed = () => {
+			encoding.current -= 1;
+			letGo();
+		};
+		void work.then(landed, landed);
 	};
 
 	/**
@@ -142,6 +214,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const save = (document: EditorDocument): Promise<void> => {
 		timer.current = undefined;
 		firstChangeAt.current = undefined;
+		saves.current += 1;
+		// Held here too: a settle's retry of a refused save can come once the
+		// editor has closed, and has let go of what the store refused.
+		hold();
 		set({ saving: 'saving' });
 		const work = (async () => {
 			await document.settle();
@@ -156,15 +232,24 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			];
 			saved.current = [...saved.current, text].slice(-REMEMBERED_SAVES);
 			sending.current = text;
+			// Not in the store, so not saved, and out of `saved` before `sending`
+			// lets go of it, so that it never counts as saved between the two: a
+			// delete that beat it still finds these edits unsaved (`keepDeleted`),
+			// and the page still asks before it goes (`losing`).
+			const unwritten = () => {
+				saved.current = saved.current.filter((each) => each !== text);
+			};
 			const outcome = await saveDrawing(db, id, text, { expected })
-				.catch((): 'refused' => {
-					// Not in the store, so not saved, and out of `saved` before
-					// `sending` lets go of it, so that it never counts as saved
-					// between the two: a delete that beat it still finds these
-					// edits unsaved (`keepDeleted`).
-					saved.current = saved.current.filter((each) => each !== text);
-					return 'refused';
-				})
+				.then(
+					(answer) => {
+						if (answer === 'changed') unwritten();
+						return answer;
+					},
+					(): 'refused' => {
+						unwritten();
+						return 'refused';
+					}
+				)
 				.finally(() => {
 					if (sending.current === text) sending.current = undefined;
 				});
@@ -175,17 +260,21 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 				// `keepDeleted` keeps, or the user's own delete takes. A store
 				// that refuses for another reason is a notice still to be built
 				// (§10).
-				saved.current = saved.current.filter((each) => each !== text);
 				if (state.current.document === document) set({ saving: 'idle' });
 				await offerStored();
 				return;
 			}
 			if (state.current.document === document) set({ saving: 'saved' });
-		})().catch(() => {
-			// The document would not settle, or the row could not be read.
-			if (state.current.document === document) set({ saving: 'idle' });
-		});
+		})()
+			.catch(() => {
+				// The document would not settle, or the row could not be read.
+				if (state.current.document === document) set({ saving: 'idle' });
+			})
+			.finally(() => {
+				saves.current -= 1;
+			});
 		inFlight.current = work;
+		void work.then(letGo);
 		return work;
 	};
 
@@ -196,9 +285,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	const schedule = (document: EditorDocument) => {
-		// An edit made while a copy is kept goes into the copy (`keepCopy`), and
-		// one made while the user deletes the drawing goes with it.
+		// An edit made while a copy is kept goes into the copy (`keepCopy`),
+		// which holds the leave prompt itself (`keep`), and one made while the
+		// user deletes the drawing goes with it.
 		if (keeping.current || deleting.current) return;
+		hold();
 		const now = Date.now();
 		const since = firstChangeAt.current ?? now;
 		firstChangeAt.current = since;
@@ -218,12 +309,13 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// nothing to add.
 		stopTimer();
 		openedText.current = text;
-		const document = openDocument(text);
+		const document = openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
 		// reach the row too.
 		if (document !== undefined) document.subscribe(() => schedule(document));
 		set({ document, unreadable: document === undefined, saving: 'idle' });
+		letGo();
 	};
 
 	const hasUnsavedEdits = (): boolean => {
@@ -348,9 +440,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 
 	/** Work that keeps the edits as a drawing of their own, until it is done. */
 	const keep = (work: Promise<void>) => {
+		hold();
 		kept.current = work;
 		void work.then(() => {
 			if (kept.current === work) kept.current = undefined;
+			letGo();
 		});
 	};
 
@@ -509,9 +603,13 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		stopTimer();
 		try {
 			await deleteDrawing(db, id);
+			letGo();
 		} catch (error) {
-			// The drawing is still here, and so are the edits: saved as before.
+			// The drawing is still here, and so are the edits: saved as before,
+			// and asked about as before.
 			deleting.current = false;
+			hold();
+			letGo();
 			const document = state.current.document;
 			if (document !== undefined && hasUnsavedEdits()) schedule(document);
 			throw error;
@@ -527,6 +625,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// (`named`), so that a source let go meanwhile keeps its rows: settling
 		// is not over, and the edits may yet need them.
 		const withdraw = beforeClosing(settle.bind(undefined), named);
+		starts.current += 1;
 		// A page going, or hidden, which a phone may freeze or end with no
 		// `pagehide`, starts the pending save once raster work still pending has
 		// landed, as every save waits for it, the stroke it makes among the
@@ -551,7 +650,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			// `FLUSH_WAIT_MS` has gone by, so that settling meanwhile waits for
 			// it. What the store still refuses goes with the editor: nothing
 			// could open what it held again (§10).
-			void inTime(settle(), []).then(withdraw);
+			void inTime(settle(), []).then(() => {
+				starts.current -= 1;
+				letGo();
+				withdraw();
+			});
 		};
 	};
 

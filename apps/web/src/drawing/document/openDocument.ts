@@ -33,7 +33,11 @@ import { serializeDrawing } from './serialize.js';
  * is never re-serialized (CLAUDE.md, "a drawing becomes dirty only on a user's
  * edit").
  */
-export const openDocument = (text: string): EditorDocument | undefined => {
+export const openDocument = (
+	text: string,
+	/** Told of work a save must wait for, as it starts (`pending`). */
+	onPending?: (work: Promise<unknown>) => void
+): EditorDocument | undefined => {
 	const parsed = parseDrawing(text);
 	if (parsed === undefined) return undefined;
 	try {
@@ -126,6 +130,8 @@ export const openDocument = (text: string): EditorDocument | undefined => {
 		// Both ways, so a job that fails is forgotten too, and its failure is
 		// left to whoever started it.
 		void job.then(forget, forget);
+		// Told once the job is sure to be forgotten, whatever the telling does.
+		onPending?.(job);
 	};
 
 	// Work started while a save waits is waited for too: a stroke's encoding

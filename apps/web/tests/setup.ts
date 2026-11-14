@@ -5,6 +5,7 @@ import { cleanup, configure } from '@testing-library/react';
 import { afterEach, expect, vi } from 'vitest';
 
 import { editorsRegistered } from '../src/store/heldEdits.js';
+import { leavingHeld } from '../src/store/leaving.js';
 import { deleteFreshDatabases, resetSharedDb } from './support/db.js';
 
 // After every test, in this order: what it rendered is unmounted, an editor
@@ -19,6 +20,8 @@ afterEach(async () => {
 	await vi.waitFor(
 		() => {
 			expect(editorsRegistered()).toBe(0);
+			// And none holds the leave prompt (`store/leaving.ts`) once it is gone.
+			expect(leavingHeld()).toBe(false);
 		},
 		{ timeout: 4_000 }
 	);
