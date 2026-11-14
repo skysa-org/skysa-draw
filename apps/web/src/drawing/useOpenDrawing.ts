@@ -350,19 +350,34 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		await keepUp(document, copyId, copyText, text);
 	};
 
+	/** The row as it was last seen opened, or, deleted meanwhile, gone. */
+	const openLatest = (): void => {
+		const current = latest.current;
+		if (current === undefined) set({ gone: true });
+		else open(current.text);
+	};
+
 	/**
-	 * The row changed elsewhere under unsaved edits: the conflict rule
-	 * (docs/ARCHITECTURE.md §7, "Conflict rule"), here rather than at a push.
-	 * The other change keeps the drawing. The editor's text becomes a drawing
-	 * of its own beside it, named as a conflict copy and given a new id, with
-	 * a title that says what it is; then the editor reopens on the row. Nothing
-	 * is saved into the row meanwhile.
+	 * The row changed elsewhere under unsaved edits, or raster work still
+	 * pending, which may yet be one: the conflict rule (docs/ARCHITECTURE.md
+	 * §7, "Conflict rule"), here rather than at a push. The other change keeps
+	 * the drawing. The editor's text becomes a drawing of its own beside it,
+	 * named as a conflict copy and given a new id, with a title that says what
+	 * it is; then the editor reopens on the row. Nothing is saved into the row
+	 * meanwhile.
 	 */
 	const keepCopy = async (document: EditorDocument, row: DrawingRecord): Promise<void> => {
 		keeping.current = true;
 		stopTimer();
 		try {
 			await document.settle();
+			// Kept for raster work still pending, which landed as nothing: no
+			// edits to keep, and the change opens as it would have.
+			if (!hasUnsavedEdits()) {
+				keeping.current = false;
+				openLatest();
+				return;
+			}
 			const text = document.text();
 			const at = new Date();
 			const copyId = crypto.randomUUID();
@@ -501,7 +516,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 		if (row.text === openedText.current || saved.current.includes(row.text)) return;
 		const document = state.current.document;
-		if (document !== undefined && hasUnsavedEdits()) {
+		// Raster work still pending is a stroke that is an edit only once it
+		// lands: the change waits for it, and it is kept as edits are (`keepCopy`).
+		if (document !== undefined && (encoding.current > 0 || hasUnsavedEdits())) {
 			keep(keepCopy(document, row));
 			return;
 		}

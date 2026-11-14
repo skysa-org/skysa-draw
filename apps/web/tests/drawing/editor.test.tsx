@@ -1672,6 +1672,57 @@ describe('the editor saving', () => {
 		expect(await screen.findByText('Saved')).toBeDefined();
 	});
 
+	it('keeps a stroke still being encoded as the drawing changes elsewhere, in a copy beside the change', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		// Settling waits for it, as the real document's does.
+		vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+
+		await saveDrawing(db, made.id, theirs);
+		act(() => {
+			document.edit(stroke);
+			encoding.resolve();
+		});
+
+		await screen.findByText(/your edits were kept in a copy/);
+		const rows = await liveRows(db);
+		expect(rows).toHaveLength(2);
+		const copy = rows.find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(stroke, copy?.title ?? ''), copy?.id ?? '')
+		);
+		expect(await rowText(db, made.id)).toBe(theirs);
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
+	});
+
+	it('opens a change from elsewhere with no copy once raster work pending lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+
+		await saveDrawing(db, made.id, theirs);
+		// Not over the stroke, while it may yet be one.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(fake.open.mock.calls.length).toBe(before);
+		encoding.resolve();
+
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
+		expect(await liveRows(db)).toHaveLength(1);
+		expect(screen.queryByText(/your edits were kept in a copy/)).toBeNull();
+	});
+
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const before = fake.open.mock.calls.length;
