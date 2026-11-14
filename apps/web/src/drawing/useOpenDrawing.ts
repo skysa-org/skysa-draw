@@ -88,7 +88,7 @@ const NOTHING_OPEN: Opened = {
 };
 
 interface Session {
-	/** The row as the store has it now; opens the document the first time it comes. */
+	/** The row as the store has it now; opens the document the first time it comes, and while the editor is open. */
 	readonly offer: (row: Found) => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly getSnapshot: () => Opened;
@@ -159,6 +159,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * twice in development, and the first start's close lands after the second.
 	 */
 	const starts = cell(0);
+	/** Closed, as the editor is, though its settle may still be going. */
+	const closed = cell(false);
 
 	const set = (patch: Partial<Opened>) => {
 		state.current = { ...state.current, ...patch };
@@ -320,7 +322,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// it goes with it (§10).
 		stopTimer();
 		openedText.current = text;
-		const document = openDocument(text, onPending);
+		// None for a closed session, which nothing shows: the drawing's whole
+		// text parsed for it would cost the main thread as the user moves on.
+		// The one it replaces goes all the same, so that a settle still going
+		// finds nothing left to write, its edits kept or none (#18).
+		const document = closed.current ? undefined : openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
 		// reach the row too. The document it replaces is heard no more: a
@@ -382,7 +388,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * §7, "Conflict rule"), here rather than at a push. The other change keeps
 	 * the drawing. The editor's text becomes a drawing of its own beside it,
 	 * named as a conflict copy and given a new id, with a title that says what
-	 * it is; then the editor reopens on the row. Nothing is saved into the row
+	 * it is; then the editor reopens on the row, where it is still open (`open`). Nothing is saved into the row
 	 * meanwhile.
 	 */
 	const keepCopy = async (document: EditorDocument, row: DrawingRecord): Promise<void> => {
@@ -680,6 +686,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// is not over, and the edits may yet need them.
 		const withdraw = beforeClosing(settle.bind(undefined), named);
 		starts.current += 1;
+		closed.current = false;
 		// A page going, or hidden, which a phone may freeze or end with no
 		// `pagehide`, starts the pending save once raster work still pending has
 		// landed, as every save waits for it, the stroke it makes among the
@@ -697,6 +704,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		window.addEventListener('pagehide', onPageHide);
 		window.document.addEventListener('visibilitychange', onVisibility);
 		return () => {
+			closed.current = true;
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
 			// Settled as it closes, raster work and a refused save's retry with

@@ -2063,6 +2063,7 @@ describe('the editor saving', () => {
 		await waitFor(() => expect(flushEditors()).toHaveLength(0));
 		// The change, which no live query brings the closed editor.
 		await saveDrawing(db, made.id, theirs);
+		const before = fake.open.mock.calls.length;
 		// The save's own settle, then the copy's, which the test holds.
 		const copying = Promise.withResolvers<void>();
 		const settle = vi
@@ -2078,6 +2079,32 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
 		expect(await rowText(db, made.id)).toBe(theirs);
 		await waitFor(() => expect(leavingHeld()).toBe(false));
+		// The change is not parsed for a document nothing shows.
+		expect(fake.open.mock.calls.length).toBe(before);
+	});
+
+	it('opens nothing as the editor closes, and keeps one copy, where its closing settle meets a change from elsewhere', async () => {
+		const { db, made, view } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		// Edited, the save waiting on the pause.
+		act(() => document.edit(mine));
+		// The closing settle held on raster work, while the change comes.
+		const landing = Promise.withResolvers<void>();
+		vi.spyOn(document, 'settle').mockReturnValueOnce(landing.promise);
+		const before = fake.open.mock.calls.length;
+		view.unmount();
+		await saveDrawing(db, made.id, theirs);
+
+		landing.resolve();
+
+		await waitFor(() => expect(flushEditors()).toHaveLength(0));
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		const rows = await liveRows(db);
+		expect(rows).toHaveLength(2);
+		expect(await rowText(db, made.id)).toBe(theirs);
+		expect(fake.open.mock.calls.length).toBe(before);
 	});
 
 	it('keeps asking while the store refuses the copy that edits under a change from elsewhere are kept in', async () => {
