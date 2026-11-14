@@ -133,6 +133,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 */
 	const saves = cell(0);
 	const timer = cell<ReturnType<typeof setTimeout> | undefined>(undefined);
+	/** Stops the document opened last telling of its edits: called as another opens in its place. */
+	const unsubscribe = cell<(() => void) | undefined>(undefined);
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
 	/**
@@ -306,14 +308,18 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const open = (text: string) => {
 		// Only ever called with nothing unsaved in the document being replaced,
 		// or with its edits kept as a copy, so a save it still had pending has
-		// nothing to add.
+		// nothing to add; a stroke still being encoded on it goes with it (§10).
 		stopTimer();
 		openedText.current = text;
 		const document = openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
-		// reach the row too.
-		if (document !== undefined) document.subscribe(() => schedule(document));
+		// reach the row too. The document it replaces is heard no more: a
+		// stroke landing on it, encoded only now, would otherwise stop the
+		// pause of an edit made on this one and set off a save of the old one,
+		// which writes nothing (#18).
+		unsubscribe.current?.();
+		unsubscribe.current = document?.subscribe(() => schedule(document));
 		set({ document, unreadable: document === undefined, saving: 'idle' });
 		letGo();
 	};

@@ -1648,6 +1648,30 @@ describe('the editor saving', () => {
 		db.drawings.hook('creating').unsubscribe(refuse);
 	});
 
+	it('saves an edit made on a drawing reopened on a change from elsewhere, though a stroke then lands on the one it replaced', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const mine = theirs.replace('</svg>', '<g id="layer-2"/></svg>');
+		const replaced = lastOpened();
+		// A stroke still being encoded, with nothing unsaved: the change reopens.
+		const encoding = Promise.withResolvers<void>();
+		act(() => replaced.pending(encoding.promise));
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
+
+		act(() => lastOpened().edit(mine));
+		act(() => {
+			replaced.edit(made.text.replace('</svg>', '<g id="layer-3"/></svg>'));
+			encoding.resolve();
+		});
+
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
+		// And the bar says so, not left saying it is saving.
+		expect(await screen.findByText('Saved')).toBeDefined();
+	});
+
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {
 		const { db, made } = await renderEditor('expanded');
 		const before = fake.open.mock.calls.length;
