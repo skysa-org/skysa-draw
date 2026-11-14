@@ -78,4 +78,18 @@ describe('the page blocked behind a cover', () => {
 		// The focus back where it was before the first cover came.
 		expect(document.activeElement).toBe(page());
 	});
+
+	it('stacks covers that come in the one commit, neither blocked by the other', () => {
+		const blocked = (name: string) =>
+			screen.getByRole('button', { name }).closest('[inert]') !== null;
+		const view = render(<Page covers={[]} />);
+
+		view.rerender(<Page covers={['out of date', 'settling']} />);
+
+		expect(blocked('the drawing')).toBe(true);
+		expect(blocked('out of date')).toBe(false);
+		expect(blocked('settling')).toBe(false);
+		view.rerender(<Page covers={['settling']} />);
+		expect(blocked('settling')).toBe(false);
+	});
 });

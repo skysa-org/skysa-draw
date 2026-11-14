@@ -87,26 +87,39 @@ const quieten = (nodes: readonly Node[]): void => {
 	made.current = [...made.current, ...fresh];
 };
 
-/** What is put in the page while it is blocked, a sheet opened by a timer, is blocked too. */
-const later = new MutationObserver((records) => {
-	quieten(records.flatMap((record) => Array.from(record.addedNodes)));
-});
+/**
+ * What is put in the page while it is blocked, a sheet opened by a timer, is
+ * blocked too. Made the first time, so that importing this needs no DOM.
+ */
+const watch = cell<MutationObserver | undefined>(undefined);
+const later = (): MutationObserver => {
+	watch.current ??= new MutationObserver((records) => {
+		quieten(records.flatMap((record) => Array.from(record.addedNodes)));
+	});
+	return watch.current;
+};
 
 // The window's capture phase comes before every other listener but those
 // put there earlier.
 const block = (cover: Element): void => {
 	covers.current = [...covers.current, cover];
+	// Put in the page in the commit that put another cover up, and blocked by
+	// it as part of the page: a cover now, as that one is.
+	if (made.current.includes(cover)) {
+		cover.removeAttribute('inert');
+		made.current = made.current.filter((each) => each !== cover);
+	}
 	if (covers.current.length > 1) return;
 	had.current = document.activeElement;
 	quieten(Array.from(document.body.children));
-	later.observe(document.body, { childList: true });
+	later().observe(document.body, { childList: true });
 	KEPT.forEach(([type, listener]) => window.addEventListener(type, listener, true));
 };
 
 const unblock = (cover: Element): void => {
 	covers.current = covers.current.filter((each) => each !== cover);
 	if (covers.current.length > 0) return;
-	later.disconnect();
+	later().disconnect();
 	KEPT.forEach(([type, listener]) => window.removeEventListener(type, listener, true));
 	made.current.forEach((element) => element.removeAttribute('inert'));
 	made.current = [];
