@@ -1660,14 +1660,14 @@ describe('the editor saving', () => {
 		);
 
 		act(() => lastOpened().edit(mine));
-		// The stroke lands on the document it was drawn on, its raster work
-		// still to come.
+		// The stroke lifts on the document it was drawn on, and lands once its
+		// raster work does.
 		const encoding = Promise.withResolvers<void>();
+		act(() => replaced.pending(encoding.promise));
 		act(() => {
 			replaced.edit(made.text.replace('</svg>', '<g id="layer-3"/></svg>'));
-			replaced.pending(encoding.promise);
+			encoding.resolve();
 		});
-		encoding.resolve();
 
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
 		// And the bar says so, not left saying it is saving.
@@ -1782,6 +1782,62 @@ describe('the editor saving', () => {
 		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
 		await pastTheSave();
 		expect(await liveRows(db)).toEqual([]);
+	});
+
+	it('does not reopen a drawing put back to the edit it saved while raster work pending lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = withDrawingTitle(mine.replace('</svg>', '<g id="layer-9"/></svg>'), 'Pier');
+		const document = lastOpened();
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		act(() => document.edit(mine));
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
+		expect(await screen.findByText('Saved')).toBeDefined();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		await waitFor(() => expect(heading()).toBe('Pier'));
+
+		await saveDrawing(db, made.id, mine);
+		await waitFor(() => expect(heading()).toBe('Harbor'));
+		encoding.resolve();
+
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		expect(fake.open.mock.calls.length).toBe(before);
+	});
+
+	it("does not reopen a file that came with an id not the drawing's, put back while raster work pending lands as nothing", async () => {
+		const { db, made } = await renderEditor('expanded');
+		// As a pull keeps a file another tool or account stamped: as it came.
+		const pulled = emptyDrawing({ id: crypto.randomUUID(), title: 'Harbor' });
+		const put = async (text: string, title: string) => {
+			const row = await getDrawing(db, made.id);
+			if (row === undefined) throw new Error('no row');
+			await db.drawings.put({ ...row, text, title });
+		};
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		await put(pulled, 'Harbor');
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(pulled, expect.any(Function))
+		);
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+		await put(pulled.replace('</svg>', '<g id="layer-9"/></svg>'), 'Pier');
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		await waitFor(() => expect(heading()).toBe('Pier'));
+
+		await put(pulled, 'Harbor');
+		await waitFor(() => expect(heading()).toBe('Harbor'));
+		encoding.resolve();
+
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		expect(fake.open.mock.calls.length).toBe(before);
 	});
 
 	it('says a drawing deleted elsewhere is gone, with no copy, once raster work pending under a change lands as nothing', async () => {

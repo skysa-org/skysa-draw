@@ -113,8 +113,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 */
 	const known = cell<string | undefined>(undefined);
 	/**
-	 * A copy is being kept, or has been in place of the deleted row: nothing is
-	 * saved into the row, and no row is opened.
+	 * A copy is being kept, or has been in place of the deleted row, or a
+	 * change from elsewhere waits on raster work that may yet be an edit:
+	 * nothing is saved into the row, and no row is opened.
 	 */
 	const keeping = cell(false);
 	/** A copy being kept, or a drawing in place of the row: nothing once it is in, or refused. */
@@ -360,7 +361,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 
 	/**
 	 * The row as it was last seen, opened where the editor does not show it
-	 * already, or, deleted meanwhile, gone.
+	 * already, or, deleted meanwhile, gone. What it shows is the text it
+	 * opened, as the row had it, until an edit; then its own, as saved.
 	 */
 	const openLatest = (document: EditorDocument): void => {
 		const current = latest.current;
@@ -368,7 +370,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			set({ gone: true });
 			return;
 		}
-		if (current.text !== withDrawingId(document.text(), id)) open(current.text);
+		const shown = document.snapshot().dirty
+			? withDrawingId(document.text(), id)
+			: openedText.current;
+		if (current.text !== shown) open(current.text);
 	};
 
 	/**
