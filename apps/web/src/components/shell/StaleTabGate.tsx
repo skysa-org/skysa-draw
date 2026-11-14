@@ -1,18 +1,10 @@
-import { cell } from '@skysa/storage';
-import {
-	type PointerEvent,
-	useEffect,
-	useId,
-	useLayoutEffect,
-	useRef,
-	useState,
-	useSyncExternalStore,
-} from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from '../../i18n/t.js';
 import { subscribeTabState, tabState } from '../../store/staleTab.js';
-import { HAS_POPOVER, raise } from '../ui/MenuList.js';
+import { HAS_POPOVER } from '../ui/MenuList.js';
+import { keepFocus, useBlockedPage } from './blockPage.js';
 
 /**
  * The two things `store/staleTab.ts` can have to say, over the app. Apart
@@ -23,27 +15,10 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * Out of date blocks. The database is closed for good, so every save from
  * here on is refused, and a canvas that still took strokes would be taking
  * strokes it cannot keep. The notice covers the window as work under way does
- * (`Applying`), in the top layer where there is one, and everything else in
- * the page is made inert while it shows, the sheets and drawers in their
- * portals with it, and anything put there later: the drawing can still be
- * seen behind the notice, and nothing behind it can be pressed, focused or
- * typed into. The page's own listeners hear no key pressed, paste or drop
- * either, the editor's shortcuts and its picture placing among them; the
- * notice's buttons answer by the browser's own handling of a key, which that
- * leaves alone. A key let go is heard, so that one held as the notice came
- * — Space, for the hand — is not held for good. Only a listener on the
- * window's capture phase put there before the notice came still hears a key
- * pressed. A gesture's under way does, until it ends. So does an area
- * transform's (`viewport/areaTransform.ts`), whose undo and redo step the
- * transform while one is open: they move the selection's outline, never the
- * drawing. And work under way's does (`Applying`): its
- * cover holds every key, the notice's buttons' with them, until the work is
- * done, while a press on them goes through. What the editor held was written
+ * (`Applying`), and the page behind it is blocked (`blockPage.ts`): the
+ * drawing can still be seen, and nothing in it pressed, focused or typed
+ * into, while the notice's buttons answer. What the editor held was written
  * before the database closed (`beforeClosing`).
- *
- * A press on the dim around the notice leaves the focus in it, as
- * `Applying`'s cover does, and a drag over the window shows as one that
- * cannot drop.
  *
  * Beside the router, not in its root route (`AppFoot`), so that a screen
  * put in place of the app on an error still has the notice over it.
@@ -62,76 +37,16 @@ import { HAS_POPOVER, raise } from '../ui/MenuList.js';
  * into it, as `Applying`'s is, so that a screen reader hears them.
  */
 
-/** A key, kept from the page's listeners and left to the browser, which presses the notice's buttons. */
-const keepKey = (event: Event): void => {
-	event.stopImmediatePropagation();
-};
-
-/**
- * A paste or a drop, taken from the page altogether: a drop the page did not
- * take, the browser would open in the window, in place of the drawing.
- */
-const refuse = (event: Event): void => {
-	event.preventDefault();
-	event.stopImmediatePropagation();
-};
-
-/** A drag over the window, taken from the page and shown as one that cannot drop. */
-const refuseDrag = (event: Event): void => {
-	const { dataTransfer } = event as Partial<DragEvent>;
-	if (dataTransfer) dataTransfer.dropEffect = 'none';
-	refuse(event);
-};
-
-const KEPT = [
-	['keydown', keepKey],
-	['paste', refuse],
-	['dragover', refuseDrag],
-	['drop', refuse],
-] as const;
-
-/** A press on the dim itself, which would otherwise take the focus out of the notice. */
-const keepFocus = (event: PointerEvent<HTMLDivElement>): void => {
-	if (event.target === event.currentTarget) event.preventDefault();
-};
-
 const Blocked = ({ reload, putAside }: { reload: () => void; putAside: () => void }) => {
 	const cover = useRef<HTMLDivElement>(null);
 	const notice = useRef<HTMLDivElement>(null);
 	const said = useId();
 
-	useLayoutEffect(() => {
-		if (cover.current !== null) raise(cover.current);
-	}, []);
-
-	// The window's capture phase comes before every other listener but those
-	// put there earlier. Inert takes the focus away from what had it, which
-	// gets it back once the notice is put aside; what the page had made inert
-	// itself stays so.
+	useBlockedPage(cover);
+	// After the block's, which keeps what had the focus, to give it back once
+	// the notice is put aside.
 	useEffect(() => {
-		const had = document.activeElement;
-		const made = cell<readonly Element[]>([]);
-		const quieten = (nodes: readonly Node[]) => {
-			const fresh = nodes.filter(
-				(node): node is Element =>
-					node instanceof Element && node !== cover.current && !node.hasAttribute('inert')
-			);
-			fresh.forEach((element) => element.setAttribute('inert', ''));
-			made.current = [...made.current, ...fresh];
-		};
-		quieten(Array.from(document.body.children));
-		const later = new MutationObserver((records) => {
-			quieten(records.flatMap((record) => Array.from(record.addedNodes)));
-		});
-		later.observe(document.body, { childList: true });
-		KEPT.forEach(([type, listener]) => window.addEventListener(type, listener, true));
 		notice.current?.focus();
-		return () => {
-			later.disconnect();
-			KEPT.forEach(([type, listener]) => window.removeEventListener(type, listener, true));
-			made.current.forEach((element) => element.removeAttribute('inert'));
-			if (had instanceof HTMLElement && had.isConnected) had.focus();
-		};
 	}, []);
 
 	return createPortal(

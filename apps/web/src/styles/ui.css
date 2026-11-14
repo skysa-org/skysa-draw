@@ -805,13 +805,15 @@ legend.field-legend {
 }
 
 /*
- * A cover: the whole window, dimmed, over every sheet and drawer and taking
- * every press, with a card in its middle. In the top layer where there is
- * one, and over everything else where not. Work under way (`Applying.tsx`)
- * is one, and a window out of date (`StaleTabGate.tsx`) the other.
+ * A cover: the whole window, over every sheet and drawer and taking every
+ * press. In the top layer where there is one, and over everything else where
+ * not. Work under way (`Applying.tsx`) is one, and a window out of date
+ * (`StaleTabGate.tsx`) another, each dimmed with a card in its middle; a
+ * window settling as a new build takes over (`UpdatePrompt.tsx`) the third.
  */
 .applying,
-.tab-gate {
+.tab-gate,
+.update-cover {
 	border: 0;
 	color: var(--fg);
 	display: grid;
@@ -834,7 +836,8 @@ legend.field-legend {
 
 /* A popover's own rule, which a `display` of the author's would otherwise outweigh. */
 .applying[popover]:not(:popover-open),
-.tab-gate[popover]:not(:popover-open) {
+.tab-gate[popover]:not(:popover-open),
+.update-cover[popover]:not(:popover-open) {
 	display: none;
 }
 
@@ -847,6 +850,18 @@ legend.field-legend {
 	overflow: auto;
 	place-items: safe center;
 	touch-action: auto;
+}
+
+/*
+ * A window settling is clear, the drawing seen through it, with the bar along
+ * its foot where the app's is (`shell.css`).
+ */
+.update-cover {
+	align-content: end;
+	background: transparent;
+	cursor: progress;
+	padding: 0;
+	place-items: stretch;
 }
 
 /*

@@ -246,6 +246,11 @@ button:not(.primary):hover {
 	min-height: var(--target);
 }
 
+/* The bar a window settling at a take-over shows on its cover (`ui.css`), as the foot's last. */
+.update-cover > .update-prompt {
+	padding-block-end: calc(var(--space-s) + env(safe-area-inset-bottom));
+}
+
 /* The window out of date (`StaleTabGate`): a card in the middle of the cover (`ui.css`). */
 .tab-gate-card {
 	background: var(--bg);
