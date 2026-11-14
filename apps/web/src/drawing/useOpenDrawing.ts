@@ -92,8 +92,8 @@ interface Session {
 	readonly offer: (row: Found) => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly getSnapshot: () => Opened;
-	/** A pending save started now; resolves when it, or a save already running, is in the store. */
-	readonly flush: () => Promise<void>;
+	/** Raster work still pending landed, then the pending save, and any it set off, in the store. */
+	readonly written: () => Promise<void>;
 	/** Listens for the page going away; returns the stop. */
 	readonly start: () => () => void;
 	/** The user's own delete of the drawing, unsaved edits and all. */
@@ -721,7 +721,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			};
 		},
 		getSnapshot: () => state.current,
-		flush,
+		written,
 		start,
 		remove,
 	};
@@ -732,8 +732,12 @@ type OpenDrawing = Opened &
 		row: DrawingRecord | undefined;
 		/** The store has answered that there is no such drawing: never was, or not any more. */
 		missing: boolean;
-		/** A pending save started now, for an action that reads the row after it: a rename. */
-		flush: () => Promise<void>;
+		/**
+		 * Raster work still pending landed, and the pending save in, for an
+		 * action that reads the row after it: a rename, which would otherwise
+		 * meet a stroke landing after it as an edit under a change (#18).
+		 */
+		written: () => Promise<void>;
 		/** The user's own delete: the edits not yet saved go with the drawing. */
 		remove: () => Promise<void>;
 	}>;
@@ -753,7 +757,7 @@ export const useOpenDrawing = (id: string): OpenDrawing => {
 		// anything to keep: until it has, the drawing is not yet missing.
 		missing: found === 'missing' && (opened.document === undefined || opened.gone),
 		...opened,
-		flush: session.flush,
+		written: session.written,
 		remove: session.remove,
 	};
 };

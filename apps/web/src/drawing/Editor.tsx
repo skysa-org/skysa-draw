@@ -477,7 +477,7 @@ type EditorProps = Readonly<{
 const EditorScreen = ({ id, onBack, onReplaced, library }: EditorProps) => {
 	const sizeClass = useSizeClass();
 	const db = useDb();
-	const { row, missing, document, unreadable, saving, keptCopy, replacement, flush, remove } =
+	const { row, missing, document, unreadable, saving, keptCopy, replacement, written, remove } =
 		useOpenDrawing(id);
 	const snapshot = useDocumentSnapshot(document);
 	const [state, dispatch] = useReducer(editorReducer, initialEditorState);
@@ -575,9 +575,9 @@ const EditorScreen = ({ id, onBack, onReplaced, library }: EditorProps) => {
 			zoomItems={zoomItems}
 			onRename={async (next) => {
 				// The row is renamed from the text it holds, so what the editor
-				// holds goes in first; the renamed text then reopens, with
-				// nothing unsaved.
-				await flush();
+				// holds goes in first, a stroke still being encoded with it; the
+				// renamed text then reopens, with nothing unsaved.
+				await written();
 				await renameDrawing(db, id, next);
 			}}
 			onDelete={async () => {
