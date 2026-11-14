@@ -1752,7 +1752,55 @@ describe('the editor saving', () => {
 			encoding.resolve();
 		});
 
-		await waitFor(() => expect(leavingHeld()).toBe(false));
+		await pastTheSave();
+		expect(await liveRows(db)).toEqual([]);
+	});
+
+	it("keeps no copy of a stroke landing under a change from elsewhere as the user's own delete is on its way", async () => {
+		const user = userEvent.setup();
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+		const confirm = within(await screen.findByRole('alertdialog')).getByRole('button', {
+			name: 'Delete',
+		});
+
+		// The stroke lands with the delete just started.
+		act(() => {
+			fireEvent.click(confirm);
+			document.edit(theirs.replace('</svg>', '<g id="layer-2"/></svg>'));
+			encoding.resolve();
+		});
+
+		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
+		await pastTheSave();
+		expect(await liveRows(db)).toEqual([]);
+	});
+
+	it('says a drawing deleted elsewhere is gone, with no copy, once raster work pending under a change lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		await deleteDrawing(db, made.id);
+		// Handed to the editor: the heading has no row to name.
+		await waitFor(() => expect(heading()).toBe(''));
+		encoding.resolve();
+
+		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
 		expect(await liveRows(db)).toEqual([]);
 	});
 

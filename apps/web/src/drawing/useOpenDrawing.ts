@@ -126,6 +126,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * ever will where the editor closes on it.
 	 */
 	const deleted = cell(false);
+	/** The user's delete on its way, for a keep to wait on before it reads `deleted`. */
+	const removal = cell<Promise<unknown> | undefined>(undefined);
 	const saved = cell<readonly string[]>([]);
 	/**
 	 * The text of a save still on its way, which the store may yet refuse
@@ -356,18 +358,17 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		await keepUp(document, copyId, copyText, text);
 	};
 
-	/** A text the editor holds already: the one it opened, or one this session saved. */
-	const ours = (text: string): boolean =>
-		text === openedText.current || saved.current.includes(text);
-
-	/** The row as it was last seen, opened where it is not one of `ours`, or, deleted meanwhile, gone. */
-	const openLatest = (): void => {
+	/**
+	 * The row as it was last seen, opened where the editor does not show it
+	 * already, or, deleted meanwhile, gone.
+	 */
+	const openLatest = (document: EditorDocument): void => {
 		const current = latest.current;
 		if (current === undefined) {
 			set({ gone: true });
 			return;
 		}
-		if (!ours(current.text)) open(current.text);
+		if (current.text !== withDrawingId(document.text(), id)) open(current.text);
 	};
 
 	/**
@@ -384,9 +385,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		stopTimer();
 		try {
 			await document.settle();
-			// The user's own delete, in meanwhile, takes the edits with it; not
-			// one still on its way, since one the store refuses leaves them open
-			// (`remove`).
+			// The user's own delete, once it is in, takes the edits with it; one
+			// on its way is waited for, since one the store refuses leaves them
+			// open (`remove`).
+			await Promise.allSettled([removal.current]);
 			if (deleted.current) {
 				keeping.current = false;
 				set({ gone: true });
@@ -396,7 +398,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			// to keep, and the change opens as it would have.
 			if (!hasUnsavedEdits()) {
 				keeping.current = false;
-				openLatest();
+				openLatest(document);
 				return;
 			}
 			const text = document.text();
@@ -535,7 +537,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 			open(row.text);
 			return;
 		}
-		if (ours(row.text)) return;
+		if (row.text === openedText.current || saved.current.includes(row.text)) return;
 		const document = state.current.document;
 		// Raster work still pending is a stroke that is an edit only once it
 		// lands: the change waits for it, and it is kept as edits are (`keepCopy`).
@@ -645,8 +647,10 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const remove = async (): Promise<void> => {
 		deleting.current = true;
 		stopTimer();
+		const work = deleteDrawing(db, id);
+		removal.current = work;
 		try {
-			await deleteDrawing(db, id);
+			await work;
 			deleted.current = true;
 			letGo();
 		} catch (error) {
