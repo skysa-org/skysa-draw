@@ -306,16 +306,17 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	const open = (text: string) => {
-		// Only ever called with nothing unsaved in the document being replaced,
-		// or with its edits kept as a copy, so a save it still had pending has
-		// nothing to add; a stroke still being encoded on it goes with it (§10).
+		// Only ever called with nothing unsaved or pending in the document being
+		// replaced, or with its edits kept as a copy once it settled, so a save
+		// it still had pending has nothing to add; a stroke still under way on
+		// it goes with it (§10).
 		stopTimer();
 		openedText.current = text;
 		const document = openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
 		// reach the row too. The document it replaces is heard no more: a
-		// stroke landing on it, encoded only now, would otherwise stop the
+		// stroke under way on it, landing only now, would otherwise stop the
 		// pause of an edit made on this one and set off a save of the old one,
 		// which writes nothing (#18).
 		unsubscribe.current?.();
@@ -371,9 +372,12 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		stopTimer();
 		try {
 			await document.settle();
-			// Kept for raster work still pending, which landed as nothing: no
-			// edits to keep, and the change opens as it would have.
-			if (!hasUnsavedEdits()) {
+			// Kept for raster work still pending, which landed as nothing, or for
+			// edits the user's own delete took with it meanwhile: nothing to keep,
+			// and the change opens as it would have, or the drawing is gone. Not
+			// while the delete is on its way, since one the store refuses leaves
+			// the edits open (`remove`).
+			if (!hasUnsavedEdits() || (deleting.current && latest.current === undefined)) {
 				keeping.current = false;
 				openLatest();
 				return;

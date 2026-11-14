@@ -1653,19 +1653,15 @@ describe('the editor saving', () => {
 		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
 		const mine = theirs.replace('</svg>', '<g id="layer-2"/></svg>');
 		const replaced = lastOpened();
-		// A stroke still being encoded, with nothing unsaved: the change reopens.
-		const encoding = Promise.withResolvers<void>();
-		act(() => replaced.pending(encoding.promise));
+		// Nothing unsaved, with a stroke still under way: the change reopens.
 		await saveDrawing(db, made.id, theirs);
 		await waitFor(() =>
 			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
 		);
 
 		act(() => lastOpened().edit(mine));
-		act(() => {
-			replaced.edit(made.text.replace('</svg>', '<g id="layer-3"/></svg>'));
-			encoding.resolve();
-		});
+		// The stroke lands on the document it was drawn on.
+		act(() => replaced.edit(made.text.replace('</svg>', '<g id="layer-3"/></svg>')));
 
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
 		// And the bar says so, not left saying it is saving.
@@ -1680,9 +1676,11 @@ describe('the editor saving', () => {
 		const encoding = Promise.withResolvers<void>();
 		act(() => document.pending(encoding.promise));
 		// Settling waits for it, as the real document's does.
-		vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
 
 		await saveDrawing(db, made.id, theirs);
+		// The change waits for the stroke, which lands only now.
+		await waitFor(() => expect(settle).toHaveBeenCalled());
 		act(() => {
 			document.edit(stroke);
 			encoding.resolve();
@@ -1707,12 +1705,12 @@ describe('the editor saving', () => {
 		const document = lastOpened();
 		const encoding = Promise.withResolvers<void>();
 		act(() => document.pending(encoding.promise));
-		vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
 		const before = fake.open.mock.calls.length;
 
 		await saveDrawing(db, made.id, theirs);
 		// Not over the stroke, while it may yet be one.
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await waitFor(() => expect(settle).toHaveBeenCalled());
 		expect(fake.open.mock.calls.length).toBe(before);
 		encoding.resolve();
 
@@ -1721,6 +1719,33 @@ describe('the editor saving', () => {
 		);
 		expect(await liveRows(db)).toHaveLength(1);
 		expect(screen.queryByText(/your edits were kept in a copy/)).toBeNull();
+	});
+
+	it("keeps no copy of a stroke still being encoded as the drawing changes elsewhere, where the user's own delete came meanwhile", async () => {
+		const user = userEvent.setup();
+		const { db, made, onBack } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+		await user.click(
+			within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' })
+		);
+		await waitFor(() => expect(onBack).toHaveBeenCalled());
+		act(() => {
+			document.edit(theirs.replace('</svg>', '<g id="layer-2"/></svg>'));
+			encoding.resolve();
+		});
+
+		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		expect(await liveRows(db)).toEqual([]);
 	});
 
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {

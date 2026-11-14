@@ -265,7 +265,7 @@ Nothing is ever overwritten by the engine; the user merges by hand, which with t
 
 The editor applies the same rule on the device, at once, to an open drawing (`drawing/useOpenDrawing.ts`).
 When the row changes under unsaved edits, from another tab or from a pull, the row keeps the other change; the edits are written beside it as `<name> (conflict <stamp>).svg` with a new `draw:id` and the title `<title> (conflict <stamp>)`, and the editor reopens on the row and says where the copy went.
-A stroke still being encoded is an edit once it lands, so a change that comes meanwhile waits for it, and is kept beside it as it would be beside any edit, or opens with no copy where it landed as nothing.
+A stroke still being encoded is an edit once it lands, so a change that comes meanwhile waits for it to land; the stroke is then written beside the change as any edit is, or, where it landed as nothing, the change opens with no copy.
 When the row is deleted under unsaved edits, by another tab or a pull, the edits become a new drawing in its folder, under its title and with a new `draw:id`, since the old id now means deleted; the editor moves to it, replacing the entry in the history.
 A save the delete beat counts as unsaved; edits already saved go with the delete.
 The user's own delete goes through the open drawing, which marks it intended before the row goes, so it leaves nothing behind.
