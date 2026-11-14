@@ -559,7 +559,7 @@ What follows is this app's own.
   The session in `drawing/useOpenDrawing.ts` registers with `beforeClosing` while a drawing is open, and settles once more as it closes before it withdraws.
   When the page is hidden, which a phone may freeze or end without a `pagehide`, or goes, it starts the pending save once raster work still pending has landed, the stroke it makes among the edits, outside any settle, so that a settle asked later is one of its own.
   A page the user closes or reloads is gone before that save has opened its transaction, so the browser asks before the page goes if the session would lose anything the store has not taken (raster work, the pause, a save on its way, a copy being kept, a save refused), which the session tells as the page goes (`store/leaving.ts`, `beforeunload`).
-  The listener is there only from an edit, raster work or a keep until nothing is left to lose, so a page with nothing open to lose keeps the back-forward cache.
+  The listener is there only from an edit, a save, raster work or a keep until nothing is left to lose, so a page with nothing open to lose keeps the back-forward cache.
   Settling waits on each editor for `FLUSH_WAIT_MS` at most, and counts one that has not answered by then as holding what it cannot name.
   An open editor that has not answered is taken to hold its drawing all the same, as it said when it registered, so a source let go keeps its rows.
   Asked to settle, it waits for raster work still pending, writes its pending save, and waits for it and for any save an edit sets off meanwhile; a settle asked for while one is going joins it, so the same text is never sent twice at once.

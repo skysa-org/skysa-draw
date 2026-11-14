@@ -136,9 +136,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const firstChangeAt = cell<number | undefined>(undefined);
 	const inFlight = cell<Promise<void> | undefined>(undefined);
 	/**
-	 * The page's leave prompt (`store/leaving.ts`), held from an edit, raster
-	 * work, or a keep, until nothing would be lost (`letGo`); whether the page
-	 * asks is `losing`'s, as it goes.
+	 * The page's leave prompt (`store/leaving.ts`), held from an edit, a save,
+	 * raster work, or a keep, until nothing would be lost (`letGo`); whether
+	 * the page asks is `losing`'s, as it goes.
 	 */
 	const leaving = Symbol(id);
 	/** Raster work started and not landed yet: strokes that are edits only once they do. */
@@ -191,7 +191,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		holdLeaving(leaving, losing);
 	};
 
-	/** Let go once things go quiet, after a save, a keep, raster work, opening or closing. */
+	/** Let go once things go quiet: after a save, a keep, raster work, opening, the user's delete or closing. */
 	const letGo = (): void => {
 		if (!losing()) releaseLeaving(leaving);
 	};
