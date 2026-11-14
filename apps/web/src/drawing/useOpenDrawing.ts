@@ -159,6 +159,8 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * twice in development, and the first start's close lands after the second.
 	 */
 	const starts = cell(0);
+	/** Closed, as the editor is, though its settle may still be going. */
+	const closed = cell(false);
 
 	const set = (patch: Partial<Opened>) => {
 		state.current = { ...state.current, ...patch };
@@ -319,15 +321,12 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// it still had pending has nothing to add; a stroke still under way on
 		// it goes with it (§10).
 		stopTimer();
-		// Nothing reads a closed session's document, and the drawing's whole
-		// text parsed for it would cost the main thread as the user moves on.
-		// It lets go of the page as an open does.
-		if (starts.current === 0) {
-			letGo();
-			return;
-		}
 		openedText.current = text;
-		const document = openDocument(text, onPending);
+		// None for a closed session, which nothing shows: the drawing's whole
+		// text parsed for it would cost the main thread as the user moves on.
+		// The one it replaces goes all the same, so that a settle still going
+		// finds nothing left to write, its edits kept or none (#18).
+		const document = closed.current ? undefined : openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
 		// reach the row too. The document it replaces is heard no more: a
@@ -336,7 +335,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// which writes nothing (#18).
 		unsubscribe.current?.();
 		unsubscribe.current = document?.subscribe(() => schedule(document));
-		set({ document, unreadable: document === undefined, saving: 'idle' });
+		set({ document, unreadable: !closed.current && document === undefined, saving: 'idle' });
 		letGo();
 	};
 
@@ -687,6 +686,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// is not over, and the edits may yet need them.
 		const withdraw = beforeClosing(settle.bind(undefined), named);
 		starts.current += 1;
+		closed.current = false;
 		// A page going, or hidden, which a phone may freeze or end with no
 		// `pagehide`, starts the pending save once raster work still pending has
 		// landed, as every save waits for it, the stroke it makes among the
@@ -704,6 +704,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		window.addEventListener('pagehide', onPageHide);
 		window.document.addEventListener('visibilitychange', onVisibility);
 		return () => {
+			closed.current = true;
 			window.removeEventListener('pagehide', onPageHide);
 			window.document.removeEventListener('visibilitychange', onVisibility);
 			// Settled as it closes, raster work and a refused save's retry with
