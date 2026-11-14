@@ -308,7 +308,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const open = (text: string) => {
 		// Only ever called with nothing unsaved in the document being replaced,
 		// or with its edits kept as a copy, so a save it still had pending has
-		// nothing to add.
+		// nothing to add; a stroke still being encoded on it goes with it (§10).
 		stopTimer();
 		openedText.current = text;
 		const document = openDocument(text, onPending);

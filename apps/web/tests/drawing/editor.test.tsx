@@ -1668,6 +1668,8 @@ describe('the editor saving', () => {
 		});
 
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
+		// And the bar says so, not left saying it is saving.
+		expect(await screen.findByText('Saved')).toBeDefined();
 	});
 
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {
