@@ -113,14 +113,22 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 */
 	const known = cell<string | undefined>(undefined);
 	/**
-	 * A copy is being kept, or has been in place of the deleted row: nothing is
-	 * saved into the row, and no row is opened.
+	 * A copy is being kept, or has been in place of the deleted row, or a
+	 * change from elsewhere waits on raster work that may yet be an edit:
+	 * nothing is saved into the row, and no row is opened.
 	 */
 	const keeping = cell(false);
 	/** A copy being kept, or a drawing in place of the row: nothing once it is in, or refused. */
 	const kept = cell<Promise<void> | undefined>(undefined);
 	/** The user is deleting the drawing: what is unsaved goes with it. */
 	const deleting = cell(false);
+	/**
+	 * The user's delete is in, as the live query may not yet have said, nor
+	 * ever will where the editor closes on it.
+	 */
+	const deleted = cell(false);
+	/** The user's delete on its way, for a keep to wait on before it reads `deleted`. */
+	const removal = cell<Promise<unknown> | undefined>(undefined);
 	const saved = cell<readonly string[]>([]);
 	/**
 	 * The text of a save still on its way, which the store may yet refuse
@@ -306,16 +314,17 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	const open = (text: string) => {
-		// Only ever called with nothing unsaved in the document being replaced,
-		// or with its edits kept as a copy, so a save it still had pending has
-		// nothing to add; a stroke still being encoded on it goes with it (§10).
+		// Only ever called with nothing unsaved or pending in the document being
+		// replaced, or with its edits kept as a copy once it settled, so a save
+		// it still had pending has nothing to add; a stroke still under way on
+		// it goes with it (§10).
 		stopTimer();
 		openedText.current = text;
 		const document = openDocument(text, onPending);
 		// Every save is scheduled, whatever the change was: the store ignores a
 		// save of the same text, and an undo back past the last save has to
 		// reach the row too. The document it replaces is heard no more: a
-		// stroke landing on it, encoded only now, would otherwise stop the
+		// stroke under way on it, landing only now, would otherwise stop the
 		// pause of an edit made on this one and set off a save of the old one,
 		// which writes nothing (#18).
 		unsubscribe.current?.();
@@ -351,18 +360,52 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	};
 
 	/**
-	 * The row changed elsewhere under unsaved edits: the conflict rule
-	 * (docs/ARCHITECTURE.md §7, "Conflict rule"), here rather than at a push.
-	 * The other change keeps the drawing. The editor's text becomes a drawing
-	 * of its own beside it, named as a conflict copy and given a new id, with
-	 * a title that says what it is; then the editor reopens on the row. Nothing
-	 * is saved into the row meanwhile.
+	 * The row as it was last seen, opened where the editor does not show it
+	 * already, or, deleted meanwhile, gone. What it shows is the text it
+	 * opened, as the row had it, until an edit; then its own, as saved.
+	 */
+	const openLatest = (document: EditorDocument): void => {
+		const current = latest.current;
+		if (current === undefined) {
+			set({ gone: true });
+			return;
+		}
+		const shown = document.snapshot().dirty
+			? withDrawingId(document.text(), id)
+			: openedText.current;
+		if (current.text !== shown) open(current.text);
+	};
+
+	/**
+	 * The row changed elsewhere under unsaved edits, or raster work still
+	 * pending, which may yet be one: the conflict rule (docs/ARCHITECTURE.md
+	 * §7, "Conflict rule"), here rather than at a push. The other change keeps
+	 * the drawing. The editor's text becomes a drawing of its own beside it,
+	 * named as a conflict copy and given a new id, with a title that says what
+	 * it is; then the editor reopens on the row. Nothing is saved into the row
+	 * meanwhile.
 	 */
 	const keepCopy = async (document: EditorDocument, row: DrawingRecord): Promise<void> => {
 		keeping.current = true;
 		stopTimer();
 		try {
 			await document.settle();
+			// The user's own delete, once it is in, takes the edits with it; one
+			// on its way is waited for, since one the store refuses leaves them
+			// open (`remove`).
+			await Promise.allSettled([removal.current]);
+			if (deleted.current) {
+				keeping.current = false;
+				set({ gone: true });
+				return;
+			}
+			// Kept for raster work still pending, which landed as nothing: nothing
+			// to keep, and the change opens as it would have.
+			if (!hasUnsavedEdits()) {
+				keeping.current = false;
+				openLatest(document);
+				return;
+			}
 			const text = document.text();
 			const at = new Date();
 			const copyId = crypto.randomUUID();
@@ -501,7 +544,9 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		}
 		if (row.text === openedText.current || saved.current.includes(row.text)) return;
 		const document = state.current.document;
-		if (document !== undefined && hasUnsavedEdits()) {
+		// Raster work still pending is a stroke that is an edit only once it
+		// lands: the change waits for it, and it is kept as edits are (`keepCopy`).
+		if (document !== undefined && (encoding.current > 0 || hasUnsavedEdits())) {
 			keep(keepCopy(document, row));
 			return;
 		}
@@ -607,8 +652,11 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	const remove = async (): Promise<void> => {
 		deleting.current = true;
 		stopTimer();
+		const work = deleteDrawing(db, id);
+		removal.current = work;
 		try {
-			await deleteDrawing(db, id);
+			await work;
+			deleted.current = true;
 			letGo();
 		} catch (error) {
 			// The drawing is still here, and so are the edits: saved as before,

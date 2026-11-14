@@ -1653,15 +1653,17 @@ describe('the editor saving', () => {
 		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
 		const mine = theirs.replace('</svg>', '<g id="layer-2"/></svg>');
 		const replaced = lastOpened();
-		// A stroke still being encoded, with nothing unsaved: the change reopens.
-		const encoding = Promise.withResolvers<void>();
-		act(() => replaced.pending(encoding.promise));
+		// Nothing unsaved, with a stroke still under way: the change reopens.
 		await saveDrawing(db, made.id, theirs);
 		await waitFor(() =>
 			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
 		);
 
 		act(() => lastOpened().edit(mine));
+		// The stroke lifts on the document it was drawn on, and lands once its
+		// raster work does.
+		const encoding = Promise.withResolvers<void>();
+		act(() => replaced.pending(encoding.promise));
 		act(() => {
 			replaced.edit(made.text.replace('</svg>', '<g id="layer-3"/></svg>'));
 			encoding.resolve();
@@ -1670,6 +1672,218 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
 		// And the bar says so, not left saying it is saving.
 		expect(await screen.findByText('Saved')).toBeDefined();
+	});
+
+	it('keeps a stroke still being encoded as the drawing changes elsewhere, in a copy beside the change', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const stroke = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		// Settling waits for it, as the real document's does.
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+
+		await saveDrawing(db, made.id, theirs);
+		// The change waits for the stroke, which lands only now.
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		act(() => {
+			document.edit(stroke);
+			encoding.resolve();
+		});
+
+		await screen.findByText(/your edits were kept in a copy/);
+		const rows = await liveRows(db);
+		expect(rows).toHaveLength(2);
+		const copy = rows.find((row) => row.id !== made.id);
+		expect(copy?.text).toBe(
+			withDrawingId(withDrawingTitle(stroke, copy?.title ?? ''), copy?.id ?? '')
+		);
+		expect(await rowText(db, made.id)).toBe(theirs);
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
+	});
+
+	it('opens a change from elsewhere with no copy once raster work pending lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+
+		await saveDrawing(db, made.id, theirs);
+		// Not over the stroke, while it may yet be one.
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		expect(fake.open.mock.calls.length).toBe(before);
+		encoding.resolve();
+
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(theirs, expect.any(Function))
+		);
+		expect(await liveRows(db)).toHaveLength(1);
+		expect(screen.queryByText(/your edits were kept in a copy/)).toBeNull();
+	});
+
+	it("keeps no copy of a stroke still being encoded as the drawing changes elsewhere, where the user's own delete came meanwhile", async () => {
+		const user = userEvent.setup();
+		const { db, made, onBack, view } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+		await user.click(
+			within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' })
+		);
+		await waitFor(() => expect(onBack).toHaveBeenCalled());
+		// The route goes, and the editor with it, before the row's going may
+		// reach it.
+		view.unmount();
+		act(() => {
+			document.edit(theirs.replace('</svg>', '<g id="layer-2"/></svg>'));
+			encoding.resolve();
+		});
+
+		await pastTheSave();
+		expect(await liveRows(db)).toEqual([]);
+	});
+
+	it("keeps no copy of a stroke landing under a change from elsewhere as the user's own delete is on its way", async () => {
+		const user = userEvent.setup();
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		await user.click(screen.getByRole('button', { name: 'More' }));
+		await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+		const confirm = within(await screen.findByRole('alertdialog')).getByRole('button', {
+			name: 'Delete',
+		});
+
+		// The stroke lands with the delete just started.
+		act(() => {
+			fireEvent.click(confirm);
+			document.edit(theirs.replace('</svg>', '<g id="layer-2"/></svg>'));
+			encoding.resolve();
+		});
+
+		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
+		await pastTheSave();
+		expect(await liveRows(db)).toEqual([]);
+	});
+
+	it('does not reopen a drawing put back to the edit it saved while raster work pending lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
+		const theirs = withDrawingTitle(mine.replace('</svg>', '<g id="layer-9"/></svg>'), 'Pier');
+		const document = lastOpened();
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		act(() => document.edit(mine));
+		await waitFor(async () => expect(await rowText(db, made.id)).toBe(mine));
+		expect(await screen.findByText('Saved')).toBeDefined();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		await waitFor(() => expect(heading()).toBe('Pier'));
+
+		await saveDrawing(db, made.id, mine);
+		await waitFor(() => expect(heading()).toBe('Harbor'));
+		encoding.resolve();
+
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		expect(fake.open.mock.calls.length).toBe(before);
+	});
+
+	it("does not reopen a file that came with an id not the drawing's, put back while raster work pending lands as nothing", async () => {
+		const { db, made } = await renderEditor('expanded');
+		// As a pull keeps a file another tool or account stamped: as it came.
+		const pulled = emptyDrawing({ id: crypto.randomUUID(), title: 'Harbor' });
+		const put = async (text: string, title: string) => {
+			const row = await getDrawing(db, made.id);
+			if (row === undefined) throw new Error('no row');
+			await db.drawings.put({ ...row, text, title });
+		};
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		await put(pulled, 'Harbor');
+		await waitFor(() =>
+			expect(fake.open).toHaveBeenLastCalledWith(pulled, expect.any(Function))
+		);
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+		await put(pulled.replace('</svg>', '<g id="layer-9"/></svg>'), 'Pier');
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+		await waitFor(() => expect(heading()).toBe('Pier'));
+
+		await put(pulled, 'Harbor');
+		await waitFor(() => expect(heading()).toBe('Harbor'));
+		encoding.resolve();
+
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		expect(fake.open.mock.calls.length).toBe(before);
+	});
+
+	it('says a drawing deleted elsewhere is gone, with no copy, once raster work pending under a change lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
+		const document = lastOpened();
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		await deleteDrawing(db, made.id);
+		// Handed to the editor: the heading has no row to name.
+		await waitFor(() => expect(heading()).toBe(''));
+		encoding.resolve();
+
+		expect(await screen.findByText(/This drawing is not on this device/)).toBeDefined();
+		expect(await liveRows(db)).toEqual([]);
+	});
+
+	it('does not reopen a change from elsewhere undone while raster work pending lands as nothing', async () => {
+		const { db, made } = await renderEditor('expanded');
+		const theirs = withDrawingTitle(
+			made.text.replace('</svg>', '<g id="layer-9"/></svg>'),
+			'Pier'
+		);
+		const document = lastOpened();
+		const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+		const encoding = Promise.withResolvers<void>();
+		act(() => document.pending(encoding.promise));
+		const settle = vi.spyOn(document, 'settle').mockReturnValue(encoding.promise);
+		const before = fake.open.mock.calls.length;
+		await saveDrawing(db, made.id, theirs);
+		await waitFor(() => expect(settle).toHaveBeenCalled());
+
+		await waitFor(() => expect(heading()).toBe('Pier'));
+		// Put back as it was opened, meanwhile, and handed to the editor.
+		await saveDrawing(db, made.id, made.text);
+		await waitFor(() => expect(heading()).toBe('Harbor'));
+		encoding.resolve();
+
+		await waitFor(() => expect(leavingHeld()).toBe(false));
+		// The drawing as it is, with its undo, not opened again.
+		expect(fake.open.mock.calls.length).toBe(before);
 	});
 
 	it('reopens a drawing changed elsewhere while nothing here is unsaved', async () => {
