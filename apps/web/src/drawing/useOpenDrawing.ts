@@ -88,7 +88,7 @@ const NOTHING_OPEN: Opened = {
 };
 
 interface Session {
-	/** The row as the store has it now; opens the document the first time it comes. */
+	/** The row as the store has it now; opens the document the first time it comes, and while the editor is open. */
 	readonly offer: (row: Found) => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly getSnapshot: () => Opened;
@@ -335,7 +335,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 		// which writes nothing (#18).
 		unsubscribe.current?.();
 		unsubscribe.current = document?.subscribe(() => schedule(document));
-		set({ document, unreadable: !closed.current && document === undefined, saving: 'idle' });
+		set({ document, unreadable: document === undefined, saving: 'idle' });
 		letGo();
 	};
 
@@ -388,7 +388,7 @@ const createSession = (db: DrawDatabase, id: string): Session => {
 	 * §7, "Conflict rule"), here rather than at a push. The other change keeps
 	 * the drawing. The editor's text becomes a drawing of its own beside it,
 	 * named as a conflict copy and given a new id, with a title that says what
-	 * it is; then the editor reopens on the row. Nothing is saved into the row
+	 * it is; then the editor reopens on the row, where it is still open (`open`). Nothing is saved into the row
 	 * meanwhile.
 	 */
 	const keepCopy = async (document: EditorDocument, row: DrawingRecord): Promise<void> => {

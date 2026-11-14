@@ -2063,6 +2063,7 @@ describe('the editor saving', () => {
 		await waitFor(() => expect(flushEditors()).toHaveLength(0));
 		// The change, which no live query brings the closed editor.
 		await saveDrawing(db, made.id, theirs);
+		const before = fake.open.mock.calls.length;
 		// The save's own settle, then the copy's, which the test holds.
 		const copying = Promise.withResolvers<void>();
 		const settle = vi
@@ -2078,22 +2079,6 @@ describe('the editor saving', () => {
 		await waitFor(async () => expect(await liveRows(db)).toHaveLength(2));
 		expect(await rowText(db, made.id)).toBe(theirs);
 		await waitFor(() => expect(leavingHeld()).toBe(false));
-	});
-
-	it('opens nothing once the editor has closed, though a stroke landing then is kept in a copy beside a change from elsewhere', async () => {
-		const { db, made, view } = await renderEditor('expanded');
-		const mine = made.text.replace('</svg>', '<g id="layer-2"/></svg>');
-		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
-		const document = lastOpened();
-		view.unmount();
-		await waitFor(() => expect(flushEditors()).toHaveLength(0));
-		await saveDrawing(db, made.id, theirs);
-		const before = fake.open.mock.calls.length;
-
-		act(() => document.edit(mine));
-
-		await waitFor(() => expect(leavingHeld()).toBe(false));
-		expect(await liveRows(db)).toHaveLength(2);
 		// The change is not parsed for a document nothing shows.
 		expect(fake.open.mock.calls.length).toBe(before);
 	});
@@ -2104,7 +2089,7 @@ describe('the editor saving', () => {
 		const theirs = made.text.replace('</svg>', '<g id="layer-9"/></svg>');
 		const document = lastOpened();
 		// Edited, the save waiting on the pause.
-		act(() => document.edit(mine, true));
+		act(() => document.edit(mine));
 		// The closing settle held on raster work, while the change comes.
 		const landing = Promise.withResolvers<void>();
 		vi.spyOn(document, 'settle').mockReturnValueOnce(landing.promise);
